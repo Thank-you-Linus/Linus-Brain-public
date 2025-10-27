@@ -400,3 +400,31 @@ class TestAppStorageInitialize:
         assert data["is_fallback"] is True
         assert data["assignments"] == {}
         assert len(data["activities"]) == 4
+
+    @pytest.mark.asyncio
+    async def test_empty_cloud_sync_preserves_sync_time(
+        self, app_storage, mock_supabase
+    ):
+        """Test that synced_at is preserved when loading fallback after empty cloud sync."""
+        # Mock empty cloud response (no apps, no activities, no assignments)
+        mock_supabase.fetch_area_assignments.return_value = {}
+        mock_supabase.fetch_app_with_actions.return_value = None
+        mock_supabase.fetch_activity_types.return_value = {}
+
+        # Perform cloud sync - should load fallback but preserve sync time
+        success = await app_storage.async_sync_from_cloud(
+            mock_supabase, "test-instance", ["kitchen"]
+        )
+
+        assert success is True
+        assert app_storage.is_fallback_data() is True
+
+        # The key assertion: synced_at should NOT be None
+        sync_time = app_storage.get_sync_time()
+        assert sync_time is not None, "Sync time should be preserved even when loading fallback"
+
+        # Verify we still have fallback data
+        activities = app_storage.get_activities()
+        assert len(activities) == 4  # Default activities from fallback
+        assert "empty" in activities
+        assert "movement" in activities

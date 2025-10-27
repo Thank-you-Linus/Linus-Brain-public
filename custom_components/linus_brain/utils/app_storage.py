@@ -148,7 +148,7 @@ class AppStorage:
             _LOGGER.error(f"Failed to save to cache: {err}")
             return False
 
-    def load_hardcoded_fallback(self) -> dict[str, Any]:
+    def load_hardcoded_fallback(self, preserve_sync_time: bool = False) -> dict[str, Any]:
         """
         Load hardcoded fallback data from const.py.
 
@@ -156,17 +156,25 @@ class AppStorage:
         - No cloud connection AND no local data
         - First installation
 
+        Args:
+            preserve_sync_time: If True, keep existing synced_at timestamp
+
         Returns:
             Fallback data dictionary
         """
         from ..const import DEFAULT_ACTIVITY_TYPES, DEFAULT_AUTOLIGHT_APP
+
+        # Preserve existing sync time if requested
+        existing_sync_time = None
+        if preserve_sync_time and self._data.get("synced_at"):
+            existing_sync_time = self._data["synced_at"]
 
         self._data = {
             "version": STORAGE_VERSION,
             "activities": DEFAULT_ACTIVITY_TYPES,
             "apps": {"autolight": DEFAULT_AUTOLIGHT_APP},
             "assignments": {},
-            "synced_at": None,
+            "synced_at": existing_sync_time,
             "is_fallback": True,
         }
 
@@ -236,18 +244,20 @@ class AppStorage:
                     _LOGGER.info("No assignments in cloud (empty is valid state)")
                     activities = {}
 
+                sync_time = dt_util.utcnow().isoformat()
+                
                 self._data = {
                     "version": STORAGE_VERSION,
                     "activities": activities,
                     "apps": apps,
                     "assignments": assignments,
-                    "synced_at": dt_util.utcnow().isoformat(),
+                    "synced_at": sync_time,
                     "is_fallback": False,
                 }
 
                 if self.is_empty():
                     _LOGGER.info("Cloud data empty → loading fallback")
-                    self.load_hardcoded_fallback()
+                    self.load_hardcoded_fallback(preserve_sync_time=True)
 
                 await self.async_save()
 
