@@ -13,10 +13,12 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
+from ..const import DOMAIN
+
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
-STORAGE_KEY = "linus_brain.rules"
+STORAGE_KEY = f"{DOMAIN}.rules"
 
 
 class LocalStorage:

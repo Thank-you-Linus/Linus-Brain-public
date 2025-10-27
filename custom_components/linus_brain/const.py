@@ -11,10 +11,6 @@ DOMAIN = "linus_brain"
 CONF_SUPABASE_URL = "supabase_url"
 CONF_SUPABASE_KEY = "supabase_key"
 
-# Update intervals (in seconds)
-UPDATE_INTERVAL_SECONDS = 60  # 1 minute heartbeat
-DEBOUNCE_INTERVAL_SECONDS = 5  # Minimum time between updates for same area
-
 # Monitored domains and device classes
 MONITORED_DOMAINS = {
     "binary_sensor": ["motion", "presence", "occupancy"],
@@ -30,40 +26,6 @@ PRESENCE_DETECTION_DOMAINS = {
 
 # Activity types
 ACTIVITY_EMPTY = "empty"
-ACTIVITY_MOVEMENT = "movement"
-ACTIVITY_OCCUPIED = "occupied"
-ACTIVITY_INACTIVE = "inactive"
-
-ACTIVITY_TYPES = {
-    ACTIVITY_EMPTY: "Aucune activité",
-    ACTIVITY_MOVEMENT: "Mouvement détecté",
-    ACTIVITY_OCCUPIED: "Occupation",
-    ACTIVITY_INACTIVE: "Inactif",
-}
-
-# Activity detection thresholds
-ACTIVITY_OCCUPIED_THRESHOLD_SECONDS = 180
-ACTIVITY_MOVEMENT_TIMEOUT_SECONDS = 60
-ACTIVITY_OCCUPIED_TIMEOUT_SECONDS = 300
-
-# Supabase table names
-SUPABASE_TABLE_RULES = "area_automation_rules"
-SUPABASE_TABLE_LIGHT_ACTIONS = "light_actions"
-
-# Rule engine constants
-RULE_COOLDOWN_SECONDS = 30
-RULE_DEBOUNCE_SECONDS = 2
-
-# HTTP timeout (in seconds)
-HTTP_TIMEOUT_SECONDS = 10
-
-# Sensor entity IDs
-SENSOR_LAST_SYNC = "linus_brain_last_sync"
-SENSOR_MONITORED_ROOMS = "linus_brain_monitored_rooms"
-SENSOR_ERRORS = "linus_brain_errors"
-
-# Logging
-DEFAULT_LOG_LEVEL = "info"
 
 # Default rule template for light automation (fallback when no Supabase rules)
 DEFAULT_ACTIVITY_RULES = {

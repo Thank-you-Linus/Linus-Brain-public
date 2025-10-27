@@ -32,10 +32,12 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from ..const import DOMAIN
+
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
-STORAGE_KEY = "linus_brain.apps"
+STORAGE_KEY = f"{DOMAIN}.apps"
 CLOUD_SYNC_TIMEOUT = 10
 
 

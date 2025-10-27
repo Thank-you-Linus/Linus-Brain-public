@@ -9,7 +9,6 @@ It uses Home Assistant's DataUpdateCoordinator pattern to:
 """
 
 import logging
-from datetime import timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -24,8 +23,12 @@ from .utils.supabase_client import SupabaseClient
 
 _LOGGER = logging.getLogger(__name__)
 
-# Heartbeat interval: send all area states every 1 minute
-UPDATE_INTERVAL = timedelta(minutes=1)
+# Heartbeat disabled - using event-driven architecture via EventListener and timeout handlers
+# The coordinator only updates when explicitly triggered by:
+# - EventListener (entity state changes)
+# - ActivityTracker timeout handlers
+# - Manual service calls
+UPDATE_INTERVAL = None
 
 
 class LinusBrainCoordinator(DataUpdateCoordinator):

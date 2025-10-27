@@ -114,7 +114,7 @@ class LinusBrainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await validate_supabase_connection(self.hass, url, api_key)
 
                 # Create a unique ID for this config entry
-                await self.async_set_unique_id(f"linus_brain_{url}")
+                await self.async_set_unique_id(f"{DOMAIN}_{url}")
                 self._abort_if_unique_id_configured()
 
                 # Store configuration and create entry

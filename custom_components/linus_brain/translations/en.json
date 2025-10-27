@@ -29,12 +29,30 @@
   },
   "entity": {
     "button": {
-      "sync_now": {
-        "name": "Sync Now"
+      "sync": {
+        "name": "Linus Brain Sync Now"
       }
     },
     "sensor": {
-      "area_activity": {
+      "last_sync": {
+        "name": "Linus Brain Last Sync"
+      },
+      "monitored_areas": {
+        "name": "Linus Brain Monitored Areas"
+      },
+      "errors": {
+        "name": "Linus Brain Errors"
+      },
+      "cloud_health": {
+        "name": "Linus Brain Cloud Health"
+      },
+      "rule_engine": {
+        "name": "Linus Brain Rule Engine"
+      },
+      "activities": {
+        "name": "Linus Brain Activities"
+      },
+      "activity": {
         "state": {
           "empty": "Empty",
           "movement": "Movement",

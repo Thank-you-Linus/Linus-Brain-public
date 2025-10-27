@@ -66,7 +66,6 @@ class LinusAutoLightSwitch(SwitchEntity):
     Stores rule metadata in attributes for offline persistence.
     """
 
-    _attr_has_entity_name = True
     _attr_icon = "mdi:lightbulb-auto"
 
     def __init__(
@@ -93,8 +92,8 @@ class LinusAutoLightSwitch(SwitchEntity):
         self._translations: dict[str, Any] | None = None
         self._last_action: dict[str, Any] | None = None
 
-        self._attr_unique_id = f"{entry.entry_id}_autolight_{area_id}"
-        self._attr_name = f"AutoLight {area_name}"
+        self._attr_unique_id = f"{DOMAIN}_feature_autolight_{area_id}"
+        self._attr_name = f"Linus Brain AutoLight {area_name}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Linus Brain",

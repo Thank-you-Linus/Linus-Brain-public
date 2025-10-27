@@ -50,8 +50,9 @@ class LinusBrainSyncButton(CoordinatorEntity, ButtonEntity):
     def __init__(self, coordinator: LinusBrainCoordinator, entry: ConfigEntry) -> None:
         """Initialize the button."""
         super().__init__(coordinator)
-        self._attr_translation_key = "sync_now"
-        self._attr_unique_id = f"{DOMAIN}_sync_now"
+        self._attr_name = "Sync Now"
+        self._attr_translation_key = "sync"
+        self._attr_unique_id = "sync"
         self._attr_has_entity_name = True
         self._attr_icon = "mdi:cloud-sync"
         self._attr_entity_category = EntityCategory.CONFIG
