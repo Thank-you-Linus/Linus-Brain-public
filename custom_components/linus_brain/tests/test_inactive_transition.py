@@ -5,10 +5,10 @@ import pytest
 import pytest_asyncio
 from homeassistant.core import HomeAssistant
 
-from custom_components.linus_brain.utils.activity_tracker import ActivityTracker
-from custom_components.linus_brain.utils.app_storage import AppStorage
-from custom_components.linus_brain.utils.condition_evaluator import ConditionEvaluator
-from custom_components.linus_brain.coordinator import LinusBrainCoordinator
+from ..utils.activity_tracker import ActivityTracker
+from ..utils.app_storage import AppStorage
+from ..utils.condition_evaluator import ConditionEvaluator
+from ..coordinator import LinusBrainCoordinator
 
 
 @pytest.fixture

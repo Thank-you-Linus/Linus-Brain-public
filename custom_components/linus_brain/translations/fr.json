@@ -30,35 +30,53 @@
   "entity": {
     "button": {
       "sync": {
-        "name": "Linus Brain Synchroniser maintenant"
+        "name": "Synchroniser maintenant"
       }
     },
     "sensor": {
       "last_sync": {
-        "name": "Linus Brain Dernière synchro"
+        "name": "Dernière synchro"
       },
       "monitored_areas": {
-        "name": "Linus Brain Zones surveillées"
+        "name": "Zones surveillées",
+        "unit_of_measurement": "zones"
       },
       "errors": {
-        "name": "Linus Brain Erreurs"
+        "name": "Erreurs",
+        "unit_of_measurement": "erreurs"
       },
       "cloud_health": {
-        "name": "Linus Brain État cloud"
+        "name": "État cloud",
+        "state": {
+          "connected": "Connecté",
+          "disconnected": "Déconnecté",
+          "error": "Erreur"
+        }
       },
       "rule_engine": {
-        "name": "Linus Brain Moteur de règles"
+        "name": "Moteur de règles",
+        "unit_of_measurement": "déclenchements"
       },
       "activities": {
-        "name": "Linus Brain Activités"
+        "name": "Activités",
+        "unit_of_measurement": "activités"
+      },
+      "app": {
+        "name": "App: {app_name}"
       },
       "activity": {
+        "name": "Activité {area_name}",
         "state": {
           "empty": "Vide",
           "movement": "Mouvement",
           "occupied": "Occupé",
           "inactive": "Inactif"
         }
+      }
+    },
+    "switch": {
+      "autolight": {
+        "name": "AutoLight {area_name}"
       }
     }
   },

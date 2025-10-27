@@ -12,6 +12,7 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from propcache import cached_property
 
 from .const import DEFAULT_ACTIVITY_RULES, DOMAIN
@@ -58,12 +59,13 @@ async def async_setup_entry(
         )
 
 
-class LinusAutoLightSwitch(SwitchEntity):
+class LinusAutoLightSwitch(RestoreEntity, SwitchEntity):
     """
     Per-area automation toggle switch.
 
     Controls whether automation rules are active for a specific area.
     Stores rule metadata in attributes for offline persistence.
+    Restores state after Home Assistant restart.
     """
 
     _attr_icon = "mdi:lightbulb-auto"
@@ -88,12 +90,14 @@ class LinusAutoLightSwitch(SwitchEntity):
         self._entry = entry
         self._area_id = area_id
         self._area_name = area_name
-        self._attr_is_on = False
+        self._attr_is_on = None  # Will be set in async_added_to_hass
         self._translations: dict[str, Any] | None = None
         self._last_action: dict[str, Any] | None = None
 
         self._attr_unique_id = f"{DOMAIN}_feature_autolight_{area_id}"
-        self._attr_name = f"Linus Brain AutoLight {area_name}"
+        self._attr_translation_key = "autolight"
+        self._attr_has_entity_name = True
+        self._attr_translation_placeholders = {"area_name": area_name}
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Linus Brain",
@@ -110,9 +114,25 @@ class LinusAutoLightSwitch(SwitchEntity):
         }
 
     async def async_added_to_hass(self) -> None:
-        """Run when entity is added to hass."""
+        """Run when entity is added to hass - restore previous state."""
         await super().async_added_to_hass()
 
+        # Restore previous state from storage
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            self._attr_is_on = last_state.state == "on"
+            _LOGGER.info(
+                f"Restored state for {self.entity_id}: {self._attr_is_on} "
+                f"(was {last_state.state})"
+            )
+        else:
+            # Default to False for new entities
+            self._attr_is_on = False
+            _LOGGER.info(
+                f"No previous state found for {self.entity_id}, defaulting to OFF"
+            )
+
+        # Synchronize with rule engine
         rule_engine = self.hass.data[DOMAIN][self._entry.entry_id].get("rule_engine")
         if rule_engine:
             if self._attr_is_on:
@@ -120,7 +140,7 @@ class LinusAutoLightSwitch(SwitchEntity):
             else:
                 await rule_engine.disable_area(self._area_id)
             _LOGGER.debug(
-                f"Synchronized initial state for {self.entity_id}: "
+                f"Synchronized rule engine for {self.entity_id}: "
                 f"is_on={self._attr_is_on}, area_enabled={self._attr_is_on}"
             )
 

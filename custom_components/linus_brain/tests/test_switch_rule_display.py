@@ -200,7 +200,7 @@ async def test_default_rule_template_structure():
 
 @pytest.mark.asyncio
 async def test_switch_unique_id_and_name(mock_hass, mock_config_entry):
-    """Test that switch has correct unique_id and name."""
+    """Test that switch has correct unique_id and translation setup."""
     from ..switch import LinusAutoLightSwitch
 
     switch = LinusAutoLightSwitch(
@@ -210,8 +210,10 @@ async def test_switch_unique_id_and_name(mock_hass, mock_config_entry):
         area_name="Test Area",
     )
 
-    assert switch.unique_id == "test_entry_autolight_test_area"
-    assert switch.name == "AutoLight Test Area"
+    assert switch.unique_id == "linus_brain_feature_autolight_test_area"
+    assert switch._attr_translation_key == "autolight"
+    assert switch._attr_has_entity_name is True
+    assert switch._attr_translation_placeholders == {"area_name": "Test Area"}
     assert switch._area_id == "test_area"
     assert switch._area_name == "Test Area"
 

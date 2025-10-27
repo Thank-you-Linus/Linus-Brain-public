@@ -12,6 +12,9 @@ from homeassistant.helpers import entity_registry as er
 
 from ..const import CONF_SUPABASE_KEY, CONF_SUPABASE_URL, DOMAIN
 
+# Import pytest-homeassistant-custom-component plugin fixtures
+pytest_plugins = ["pytest_homeassistant_custom_component"]
+
 
 @pytest.fixture
 def mock_hass():

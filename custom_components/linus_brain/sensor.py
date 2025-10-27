@@ -108,13 +108,14 @@ class LinusBrainSyncSensor(CoordinatorEntity, SensorEntity):
     not the local event-driven activity updates.
     """
 
+    coordinator: LinusBrainCoordinator
+
     def __init__(self, coordinator: LinusBrainCoordinator, entry: ConfigEntry) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
-        self._attr_name = "Linus Brain Last Sync"
         self._attr_translation_key = "last_sync"
         self._attr_unique_id = f"{DOMAIN}_last_sync"
-        self._attr_has_entity_name = False
+        self._attr_has_entity_name = True
         self._attr_icon = "mdi:cloud-sync"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_device_info = {
@@ -164,15 +165,15 @@ class LinusBrainRoomsSensor(CoordinatorEntity, SensorEntity):
     Sensor showing the number of areas being monitored.
     """
 
+    coordinator: LinusBrainCoordinator
+
     def __init__(self, coordinator: LinusBrainCoordinator, entry: ConfigEntry) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
-        self._attr_name = "Linus Brain Monitored Areas"
         self._attr_translation_key = "monitored_areas"
         self._attr_unique_id = f"{DOMAIN}_monitored_areas"
-        self._attr_has_entity_name = False
+        self._attr_has_entity_name = True
         self._attr_icon = "mdi:home-group"
-        self._attr_native_unit_of_measurement = "areas"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
@@ -211,15 +212,15 @@ class LinusBrainErrorsSensor(CoordinatorEntity, SensorEntity):
     Sensor showing the error count for the integration.
     """
 
+    coordinator: LinusBrainCoordinator
+
     def __init__(self, coordinator: LinusBrainCoordinator, entry: ConfigEntry) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
-        self._attr_name = "Linus Brain Errors"
         self._attr_translation_key = "errors"
         self._attr_unique_id = f"{DOMAIN}_errors"
-        self._attr_has_entity_name = False
+        self._attr_has_entity_name = True
         self._attr_icon = "mdi:alert-circle"
-        self._attr_native_unit_of_measurement = "errors"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
@@ -261,6 +262,8 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
     Sensor showing area context (activity + environmental state) for a specific area.
     """
 
+    coordinator: LinusBrainCoordinator
+
     def __init__(
         self,
         coordinator: LinusBrainCoordinator,
@@ -277,9 +280,10 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
         self._activity_tracker = activity_tracker
         self._area_id = area_id
         self._area_name = area_name
-        self._attr_name = f"Linus Brain {area_name} Activity"
         self._attr_unique_id = f"{DOMAIN}_activity_{area_id}"
         self._attr_translation_key = "activity"
+        self._attr_has_entity_name = True
+        self._attr_translation_placeholders = {"area_name": area_name}
         self._attr_icon = "mdi:home-analytics"
         self._attr_device_class = SensorDeviceClass.ENUM
         self._attr_options = ["empty", "movement", "occupied", "inactive"]
@@ -339,19 +343,19 @@ class LinusBrainRuleEngineStatsSensor(CoordinatorEntity, SensorEntity):
     Sensor showing rule engine statistics and performance.
     """
 
+    coordinator: LinusBrainCoordinator
+
     def __init__(
         self, coordinator: LinusBrainCoordinator, rule_engine: Any, entry: ConfigEntry
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._rule_engine = rule_engine
-        self._attr_name = "Linus Brain Rule Engine"
         self._attr_translation_key = "rule_engine"
-        self._attr_has_entity_name = False
+        self._attr_has_entity_name = True
         self._attr_unique_id = f"{DOMAIN}_rule_engine"
         self._attr_icon = "mdi:robot"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        self._attr_native_unit_of_measurement = "triggers"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Linus Brain",
@@ -403,12 +407,13 @@ class LinusBrainCloudHealthSensor(CoordinatorEntity, SensorEntity):
     Sensor showing cloud sync health and connection status.
     """
 
+    coordinator: LinusBrainCoordinator
+
     def __init__(self, coordinator: LinusBrainCoordinator, entry: ConfigEntry) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
-        self._attr_name = "Linus Brain Cloud Health"
         self._attr_translation_key = "cloud_health"
-        self._attr_has_entity_name = False
+        self._attr_has_entity_name = True
         self._attr_unique_id = f"{DOMAIN}_cloud_health"
         self._attr_icon = "mdi:cloud-check"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -481,16 +486,16 @@ class LinusBrainActivitiesSensor(CoordinatorEntity, SensorEntity):
     Displays the activities catalog that can be used in automation rules.
     """
 
+    coordinator: LinusBrainCoordinator
+
     def __init__(self, coordinator: LinusBrainCoordinator, entry: ConfigEntry) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
-        self._attr_name = "Linus Brain Activities"
         self._attr_translation_key = "activities"
-        self._attr_has_entity_name = False
+        self._attr_has_entity_name = True
         self._attr_unique_id = f"{DOMAIN}_activities"
         self._attr_icon = "mdi:run"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        self._attr_native_unit_of_measurement = "activities"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Linus Brain",
@@ -527,6 +532,8 @@ class LinusBrainAppSensor(CoordinatorEntity, SensorEntity):
     Displays version, actions, and areas using this app.
     """
 
+    coordinator: LinusBrainCoordinator
+
     def __init__(
         self,
         coordinator: LinusBrainCoordinator,
@@ -538,7 +545,9 @@ class LinusBrainAppSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self._app_id = app_id
         self._app_name = app_data.get("name", app_id.title())
-        self._attr_name = f"Linus Brain App: {self._app_name}"
+        self._attr_translation_key = "app"
+        self._attr_has_entity_name = True
+        self._attr_translation_placeholders = {"app_name": self._app_name}
         self._attr_unique_id = f"{DOMAIN}_app_{app_id}"
         self._attr_icon = "mdi:application-cog"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
