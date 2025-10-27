@@ -1,0 +1,80 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure Linus Brain",
+        "description": "Enter your Supabase credentials to connect your Home Assistant to the Linus Brain AI learning system.",
+        "data": {
+          "url": "Supabase URL",
+          "api_key": "Supabase API Key"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Supabase. Please check your URL and API key.",
+      "invalid_auth": "Invalid authentication credentials.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "Linus Brain is already configured for this Supabase instance."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Linus Brain Options",
+        "description": "Configure advanced options for Linus Brain (coming soon)."
+      }
+    }
+  },
+  "entity": {
+    "button": {
+      "sync_now": {
+        "name": "Sync Now"
+      }
+    },
+    "sensor": {
+      "area_activity": {
+        "state": {
+          "empty": "Empty",
+          "movement": "Movement",
+          "occupied": "Occupied",
+          "inactive": "Inactive"
+        }
+      }
+    }
+  },
+  "rule_display": {
+    "conditions": {
+      "motion_detected": "motion detected",
+      "low_light": "light level below {value} lux",
+      "sun_below": "sun elevation below {value}°",
+      "state_on": "{entity} is on",
+      "state_off": "{entity} is off",
+      "time_after": "after {time}",
+      "time_before": "before {time}"
+    },
+    "actions": {
+      "turn_on_lights": "Turn on lights",
+      "turn_off_lights": "Turn off lights",
+      "with_brightness": "at {value}% brightness",
+      "with_transition": "with {value}s transition"
+    },
+    "connectors": {
+      "when": "when",
+      "and": "and",
+      "or": "or",
+      "if": "if"
+    },
+    "generic_selectors": {
+      "motion_sensor": "motion sensor",
+      "illuminance_sensor": "light sensor",
+      "in_area": "in area"
+    },
+    "activity_labels": {
+      "empty": "Empty",
+      "movement": "Movement",
+      "occupied": "Occupied"
+    }
+  }
+}

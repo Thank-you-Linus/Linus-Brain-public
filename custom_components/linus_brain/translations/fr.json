@@ -1,0 +1,80 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configurer Linus Brain",
+        "description": "Entrez vos identifiants Supabase pour connecter votre Home Assistant au système d'apprentissage IA Linus Brain.",
+        "data": {
+          "url": "URL Supabase",
+          "api_key": "Clé API Supabase"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Échec de la connexion à Supabase. Veuillez vérifier votre URL et votre clé API.",
+      "invalid_auth": "Identifiants d'authentification invalides.",
+      "unknown": "Une erreur inattendue s'est produite."
+    },
+    "abort": {
+      "already_configured": "Linus Brain est déjà configuré pour cette instance Supabase."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options Linus Brain",
+        "description": "Configurer les options avancées pour Linus Brain (à venir)."
+      }
+    }
+  },
+  "entity": {
+    "button": {
+      "sync_now": {
+        "name": "Synchroniser maintenant"
+      }
+    },
+    "sensor": {
+      "area_activity": {
+        "state": {
+          "empty": "Vide",
+          "movement": "Mouvement",
+          "occupied": "Occupé",
+          "inactive": "Inactif"
+        }
+      }
+    }
+  },
+  "rule_display": {
+    "conditions": {
+      "motion_detected": "mouvement détecté",
+      "low_light": "luminosité inférieure à {value} lux",
+      "sun_below": "élévation soleil inférieure à {value}°",
+      "state_on": "{entity} activé",
+      "state_off": "{entity} désactivé",
+      "time_after": "après {time}",
+      "time_before": "avant {time}"
+    },
+    "actions": {
+      "turn_on_lights": "Allumer les lumières",
+      "turn_off_lights": "Éteindre les lumières",
+      "with_brightness": "à {value}% de luminosité",
+      "with_transition": "avec transition de {value}s"
+    },
+    "connectors": {
+      "when": "quand",
+      "and": "et",
+      "or": "ou",
+      "if": "si"
+    },
+    "generic_selectors": {
+      "motion_sensor": "capteur de mouvement",
+      "illuminance_sensor": "capteur de luminosité",
+      "in_area": "dans la zone"
+    },
+    "activity_labels": {
+      "empty": "Vide",
+      "movement": "Mouvement",
+      "occupied": "Occupé"
+    }
+  }
+}

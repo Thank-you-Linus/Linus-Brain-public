@@ -1,0 +1,77 @@
+# Services for Linus Brain integration
+
+sync_now:
+  name: Sync Now
+  description: Force an immediate synchronization of all area states to Supabase.
+  fields: {}
+
+fetch_rules:
+  name: Fetch Rules
+  description: Fetch and apply AI-generated automation rules from Supabase.
+  fields: {}
+
+send_area_update:
+  name: Send Area Update
+  description: Send an immediate update for a specific area to Supabase.
+  fields:
+    area:
+      name: Area
+      description: The name of the area to update (must match area name in Home Assistant).
+      required: true
+      example: "Living Room"
+      selector:
+        text:
+
+reload_rules:
+  name: Reload Rules
+  description: Reload automation rules from local storage.
+  fields: {}
+
+simulate_activity:
+  name: Simulate Activity
+  description: Simulate activity for an area to test automation rules.
+  fields:
+    area_id:
+      name: Area ID
+      description: The area identifier (e.g., "living_room", "kitchen").
+      required: true
+      example: "living_room"
+      selector:
+        text:
+    activity:
+      name: Activity Level
+      description: The activity level to simulate.
+      required: true
+      default: "presence"
+      selector:
+        select:
+          options:
+            - label: "None (no activity)"
+              value: "none"
+            - label: "Presence (sensors active < 60s)"
+              value: "presence"
+            - label: "Occupation (sensors active >= 60s)"
+              value: "occupation"
+    duration:
+      name: Duration (seconds)
+      description: Auto-reset after this many seconds (0 = no auto-reset).
+      required: false
+      default: 0
+      example: 300
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: "seconds"
+
+load_rule_from_cloud:
+  name: Load Rule from Cloud
+  description: Fetch and load a specific area rule from Supabase.
+  fields:
+    area_id:
+      name: Area ID
+      description: The area identifier for the rule to fetch.
+      required: true
+      example: "living_room"
+      selector:
+        text:
