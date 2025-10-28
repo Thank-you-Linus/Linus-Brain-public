@@ -148,7 +148,9 @@ class AppStorage:
             _LOGGER.error(f"Failed to save to cache: {err}")
             return False
 
-    def load_hardcoded_fallback(self, preserve_sync_time: bool = False) -> dict[str, Any]:
+    def load_hardcoded_fallback(
+        self, preserve_sync_time: bool = False
+    ) -> dict[str, Any]:
         """
         Load hardcoded fallback data from const.py.
 
@@ -245,7 +247,7 @@ class AppStorage:
                     activities = {}
 
                 sync_time = dt_util.utcnow().isoformat()
-                
+
                 self._data = {
                     "version": STORAGE_VERSION,
                     "activities": activities,

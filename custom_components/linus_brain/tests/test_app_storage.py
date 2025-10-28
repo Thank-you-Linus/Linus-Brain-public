@@ -421,7 +421,9 @@ class TestAppStorageInitialize:
 
         # The key assertion: synced_at should NOT be None
         sync_time = app_storage.get_sync_time()
-        assert sync_time is not None, "Sync time should be preserved even when loading fallback"
+        assert (
+            sync_time is not None
+        ), "Sync time should be preserved even when loading fallback"
 
         # Verify we still have fallback data
         activities = app_storage.get_activities()

@@ -59,6 +59,7 @@ async def async_setup_entry(
     area_manager = hass.data[DOMAIN][entry.entry_id].get("area_manager")
     activity_tracker = hass.data[DOMAIN][entry.entry_id].get("activity_tracker")
     rule_engine = hass.data[DOMAIN][entry.entry_id].get("rule_engine")
+    insights_manager = hass.data[DOMAIN][entry.entry_id].get("insights_manager")
 
     sensors = [
         LinusBrainSyncSensor(coordinator, entry),
@@ -90,6 +91,7 @@ async def async_setup_entry(
                     coordinator,
                     area_manager,
                     activity_tracker,
+                    insights_manager,
                     area_id,
                     area_name,
                     entry,
@@ -269,6 +271,7 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
         coordinator: LinusBrainCoordinator,
         area_manager: Any,
         activity_tracker: Any,
+        insights_manager: Any,
         area_id: str,
         area_name: str,
         entry: ConfigEntry,
@@ -278,6 +281,7 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
         self._coordinator = coordinator
         self._area_manager = area_manager
         self._activity_tracker = activity_tracker
+        self._insights_manager = insights_manager
         self._area_id = area_id
         self._area_name = area_name
         self._attr_unique_id = f"{DOMAIN}_activity_{area_id}"
@@ -324,6 +328,13 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
         if time_until_state_loss is not None:
             seconds_until_timeout = round(time_until_state_loss, 1)
 
+        # Get insights for this area
+        insights = {}
+        if self._insights_manager and self._coordinator.instance_id:
+            insights = self._insights_manager.get_all_insights_for_area(
+                self._coordinator.instance_id, self._area_id
+            )
+
         self._attr_extra_state_attributes = {
             "activity_level": activity_level,
             "seconds_until_timeout": seconds_until_timeout,
@@ -335,6 +346,7 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
             "is_dark": area_state.get("is_dark"),
             "tracking_entities": tracking_entities,
             "last_automation_rule": last_rule,
+            "insights": insights,
         }
 
 

@@ -56,13 +56,15 @@ class TestButtonTranslations:
         self, hass: HomeAssistant, mock_config_entry: MockConfigEntry
     ) -> None:
         """Test that sync button has translation_key set."""
+
         # Create coordinator mock
         class MockCoordinator:
             def __init__(self, hass_instance: HomeAssistant):
                 self.hass = hass_instance
-            
+
             async def async_config_entry_first_refresh(self):
                 pass
+
             async def async_request_refresh(self):
                 pass
 
@@ -71,6 +73,7 @@ class TestButtonTranslations:
         }
 
         entities = []
+
         def mock_add_entities(new_entities, update_before_add=False):
             entities.extend(new_entities)
 
@@ -106,6 +109,7 @@ class TestSensorTranslations:
         self, hass: HomeAssistant, mock_config_entry: MockConfigEntry
     ) -> None:
         """Test that all sensors have translation_key set."""
+
         # Mock dependencies
         class MockCoordinator:
             def __init__(self, hass_instance: HomeAssistant):
@@ -120,10 +124,13 @@ class TestSensorTranslations:
             class MockAppStorage:
                 def get_apps(self):
                     return {}
+
                 def get_activities(self):
                     return {}
+
                 def get_sync_time(self):
                     return None
+
                 def is_fallback_data(self):
                     return False
 
@@ -146,6 +153,7 @@ class TestSensorTranslations:
         }
 
         entities = []
+
         def mock_add_entities(new_entities, update_before_add=False):
             entities.extend(new_entities)
 
@@ -153,24 +161,25 @@ class TestSensorTranslations:
 
         # Check all sensors have translation_key and has_entity_name
         for entity in entities:
-            assert hasattr(entity, "_attr_translation_key"), (
-                f"Sensor {entity.__class__.__name__} missing translation_key"
-            )
-            assert entity._attr_translation_key is not None, (
-                f"Sensor {entity.__class__.__name__} has None translation_key"
-            )
-            assert hasattr(entity, "_attr_has_entity_name"), (
-                f"Sensor {entity.__class__.__name__} missing has_entity_name"
-            )
-            assert entity._attr_has_entity_name is True, (
-                f"Sensor {entity.__class__.__name__} has_entity_name = False"
-            )
+            assert hasattr(
+                entity, "_attr_translation_key"
+            ), f"Sensor {entity.__class__.__name__} missing translation_key"
+            assert (
+                entity._attr_translation_key is not None
+            ), f"Sensor {entity.__class__.__name__} has None translation_key"
+            assert hasattr(
+                entity, "_attr_has_entity_name"
+            ), f"Sensor {entity.__class__.__name__} missing has_entity_name"
+            assert (
+                entity._attr_has_entity_name is True
+            ), f"Sensor {entity.__class__.__name__} has_entity_name = False"
 
     @pytest.mark.asyncio
     async def test_sensors_do_not_hardcode_unit_of_measurement(
         self, hass: HomeAssistant, mock_config_entry: MockConfigEntry
     ) -> None:
         """Test that sensors with units use translation files, not hardcoded values."""
+
         # Mock dependencies
         class MockCoordinator:
             def __init__(self, hass_instance: HomeAssistant):
@@ -185,10 +194,13 @@ class TestSensorTranslations:
             class MockAppStorage:
                 def get_apps(self):
                     return {}
+
                 def get_activities(self):
                     return {}
+
                 def get_sync_time(self):
                     return None
+
                 def is_fallback_data(self):
                     return False
 
@@ -211,6 +223,7 @@ class TestSensorTranslations:
         }
 
         entities = []
+
         def mock_add_entities(new_entities, update_before_add=False):
             entities.extend(new_entities)
 
@@ -227,8 +240,10 @@ class TestSensorTranslations:
         for entity in entities:
             if entity._attr_translation_key in sensors_with_units:
                 # Should NOT have _attr_native_unit_of_measurement set
-                assert not hasattr(entity, "_attr_native_unit_of_measurement") or \
-                       entity._attr_native_unit_of_measurement is None, (
+                assert (
+                    not hasattr(entity, "_attr_native_unit_of_measurement")
+                    or entity._attr_native_unit_of_measurement is None
+                ), (
                     f"Sensor {entity._attr_translation_key} should not have "
                     f"hardcoded _attr_native_unit_of_measurement. Use translation files!"
                 )
@@ -253,22 +268,22 @@ class TestSensorTranslations:
             # Check English
             assert "entity" in en_translations
             assert "sensor" in en_translations["entity"]
-            assert key in en_translations["entity"]["sensor"], (
-                f"Sensor translation key '{key}' missing in en.json"
-            )
-            assert "name" in en_translations["entity"]["sensor"][key], (
-                f"Sensor translation key '{key}' missing 'name' in en.json"
-            )
+            assert (
+                key in en_translations["entity"]["sensor"]
+            ), f"Sensor translation key '{key}' missing in en.json"
+            assert (
+                "name" in en_translations["entity"]["sensor"][key]
+            ), f"Sensor translation key '{key}' missing 'name' in en.json"
 
             # Check French
             assert "entity" in fr_translations
             assert "sensor" in fr_translations["entity"]
-            assert key in fr_translations["entity"]["sensor"], (
-                f"Sensor translation key '{key}' missing in fr.json"
-            )
-            assert "name" in fr_translations["entity"]["sensor"][key], (
-                f"Sensor translation key '{key}' missing 'name' in fr.json"
-            )
+            assert (
+                key in fr_translations["entity"]["sensor"]
+            ), f"Sensor translation key '{key}' missing in fr.json"
+            assert (
+                "name" in fr_translations["entity"]["sensor"][key]
+            ), f"Sensor translation key '{key}' missing 'name' in fr.json"
 
     def test_sensor_units_of_measurement_translated(
         self, en_translations: dict, fr_translations: dict
@@ -283,20 +298,22 @@ class TestSensorTranslations:
 
         for key, expected_units in sensors_with_units.items():
             # Check English
-            assert "unit_of_measurement" in en_translations["entity"]["sensor"][key], (
-                f"Sensor '{key}' missing unit_of_measurement in en.json"
-            )
-            assert en_translations["entity"]["sensor"][key]["unit_of_measurement"] == expected_units["en"], (
-                f"Sensor '{key}' has wrong English unit"
-            )
+            assert (
+                "unit_of_measurement" in en_translations["entity"]["sensor"][key]
+            ), f"Sensor '{key}' missing unit_of_measurement in en.json"
+            assert (
+                en_translations["entity"]["sensor"][key]["unit_of_measurement"]
+                == expected_units["en"]
+            ), f"Sensor '{key}' has wrong English unit"
 
             # Check French
-            assert "unit_of_measurement" in fr_translations["entity"]["sensor"][key], (
-                f"Sensor '{key}' missing unit_of_measurement in fr.json"
-            )
-            assert fr_translations["entity"]["sensor"][key]["unit_of_measurement"] == expected_units["fr"], (
-                f"Sensor '{key}' has wrong French unit"
-            )
+            assert (
+                "unit_of_measurement" in fr_translations["entity"]["sensor"][key]
+            ), f"Sensor '{key}' missing unit_of_measurement in fr.json"
+            assert (
+                fr_translations["entity"]["sensor"][key]["unit_of_measurement"]
+                == expected_units["fr"]
+            ), f"Sensor '{key}' has wrong French unit"
 
     def test_enum_sensor_states_translated(
         self, en_translations: dict, fr_translations: dict
@@ -307,40 +324,40 @@ class TestSensorTranslations:
 
         for state in activity_states:
             # Check English
-            assert "state" in en_translations["entity"]["sensor"]["activity"], (
-                "Activity sensor missing 'state' translations in en.json"
-            )
-            assert state in en_translations["entity"]["sensor"]["activity"]["state"], (
-                f"Activity state '{state}' missing in en.json"
-            )
+            assert (
+                "state" in en_translations["entity"]["sensor"]["activity"]
+            ), "Activity sensor missing 'state' translations in en.json"
+            assert (
+                state in en_translations["entity"]["sensor"]["activity"]["state"]
+            ), f"Activity state '{state}' missing in en.json"
 
             # Check French
-            assert "state" in fr_translations["entity"]["sensor"]["activity"], (
-                "Activity sensor missing 'state' translations in fr.json"
-            )
-            assert state in fr_translations["entity"]["sensor"]["activity"]["state"], (
-                f"Activity state '{state}' missing in fr.json"
-            )
+            assert (
+                "state" in fr_translations["entity"]["sensor"]["activity"]
+            ), "Activity sensor missing 'state' translations in fr.json"
+            assert (
+                state in fr_translations["entity"]["sensor"]["activity"]["state"]
+            ), f"Activity state '{state}' missing in fr.json"
 
         # Cloud health sensor states
         cloud_health_states = ["connected", "disconnected", "error"]
 
         for state in cloud_health_states:
             # Check English
-            assert "state" in en_translations["entity"]["sensor"]["cloud_health"], (
-                "Cloud health sensor missing 'state' translations in en.json"
-            )
-            assert state in en_translations["entity"]["sensor"]["cloud_health"]["state"], (
-                f"Cloud health state '{state}' missing in en.json"
-            )
+            assert (
+                "state" in en_translations["entity"]["sensor"]["cloud_health"]
+            ), "Cloud health sensor missing 'state' translations in en.json"
+            assert (
+                state in en_translations["entity"]["sensor"]["cloud_health"]["state"]
+            ), f"Cloud health state '{state}' missing in en.json"
 
             # Check French
-            assert "state" in fr_translations["entity"]["sensor"]["cloud_health"], (
-                "Cloud health sensor missing 'state' translations in fr.json"
-            )
-            assert state in fr_translations["entity"]["sensor"]["cloud_health"]["state"], (
-                f"Cloud health state '{state}' missing in fr.json"
-            )
+            assert (
+                "state" in fr_translations["entity"]["sensor"]["cloud_health"]
+            ), "Cloud health sensor missing 'state' translations in fr.json"
+            assert (
+                state in fr_translations["entity"]["sensor"]["cloud_health"]["state"]
+            ), f"Cloud health state '{state}' missing in fr.json"
 
 
 class TestSwitchTranslations:
@@ -351,11 +368,12 @@ class TestSwitchTranslations:
         self, hass: HomeAssistant, mock_config_entry: MockConfigEntry
     ) -> None:
         """Test that autolight switch has translation_key set."""
+
         # Mock dependencies
         class MockAreaManager:
             def get_light_automation_eligible_areas(self):
                 return {"test_area": "Test Area"}
-        
+
         class MockCoordinator:
             def __init__(self, hass_instance: HomeAssistant):
                 self.hass = hass_instance
@@ -373,6 +391,7 @@ class TestSwitchTranslations:
         }
 
         entities = []
+
         def mock_add_entities(new_entities, update_before_add=False):
             entities.extend(new_entities)
 
@@ -421,6 +440,7 @@ class TestTranslationFilesStructure:
         self, en_translations: dict, fr_translations: dict
     ) -> None:
         """Test that en.json and fr.json have the same keys (structure)."""
+
         def get_keys_recursive(d: dict, prefix: str = "") -> set:
             """Get all keys recursively from a nested dict."""
             keys = set()
@@ -459,7 +479,7 @@ class TestTranslationFilesStructure:
             if py_file.name.startswith("test_"):
                 continue
             content = py_file.read_text()
-            
+
             # Check for French words in entity_id patterns
             # Look for strings like 'linus_brain.french_word' or entity IDs with French
             for word in french_words:
@@ -474,7 +494,7 @@ class TestTranslationFilesStructure:
                     f'self._attr_unique_id = "{word}"',
                     f"self._attr_unique_id = '{word}'",
                 ]
-                
+
                 for pattern in patterns_to_check:
                     assert pattern not in content, (
                         f"French word '{word}' found in entity ID pattern in {py_file.name}. "

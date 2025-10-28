@@ -1010,3 +1010,66 @@ class SupabaseClient:
         except Exception as err:
             _LOGGER.error(f"Unexpected error assigning app: {err}")
             raise
+
+    async def fetch_area_insights(self, instance_id: str) -> list[dict[str, Any]]:
+        """
+        Fetch insights for instance + all global defaults.
+
+        Returns insights where:
+        - instance_id matches OR instance_id IS NULL (globals)
+
+        Args:
+            instance_id: The instance UUID
+
+        Returns:
+            List of insight dictionaries with structure:
+            {
+                "id": "uuid",
+                "instance_id": "uuid" | None,
+                "area_id": "salon" | None,
+                "insight_type": "dark_threshold_lux",
+                "value": {"threshold": 200},
+                "confidence": 0.85,
+                "metadata": {...},
+                "updated_at": "2025-10-27T23:30:00Z"
+            }
+
+        Raises:
+            Exception: If HTTP request fails
+        """
+        url = f"{self.rest_url}/area_insights"
+
+        params = {
+            "or": f"(instance_id.eq.{instance_id},instance_id.is.null)",
+            "select": "*",
+            "order": "instance_id.nullslast,area_id.nullslast,insight_type",
+        }
+
+        try:
+            _LOGGER.debug(f"Fetching area insights for instance: {instance_id}")
+
+            async with self.session.get(
+                url,
+                params=params,
+                headers=self.headers,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                if response.status == 200:
+                    insights = await response.json()
+                    _LOGGER.debug(
+                        f"Fetched {len(insights)} insights for instance {instance_id}"
+                    )
+                    return insights
+                else:
+                    response_text = await response.text()
+                    _LOGGER.error(
+                        f"Failed to fetch insights (status {response.status}): {response_text}"
+                    )
+                    return []
+
+        except aiohttp.ClientError as err:
+            _LOGGER.error(f"HTTP error fetching insights: {err}")
+            raise
+        except Exception as err:
+            _LOGGER.error(f"Unexpected error fetching insights: {err}")
+            raise

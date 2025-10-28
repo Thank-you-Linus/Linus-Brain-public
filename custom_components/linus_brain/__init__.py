@@ -25,6 +25,7 @@ from .const import DOMAIN
 from .coordinator import LinusBrainCoordinator
 from .services import async_setup_services, async_unload_services
 from .utils.event_listener import EventListener
+from .utils.insights_manager import InsightsManager
 from .utils.light_learning import LightLearning
 from .utils.rule_engine import RuleEngine
 
@@ -77,6 +78,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator.supabase_client, instance_id, area_ids
     )
 
+    # Initialize insights manager and load insights from Supabase
+    insights_manager = InsightsManager(coordinator.supabase_client)
+    await insights_manager.async_load(instance_id)
+    _LOGGER.info(f"Loaded {len(insights_manager._cache)} insights from Supabase")
+
     # Now do the first refresh - ActivityTracker will have activities available
     await coordinator.async_config_entry_first_refresh()
 
@@ -125,6 +131,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "rule_engine": rule_engine,
         "area_manager": coordinator.area_manager,
         "activity_tracker": coordinator.activity_tracker,
+        "insights_manager": insights_manager,
     }
 
     # Register services (only once, not per config entry)

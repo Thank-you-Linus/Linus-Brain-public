@@ -33,9 +33,10 @@ async def async_setup_entry(
         async_add_entities: Callback to add entities
     """
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    insights_manager = hass.data[DOMAIN][entry.entry_id].get("insights_manager")
 
     buttons = [
-        LinusBrainSyncButton(coordinator, entry),
+        LinusBrainSyncButton(coordinator, insights_manager, entry),
     ]
 
     async_add_entities(buttons)
@@ -47,9 +48,15 @@ class LinusBrainSyncButton(CoordinatorEntity, ButtonEntity):
     Button to trigger immediate cloud sync.
     """
 
-    def __init__(self, coordinator: LinusBrainCoordinator, entry: ConfigEntry) -> None:
+    def __init__(
+        self,
+        coordinator: LinusBrainCoordinator,
+        insights_manager,
+        entry: ConfigEntry,
+    ) -> None:
         """Initialize the button."""
         super().__init__(coordinator)
+        self._insights_manager = insights_manager
         self._attr_translation_key = "sync"
         self._attr_unique_id = "sync"
         self._attr_has_entity_name = True
@@ -79,6 +86,12 @@ class LinusBrainSyncButton(CoordinatorEntity, ButtonEntity):
 
             await coordinator.activity_tracker.async_initialize(force_reload=True)
             _LOGGER.info("Apps and activities reloaded")
+
+            # Reload insights from cloud
+            if self._insights_manager:
+                _LOGGER.info("Reloading insights from cloud...")
+                await self._insights_manager.async_reload(coordinator.instance_id)
+                _LOGGER.info("Insights reloaded")
 
         _LOGGER.info("Syncing area states...")
         await self.coordinator.async_refresh()
