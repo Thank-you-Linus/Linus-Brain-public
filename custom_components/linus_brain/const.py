@@ -10,6 +10,7 @@ DOMAIN = "linus_brain"
 # Configuration keys
 CONF_SUPABASE_URL = "supabase_url"
 CONF_SUPABASE_KEY = "supabase_key"
+CONF_USE_SUN_ELEVATION = "use_sun_elevation"
 
 # Monitored domains and device classes
 MONITORED_DOMAINS = {

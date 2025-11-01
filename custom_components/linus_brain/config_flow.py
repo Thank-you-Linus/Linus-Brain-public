@@ -16,7 +16,7 @@ from homeassistant.const import CONF_API_KEY, CONF_URL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import DOMAIN
+from .const import CONF_USE_SUN_ELEVATION, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -89,6 +89,13 @@ class LinusBrainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """
 
     VERSION = 1
+
+    @staticmethod
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> config_entries.OptionsFlow:
+        """Get the options flow for this handler."""
+        return LinusBrainOptionsFlow(config_entry)
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> Any:
         """
@@ -179,8 +186,26 @@ class LinusBrainOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        # Show options form (for future settings like update interval, etc.)
+        # Get current option value (default to True)
+        current_use_sun = self.config_entry.options.get(CONF_USE_SUN_ELEVATION, True)
+
+        # Show options form
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema({}),
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_USE_SUN_ELEVATION,
+                        default=current_use_sun,
+                    ): bool,
+                }
+            ),
+            description_placeholders={
+                "use_sun_elevation_desc": (
+                    "When enabled, area darkness is determined by BOTH illuminance "
+                    "and sun elevation (dark if lux < 20 OR sun < 3°). "
+                    "When disabled, ONLY illuminance is used (dark if lux < 20). "
+                    "Disable this to test illuminance-based automation during nighttime."
+                )
+            },
         )

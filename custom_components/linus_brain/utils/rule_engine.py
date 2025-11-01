@@ -234,6 +234,64 @@ class RuleEngine:
 
         return entities
 
+    def _get_area_environmental_entities(self, area_id: str) -> set[str]:
+        """
+        Get all environmental entities for an area that affect area_state conditions.
+
+        Returns entities used in get_area_environmental_state():
+        - sensor.illuminance (all illuminance sensors in area)
+        - sun.sun (global sun entity)
+
+        Args:
+            area_id: Area ID
+
+        Returns:
+            Set of entity IDs
+        """
+        entities: set[str] = set()
+
+        if not self.area_manager:
+            _LOGGER.warning("No area_manager available for environmental entity lookup")
+            return entities
+
+        # Get illuminance sensors in the area
+        illuminance_sensors = self.area_manager.get_area_entities(
+            area_id, domain="sensor", device_class="illuminance"
+        )
+        entities.update(illuminance_sensors)
+
+        # Add sun.sun entity (used for sun elevation)
+        sun_state = self.hass.states.get("sun.sun")
+        if sun_state:
+            entities.add("sun.sun")
+
+        return entities
+
+    def _has_area_state_condition(self, conditions: list[dict[str, Any]]) -> bool:
+        """
+        Check if conditions list contains any area_state condition.
+
+        Recursively searches through nested and/or conditions.
+
+        Args:
+            conditions: List of condition dictionaries
+
+        Returns:
+            True if any area_state condition found
+        """
+        for condition in conditions:
+            condition_type = condition.get("condition")
+            
+            if condition_type == "area_state":
+                return True
+            
+            if condition_type in ["and", "or"]:
+                nested_conditions = condition.get("conditions", [])
+                if self._has_area_state_condition(nested_conditions):
+                    return True
+        
+        return False
+
     async def enable_area(self, area_id: str) -> None:
         """
         Enable automation for an area.
@@ -241,6 +299,7 @@ class RuleEngine:
         Registers listeners on:
         1. Presence detection entities (motion, occupancy, media_player)
         2. Entities referenced in activity_actions conditions
+        3. Environmental entities (illuminance, sun) when area_state conditions are used
 
         Args:
             area_id: Area ID
@@ -270,14 +329,27 @@ class RuleEngine:
         presence_entities = self._get_area_presence_entities(area_id)
         all_entities.update(presence_entities)
 
+        # Check if app uses area_state conditions
+        uses_area_state = False
         activity_actions = app.get("activity_actions", {})
         if activity_actions:
             for activity_id, action_config in activity_actions.items():
                 conditions = action_config.get("conditions", [])
+                
+                # Check if any condition uses area_state
+                if self._has_area_state_condition(conditions):
+                    uses_area_state = True
+                
                 condition_entities = self.condition_evaluator.get_referenced_entities(
                     conditions, area_id
                 )
                 all_entities.update(condition_entities)
+
+        # If app uses area_state conditions, track environmental entities
+        environmental_entities = set()
+        if uses_area_state:
+            environmental_entities = self._get_area_environmental_entities(area_id)
+            all_entities.update(environmental_entities)
 
         if not all_entities:
             _LOGGER.warning(
@@ -298,11 +370,14 @@ class RuleEngine:
         self._listeners[area_id] = listeners
         self._enabled_areas.add(area_id)
 
-        condition_count = len(all_entities - presence_entities)
+        condition_count = len(all_entities - presence_entities - environmental_entities)
+        env_count = len(environmental_entities)
+        
         _LOGGER.info(
             f"Enabled automation for {area_id} (app: {app_id}): "
-            f"tracking {len(presence_entities)} presence entities + "
-            f"{condition_count} condition entities = {len(all_entities)} total"
+            f"tracking {len(presence_entities)} presence + "
+            f"{condition_count} condition + "
+            f"{env_count} environmental = {len(all_entities)} total entities"
         )
 
     async def disable_area(self, area_id: str) -> None:
@@ -330,7 +405,10 @@ class RuleEngine:
         """
         Handle entity state change events.
 
-        Debounces and schedules condition evaluation.
+        Debounces and schedules condition evaluation for:
+        1. Presence entities (trigger activity re-evaluation)
+        2. Condition entities (trigger condition re-evaluation)
+        3. Environmental entities (trigger area_state re-evaluation)
 
         Args:
             event: State change event
@@ -351,19 +429,35 @@ class RuleEngine:
             if not app:
                 continue
 
-            all_entities = set()
+            # Check if entity is tracked for this area
+            is_tracked = False
 
-            activity_actions = app.get("activity_actions", {})
-            if activity_actions:
-                for activity_id, action_config in activity_actions.items():
-                    conditions = action_config.get("conditions", [])
-                    entities = self.condition_evaluator.get_referenced_entities(
-                        conditions, area_id
-                    )
-                    all_entities.update(entities)
+            # Check presence entities
+            presence_entities = self._get_area_presence_entities(area_id)
+            if entity_id in presence_entities:
+                is_tracked = True
 
-                if entity_id in all_entities:
-                    affected_areas.append(area_id)
+            # Check condition entities
+            if not is_tracked:
+                activity_actions = app.get("activity_actions", {})
+                if activity_actions:
+                    for activity_id, action_config in activity_actions.items():
+                        conditions = action_config.get("conditions", [])
+                        condition_entities = self.condition_evaluator.get_referenced_entities(
+                            conditions, area_id
+                        )
+                        if entity_id in condition_entities:
+                            is_tracked = True
+                            break
+
+            # Check environmental entities (for area_state conditions)
+            if not is_tracked:
+                environmental_entities = self._get_area_environmental_entities(area_id)
+                if entity_id in environmental_entities:
+                    is_tracked = True
+
+            if is_tracked:
+                affected_areas.append(area_id)
 
         for area_id in affected_areas:
             key = f"{area_id}_{entity_id}"
@@ -389,7 +483,7 @@ class RuleEngine:
         """
         await asyncio.sleep(DEBOUNCE_SECONDS)
 
-        _LOGGER.debug(f"Evaluating rule for {area_id} (triggered by {entity_id})")
+        _LOGGER.info(f"Evaluating rule for {area_id} (triggered by {entity_id})")
 
         await self._async_evaluate_and_execute(area_id)
 

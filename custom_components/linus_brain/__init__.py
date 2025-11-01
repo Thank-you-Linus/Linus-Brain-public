@@ -64,6 +64,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass=hass,
         supabase_url=supabase_url,
         supabase_key=supabase_key,
+        config_entry=entry,
     )
 
     # Initialize app storage with cloud sync BEFORE first refresh
@@ -82,6 +83,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     insights_manager = InsightsManager(coordinator.supabase_client)
     await insights_manager.async_load(instance_id)
     _LOGGER.info(f"Loaded {len(insights_manager._cache)} insights from Supabase")
+
+    # Pass insights_manager to area_manager for AI-learned thresholds
+    coordinator.area_manager._insights_manager = insights_manager
 
     # Now do the first refresh - ActivityTracker will have activities available
     await coordinator.async_config_entry_first_refresh()
@@ -141,6 +145,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Forward the setup to sensor platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Register options update listener
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     _LOGGER.info("Linus Brain integration setup completed successfully")
     return True

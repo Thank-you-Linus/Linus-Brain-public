@@ -90,7 +90,7 @@ class LinusAutoLightSwitch(RestoreEntity, SwitchEntity):
         self._entry = entry
         self._area_id = area_id
         self._area_name = area_name
-        self._attr_is_on = None  # Will be set in async_added_to_hass
+        self._attr_is_on = True  # Default ON, will be restored in async_added_to_hass
         self._translations: dict[str, Any] | None = None
         self._last_action: dict[str, Any] | None = None
 
@@ -126,10 +126,10 @@ class LinusAutoLightSwitch(RestoreEntity, SwitchEntity):
                 f"(was {last_state.state})"
             )
         else:
-            # Default to False for new entities
-            self._attr_is_on = False
+            # Default to True for new entities (automation enabled by default)
+            self._attr_is_on = True
             _LOGGER.info(
-                f"No previous state found for {self.entity_id}, defaulting to OFF"
+                f"No previous state found for {self.entity_id}, defaulting to ON"
             )
 
         # Synchronize with rule engine
@@ -139,7 +139,7 @@ class LinusAutoLightSwitch(RestoreEntity, SwitchEntity):
                 await rule_engine.enable_area(self._area_id)
             else:
                 await rule_engine.disable_area(self._area_id)
-            _LOGGER.debug(
+            _LOGGER.info(
                 f"Synchronized rule engine for {self.entity_id}: "
                 f"is_on={self._attr_is_on}, area_enabled={self._attr_is_on}"
             )

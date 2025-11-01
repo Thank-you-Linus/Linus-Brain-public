@@ -365,13 +365,13 @@ class TestAreaManagerEnvironmentalState:
         assert result["sun_elevation"] == -10.0
 
     def test_get_area_environmental_state_computes_is_bright(self, area_manager, hass):
-        """Test that is_bright is True when illuminance > 100 and sun > 10."""
+        """Test that is_bright is True when illuminance > 500 (default) and sun > 10."""
 
         def get_state(entity_id):
             states = {
                 "sensor.living_room_illuminance": State(
                     "sensor.living_room_illuminance",
-                    "150",
+                    "600",  # Above default bright threshold of 500
                     attributes={"device_class": "illuminance"},
                 ),
                 "sun.sun": State(
@@ -384,8 +384,178 @@ class TestAreaManagerEnvironmentalState:
 
         result = area_manager.get_area_environmental_state("living_room")
         assert result["is_bright"] is True
-        assert result["illuminance"] == 150.0
+        assert result["illuminance"] == 600.0
         assert result["sun_elevation"] == 45.0
+
+    def test_get_area_environmental_state_uses_insights_dark_threshold(
+        self, area_manager, hass
+    ):
+        """Test that is_dark uses AI-learned threshold from insights manager."""
+        # Set up mock insights manager
+        mock_insights = MagicMock()
+        mock_insights.get_insight = MagicMock(
+            return_value={"value": {"threshold": 30.0}}
+        )
+        area_manager._insights_manager = mock_insights
+
+        def get_state(entity_id):
+            states = {
+                "sensor.living_room_illuminance": State(
+                    "sensor.living_room_illuminance",
+                    "25",  # Between default (20) and custom (30)
+                    attributes={"device_class": "illuminance"},
+                ),
+                "sun.sun": State(
+                    "sun.sun", "above_horizon", attributes={"elevation": 15}
+                ),
+            }
+            return states.get(entity_id)
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        result = area_manager.get_area_environmental_state(
+            "living_room", instance_id="test_instance"
+        )
+
+        # With custom threshold of 30, lux=25 should be dark
+        assert result["is_dark"] is True
+        assert result["illuminance"] == 25.0
+
+        # Verify insights manager was called
+        mock_insights.get_insight.assert_called()
+
+    def test_get_area_environmental_state_uses_insights_bright_threshold(
+        self, area_manager, hass
+    ):
+        """Test that is_bright uses AI-learned threshold from insights manager."""
+        # Set up mock insights manager
+        mock_insights = MagicMock()
+
+        def get_insight_side_effect(instance_id, area_id, insight_type):
+            if insight_type == "dark_threshold_lux":
+                return {"value": {"threshold": 20.0}}
+            elif insight_type == "bright_threshold_lux":
+                return {"value": {"threshold": 300.0}}
+            return None
+
+        mock_insights.get_insight = MagicMock(side_effect=get_insight_side_effect)
+        area_manager._insights_manager = mock_insights
+
+        def get_state(entity_id):
+            states = {
+                "sensor.living_room_illuminance": State(
+                    "sensor.living_room_illuminance",
+                    "400",  # Between custom (300) and default (500)
+                    attributes={"device_class": "illuminance"},
+                ),
+                "sun.sun": State(
+                    "sun.sun", "above_horizon", attributes={"elevation": 45}
+                ),
+            }
+            return states.get(entity_id)
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        result = area_manager.get_area_environmental_state(
+            "living_room", instance_id="test_instance"
+        )
+
+        # With custom threshold of 300, lux=400 should be bright
+        assert result["is_bright"] is True
+        assert result["illuminance"] == 400.0
+
+    def test_get_area_environmental_state_falls_back_to_defaults_when_no_insights(
+        self, area_manager, hass
+    ):
+        """Test that default thresholds are used when insights return None."""
+        # Set up mock insights manager that returns None
+        mock_insights = MagicMock()
+        mock_insights.get_insight = MagicMock(return_value=None)
+        area_manager._insights_manager = mock_insights
+
+        def get_state(entity_id):
+            states = {
+                "sensor.living_room_illuminance": State(
+                    "sensor.living_room_illuminance",
+                    "15",  # Below default dark threshold (20)
+                    attributes={"device_class": "illuminance"},
+                ),
+                "sun.sun": State(
+                    "sun.sun", "above_horizon", attributes={"elevation": 5}
+                ),
+            }
+            return states.get(entity_id)
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        result = area_manager.get_area_environmental_state(
+            "living_room", instance_id="test_instance"
+        )
+
+        # Should use default threshold (20.0)
+        assert result["is_dark"] is True
+        assert result["illuminance"] == 15.0
+
+    def test_get_area_environmental_state_works_without_insights_manager(
+        self, area_manager, hass
+    ):
+        """Test that environmental state works without insights manager."""
+        # No insights manager set
+        area_manager._insights_manager = None
+
+        def get_state(entity_id):
+            states = {
+                "sensor.living_room_illuminance": State(
+                    "sensor.living_room_illuminance",
+                    "600",  # Above default bright threshold (500)
+                    attributes={"device_class": "illuminance"},
+                ),
+                "sun.sun": State(
+                    "sun.sun", "above_horizon", attributes={"elevation": 45}
+                ),
+            }
+            return states.get(entity_id)
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        result = area_manager.get_area_environmental_state(
+            "living_room", instance_id="test_instance"
+        )
+
+        # Should use default thresholds
+        assert result["is_bright"] is True
+        assert result["is_dark"] is False
+        assert result["illuminance"] == 600.0
+
+    def test_get_area_environmental_state_works_without_instance_id(
+        self, area_manager, hass
+    ):
+        """Test that environmental state falls back to defaults without instance_id."""
+        # Set up insights manager but don't provide instance_id
+        mock_insights = MagicMock()
+        area_manager._insights_manager = mock_insights
+
+        def get_state(entity_id):
+            states = {
+                "sensor.living_room_illuminance": State(
+                    "sensor.living_room_illuminance",
+                    "10",
+                    attributes={"device_class": "illuminance"},
+                ),
+                "sun.sun": State(
+                    "sun.sun", "below_horizon", attributes={"elevation": -5}
+                ),
+            }
+            return states.get(entity_id)
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        # Call without instance_id
+        result = area_manager.get_area_environmental_state("living_room")
+
+        # Should use default thresholds and NOT call insights manager
+        assert result["is_dark"] is True
+        mock_insights.get_insight.assert_not_called()
 
 
 class TestAreaManagerAreaQueries:

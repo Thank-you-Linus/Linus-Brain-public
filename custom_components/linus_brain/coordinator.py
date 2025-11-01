@@ -47,6 +47,7 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
         hass: HomeAssistant,
         supabase_url: str,
         supabase_key: str,
+        config_entry: Any = None,
     ) -> None:
         """
         Initialize the coordinator.
@@ -55,6 +56,7 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
             hass: Home Assistant instance
             supabase_url: Supabase project URL
             supabase_key: Supabase API key
+            config_entry: Config entry for user preferences
         """
         super().__init__(
             hass,
@@ -67,7 +69,7 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
         self.supabase_key = supabase_key
 
         # Initialize managers
-        self.area_manager = AreaManager(hass)
+        self.area_manager = AreaManager(hass, config_entry=config_entry)
         self.supabase_client = SupabaseClient(hass, supabase_url, supabase_key)
 
         # Initialize app storage (must be before activity_tracker)
@@ -222,15 +224,25 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
                     )
 
                     # Trigger rule engine evaluation for this area
+                    _LOGGER.debug(
+                        f"Rule engine check: rule_engine={self.rule_engine is not None}, "
+                        f"area_id={area_id}, enabled_areas={self.rule_engine._enabled_areas if self.rule_engine else 'N/A'}"
+                    )
                     if self.rule_engine and area_id in self.rule_engine._enabled_areas:
                         old_activity = self.last_rules.get(area_id, {}).get("activity")
                         self.previous_activities[area_id] = (
                             old_activity if old_activity else "empty"
                         )
-                        _LOGGER.debug(
+                        _LOGGER.info(
                             f"Triggering rule engine evaluation for {area_id} (activity: {activity})"
                         )
                         await self.rule_engine._async_evaluate_and_execute(area_id)
+                    else:
+                        _LOGGER.warning(
+                            f"NOT triggering rule engine for {area_id}: "
+                            f"rule_engine={self.rule_engine is not None}, "
+                            f"in_enabled={area_id in self.rule_engine._enabled_areas if self.rule_engine else False}"
+                        )
 
                     # Trigger sensor update for this area only
                     self.async_update_listeners()

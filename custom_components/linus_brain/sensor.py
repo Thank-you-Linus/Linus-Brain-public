@@ -313,7 +313,10 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
         time_until_state_loss = self._activity_tracker.get_time_until_state_loss(
             self._area_id
         )
-        area_state = self._area_manager.get_area_environmental_state(self._area_id)
+        # Pass instance_id to get_area_environmental_state for AI-learned thresholds
+        area_state = self._area_manager.get_area_environmental_state(
+            self._area_id, self._coordinator.instance_id
+        )
         tracking_entities = self._area_manager.get_tracking_entities(self._area_id)
         last_rule = (
             self.coordinator.data.get("last_rules", {}).get(self._area_id)
