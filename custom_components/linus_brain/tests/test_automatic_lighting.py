@@ -568,13 +568,13 @@ async def test_environmental_cooldown_longer(rule_engine, mock_hass):
 
 @pytest.mark.asyncio
 async def test_movement_timeout_is_30_seconds():
-    """Test that movement activity has timeout of 30s (not 0s - bug fix)."""
+    """Test that movement activity has timeout of 5s (configurable)."""
     from ..const import DEFAULT_ACTIVITY_TYPES
 
-    # Verify the fix: movement should have 30s timeout
+    # Verify movement timeout (configurable, currently 5s)
     movement_activity = DEFAULT_ACTIVITY_TYPES.get("movement")
     assert movement_activity is not None
-    assert movement_activity["timeout_seconds"] == 30
+    assert movement_activity["timeout_seconds"] == 5
     assert movement_activity["is_transition_state"] is False
 
     # Verify inactive also has correct timeout

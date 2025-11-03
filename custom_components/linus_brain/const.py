@@ -95,14 +95,30 @@ DEFAULT_ACTIVITY_TYPES = {
         "description": "Short-term presence in area (motion detected)",
         "detection_conditions": [
             {
-                "condition": "state",
-                "domain": "binary_sensor",
-                "device_class": "motion",
-                "state": "on",
+                "condition": "or",
+                "conditions": [
+                    {
+                        "condition": "state",
+                        "domain": "binary_sensor",
+                        "device_class": "motion",
+                        "state": "on",
+                    },
+                    {
+                        "condition": "state",
+                        "domain": "binary_sensor",
+                        "device_class": "occupancy",
+                        "state": "on",
+                    },
+                    {
+                        "condition": "state",
+                        "domain": "media_player",
+                        "state": "playing",
+                    },
+                ],
             }
         ],
         "duration_threshold_seconds": 0,
-        "timeout_seconds": 5,
+        "timeout_seconds": 30,
         "transition_to": "inactive",
         "is_transition_state": False,
         "is_system": True,
@@ -121,17 +137,33 @@ DEFAULT_ACTIVITY_TYPES = {
     "occupied": {
         "activity_id": "occupied",
         "activity_name": "Occupied",
-        "description": "Long-term presence in area (person staying)",
+        "description": "Long-term presence in area (person staying or media playing)",
         "detection_conditions": [
             {
-                "condition": "state",
-                "domain": "binary_sensor",
-                "device_class": "motion",
-                "state": "on",
+                "condition": "or",
+                "conditions": [
+                    {
+                        "condition": "state",
+                        "domain": "binary_sensor",
+                        "device_class": "motion",
+                        "state": "on",
+                    },
+                    {
+                        "condition": "state",
+                        "domain": "binary_sensor",
+                        "device_class": "occupancy",
+                        "state": "on",
+                    },
+                    {
+                        "condition": "state",
+                        "domain": "media_player",
+                        "state": "playing",
+                    },
+                ],
             }
         ],
         "duration_threshold_seconds": 60,
-        "timeout_seconds": 0,
+        "timeout_seconds": 300,
         "transition_to": "inactive",
         "is_transition_state": False,
         "is_system": True,

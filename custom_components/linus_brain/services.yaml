@@ -32,26 +32,27 @@ simulate_activity:
   description: Simulate activity for an area to test automation rules.
   fields:
     area_id:
-      name: Area ID
-      description: The area identifier (e.g., "living_room", "kitchen").
+      name: Area
+      description: Select the area to simulate activity for.
       required: true
-      example: "living_room"
       selector:
-        text:
+        area:
     activity:
       name: Activity Level
       description: The activity level to simulate.
       required: true
-      default: "presence"
+      default: "movement"
       selector:
         select:
           options:
-            - label: "None (no activity)"
-              value: "none"
-            - label: "Presence (sensors active < 60s)"
-              value: "presence"
-            - label: "Occupation (sensors active >= 60s)"
-              value: "occupation"
+            - label: "Empty (no activity)"
+              value: "empty"
+            - label: "Inactive (transition state)"
+              value: "inactive"
+            - label: "Movement (motion detected)"
+              value: "movement"
+            - label: "Occupied (long-term presence)"
+              value: "occupied"
     duration:
       name: Duration (seconds)
       description: Auto-reset after this many seconds (0 = no auto-reset).

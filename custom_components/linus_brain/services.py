@@ -41,7 +41,7 @@ SERVICE_SEND_AREA_UPDATE_SCHEMA = vol.Schema(
 SERVICE_SIMULATE_ACTIVITY_SCHEMA = vol.Schema(
     {
         vol.Required("area_id"): cv.string,
-        vol.Required("activity"): vol.In(["none", "presence", "occupation"]),
+        vol.Required("activity"): vol.In(["empty", "inactive", "movement", "occupied"]),
         vol.Optional("duration", default=0): vol.All(
             vol.Coerce(int), vol.Range(min=0, max=3600)
         ),
@@ -178,7 +178,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             if activity_tracker and rule_engine:
                 await activity_tracker.simulate_activity(area_id, activity, duration)
 
-                if activity != "none":
+                if activity != "empty":
                     await rule_engine._async_evaluate_and_execute(area_id)
                     _LOGGER.info(f"Triggered rule evaluation for area {area_id}")
 

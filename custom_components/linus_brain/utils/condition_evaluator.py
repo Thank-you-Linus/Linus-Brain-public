@@ -28,7 +28,10 @@ class ConditionEvaluator:
     - numeric_state: Entity state compared numerically
     - template: Jinja2 template evaluation
     - time: Time-based conditions
-    - zone: Zone-based conditions (future)
+    - activity: Activity level in area
+    - area_state: Environmental state in area
+    - and: Nested conditions (all must be true)
+    - or: Nested conditions (at least one must be true)
     """
 
     def __init__(
@@ -136,9 +139,109 @@ class ConditionEvaluator:
         elif condition_type == "area_state":
             return await self._evaluate_area_state_condition(condition)
 
+        elif condition_type == "and":
+            return await self._evaluate_and_condition(condition)
+
+        elif condition_type == "or":
+            return await self._evaluate_or_condition(condition)
+
         else:
             _LOGGER.warning(f"Unknown condition type: {condition_type}")
             return False
+
+    # Nested condition evaluators - support arbitrary nesting depth via recursion
+
+    async def _evaluate_and_condition(
+        self,
+        condition: dict[str, Any],
+    ) -> bool:
+        """
+        Evaluate nested AND condition (all nested conditions must be true).
+
+        Args:
+            condition: Condition dictionary with 'conditions' list
+                       Format: {"condition": "and", "conditions": [condition1, condition2, ...]}
+
+        Returns:
+            True if all nested conditions are met, False otherwise
+        """
+        nested_conditions = condition.get("conditions", [])
+
+        if not nested_conditions:
+            _LOGGER.warning("AND condition has no nested conditions, returning True")
+            return True
+
+        _LOGGER.debug(
+            f"Evaluating AND condition with {len(nested_conditions)} nested conditions"
+        )
+
+        # Evaluate each nested condition
+        for i, nested_condition in enumerate(nested_conditions):
+            try:
+                result = await self._evaluate_single_condition(nested_condition)
+                _LOGGER.debug(
+                    f"AND condition {i+1}/{len(nested_conditions)}: {result}"
+                )
+
+                # Short-circuit: if any condition is False, return False immediately
+                if not result:
+                    _LOGGER.debug(f"AND condition failed at condition {i+1}")
+                    return False
+
+            except Exception as err:
+                _LOGGER.error(f"Failed to evaluate nested AND condition {i+1}: {err}")
+                # Treat errors as False for AND conditions
+                return False
+
+        _LOGGER.debug("All AND conditions passed")
+        return True
+
+    async def _evaluate_or_condition(
+        self,
+        condition: dict[str, Any],
+    ) -> bool:
+        """
+        Evaluate nested OR condition (at least one nested condition must be true).
+
+        Args:
+            condition: Condition dictionary with 'conditions' list
+                       Format: {"condition": "or", "conditions": [condition1, condition2, ...]}
+
+        Returns:
+            True if any nested condition is met, False if all fail
+        """
+        nested_conditions = condition.get("conditions", [])
+
+        if not nested_conditions:
+            _LOGGER.warning("OR condition has no nested conditions, returning False")
+            return False
+
+        _LOGGER.debug(
+            f"Evaluating OR condition with {len(nested_conditions)} nested conditions"
+        )
+
+        # Track results for logging
+        results = []
+
+        # Evaluate each nested condition
+        for i, nested_condition in enumerate(nested_conditions):
+            try:
+                result = await self._evaluate_single_condition(nested_condition)
+                _LOGGER.debug(f"OR condition {i+1}/{len(nested_conditions)}: {result}")
+                results.append(result)
+
+                # Short-circuit: if any condition is True, return True immediately
+                if result:
+                    _LOGGER.debug(f"OR condition passed at condition {i+1}")
+                    return True
+
+            except Exception as err:
+                _LOGGER.error(f"Failed to evaluate nested OR condition {i+1}: {err}")
+                results.append(False)
+                # Continue evaluating other conditions (don't fail entire OR)
+
+        _LOGGER.debug(f"All OR conditions failed: {results}")
+        return False
 
     async def _evaluate_state_condition(
         self,
