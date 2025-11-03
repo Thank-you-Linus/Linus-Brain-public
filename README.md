@@ -39,7 +39,7 @@ Linus Brain agit comme un **pont IA** entre votre Home Assistant et un système 
 - **[AI Insights](docs/AI_INSIGHTS.md)** - Documentation du système d'insights IA
 - **[Format des règles](docs/RULE_FORMAT.md)** - Guide complet sur les sélecteurs d'entités génériques
 - **[Configuration](docs/CONFIGURATION.md)** - Configuration avancée et personnalisation
-- **[Architecture](ARCHITECTURE.md)** - Architecture détaillée du système
+- **[Architecture](docs/ARCHITECTURE.md)** - Architecture détaillée du système
 - **[Code source](custom_components/linus_brain/)** - Commenté et documenté pour faciliter la compréhension
 
 ---

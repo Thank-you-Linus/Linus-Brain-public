@@ -248,7 +248,7 @@ These transitions can trigger automation rules, allowing different actions based
 ### Prerequisites
 
 1. **Supabase Project**: Create a free project at [supabase.com](https://supabase.com)
-2. **Database Setup**: Run the complete schema from `supabase_setup.sql` in the repository, or create the required tables:
+2. **Database Setup**: Run the complete schema from `scripts/../../scripts/supabase_setup.sql` in the repository, or create the required tables:
 
 #### `ha_instances` table (Multi-instance support)
 
@@ -321,7 +321,7 @@ CREATE TABLE automation_rules (
 );
 ```
 
-**Note:** Use the complete `supabase_setup.sql` file in the repository for the full schema with all indexes and constraints.
+**Note:** Use the complete `scripts/../../scripts/supabase_setup.sql` file in the repository for the full schema with all indexes and constraints.
 
 ### Setup in Home Assistant
 
