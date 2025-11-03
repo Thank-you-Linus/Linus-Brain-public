@@ -428,8 +428,8 @@ class ConditionEvaluator:
 
         Args:
             condition: Condition with area_id and state/attribute to check
-                      Format after resolution: {"condition": "area_state", "area_id": "...", "state": "is_dark|is_bright"}
-                      OR: {"condition": "area_state", "area_id": "...", "attribute": "is_dark|is_bright"}
+                      Format after resolution: {"condition": "area_state", "area_id": "...", "state": "is_dark"}
+                      OR: {"condition": "area_state", "area_id": "...", "attribute": "is_dark"}
 
         Returns:
             True if area state matches expected value

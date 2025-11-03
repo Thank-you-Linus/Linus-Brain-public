@@ -23,7 +23,7 @@ Setup Dependencies:
 Area Context Sensors:
 - Created for ALL areas with presence detection capability
 - Independent from light automation (no light entities required)
-- Displays: activity level, illuminance, sun elevation, area state (is_dark/is_bright)
+- Displays: activity level, illuminance, sun elevation, area state (is_dark)
 """
 
 import logging
@@ -400,7 +400,7 @@ class LinusBrainRuleEngineStatsSensor(CoordinatorEntity, SensorEntity):
         else:
             success_rate = 100.0
 
-        self._attr_native_value = total_triggers
+        self._attr_native_value = successful
 
         # Get enabled areas from assignments
         enabled_areas = list(self._rule_engine._assignments.keys())

@@ -102,7 +102,7 @@ DEFAULT_ACTIVITY_TYPES = {
             }
         ],
         "duration_threshold_seconds": 0,
-        "timeout_seconds": 0,
+        "timeout_seconds": 5,
         "transition_to": "inactive",
         "is_transition_state": False,
         "is_system": True,

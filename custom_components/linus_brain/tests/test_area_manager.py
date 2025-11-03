@@ -364,29 +364,6 @@ class TestAreaManagerEnvironmentalState:
         assert result["illuminance"] == 15.0
         assert result["sun_elevation"] == -10.0
 
-    def test_get_area_environmental_state_computes_is_bright(self, area_manager, hass):
-        """Test that is_bright is True when illuminance > 500 (default) and sun > 10."""
-
-        def get_state(entity_id):
-            states = {
-                "sensor.living_room_illuminance": State(
-                    "sensor.living_room_illuminance",
-                    "600",  # Above default bright threshold of 500
-                    attributes={"device_class": "illuminance"},
-                ),
-                "sun.sun": State(
-                    "sun.sun", "above_horizon", attributes={"elevation": 45}
-                ),
-            }
-            return states.get(entity_id)
-
-        hass.states.get = MagicMock(side_effect=get_state)
-
-        result = area_manager.get_area_environmental_state("living_room")
-        assert result["is_bright"] is True
-        assert result["illuminance"] == 600.0
-        assert result["sun_elevation"] == 45.0
-
     def test_get_area_environmental_state_uses_insights_dark_threshold(
         self, area_manager, hass
     ):
@@ -423,46 +400,6 @@ class TestAreaManagerEnvironmentalState:
 
         # Verify insights manager was called
         mock_insights.get_insight.assert_called()
-
-    def test_get_area_environmental_state_uses_insights_bright_threshold(
-        self, area_manager, hass
-    ):
-        """Test that is_bright uses AI-learned threshold from insights manager."""
-        # Set up mock insights manager
-        mock_insights = MagicMock()
-
-        def get_insight_side_effect(instance_id, area_id, insight_type):
-            if insight_type == "dark_threshold_lux":
-                return {"value": {"threshold": 20.0}}
-            elif insight_type == "bright_threshold_lux":
-                return {"value": {"threshold": 300.0}}
-            return None
-
-        mock_insights.get_insight = MagicMock(side_effect=get_insight_side_effect)
-        area_manager._insights_manager = mock_insights
-
-        def get_state(entity_id):
-            states = {
-                "sensor.living_room_illuminance": State(
-                    "sensor.living_room_illuminance",
-                    "400",  # Between custom (300) and default (500)
-                    attributes={"device_class": "illuminance"},
-                ),
-                "sun.sun": State(
-                    "sun.sun", "above_horizon", attributes={"elevation": 45}
-                ),
-            }
-            return states.get(entity_id)
-
-        hass.states.get = MagicMock(side_effect=get_state)
-
-        result = area_manager.get_area_environmental_state(
-            "living_room", instance_id="test_instance"
-        )
-
-        # With custom threshold of 300, lux=400 should be bright
-        assert result["is_bright"] is True
-        assert result["illuminance"] == 400.0
 
     def test_get_area_environmental_state_falls_back_to_defaults_when_no_insights(
         self, area_manager, hass
@@ -523,7 +460,6 @@ class TestAreaManagerEnvironmentalState:
         )
 
         # Should use default thresholds
-        assert result["is_bright"] is True
         assert result["is_dark"] is False
         assert result["illuminance"] == 600.0
 
@@ -752,3 +688,408 @@ class TestAreaManagerBinaryPresence:
         assert "active_presence_entities" in result
         assert "binary_sensor.living_room_motion" in result["active_presence_entities"]
         assert "media_player.living_room_tv" in result["active_presence_entities"]
+
+
+class TestAreaManagerEdgeCases:
+    """Test edge cases and error handling."""
+
+    def test_is_dark_with_exact_threshold_illuminance(self, area_manager, hass):
+        """Test is_dark when illuminance exactly equals threshold (20)."""
+
+        def get_state(entity_id):
+            states = {
+                "sensor.living_room_illuminance": State(
+                    "sensor.living_room_illuminance",
+                    "20.0",  # Exactly at threshold
+                    attributes={"device_class": "illuminance"},
+                ),
+                "sun.sun": State(
+                    "sun.sun", "above_horizon", attributes={"elevation": 45}
+                ),
+            }
+            return states.get(entity_id)
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        result = area_manager.get_area_environmental_state("living_room")
+
+        # At threshold should be NOT dark (< is strictly less than)
+        assert result["is_dark"] is False
+        assert result["illuminance"] == 20.0
+
+    def test_is_dark_with_exact_sun_elevation_threshold(self, area_manager, hass):
+        """Test is_dark when sun elevation exactly equals threshold (3)."""
+
+        def get_state(entity_id):
+            states = {
+                "sensor.living_room_illuminance": State(
+                    "sensor.living_room_illuminance",
+                    "100",
+                    attributes={"device_class": "illuminance"},
+                ),
+                "sun.sun": State(
+                    "sun.sun", "above_horizon", attributes={"elevation": 3.0}
+                ),
+            }
+            return states.get(entity_id)
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        result = area_manager.get_area_environmental_state("living_room")
+
+        # At threshold should be NOT dark (< is strictly less than)
+        assert result["is_dark"] is False
+        assert result["sun_elevation"] == 3.0
+
+    def test_is_dark_just_below_illuminance_threshold(self, area_manager, hass):
+        """Test is_dark when illuminance is just below threshold."""
+
+        def get_state(entity_id):
+            states = {
+                "sensor.living_room_illuminance": State(
+                    "sensor.living_room_illuminance",
+                    "19.9",  # Just below threshold
+                    attributes={"device_class": "illuminance"},
+                ),
+                "sun.sun": State(
+                    "sun.sun", "above_horizon", attributes={"elevation": 45}
+                ),
+            }
+            return states.get(entity_id)
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        result = area_manager.get_area_environmental_state("living_room")
+
+        assert result["is_dark"] is True
+        assert result["illuminance"] == 19.9
+
+    def test_illuminance_with_invalid_numeric_value(self, area_manager, hass):
+        """Test illuminance handles invalid numeric values gracefully."""
+
+        def get_state(entity_id):
+            states = {
+                "sensor.living_room_illuminance": State(
+                    "sensor.living_room_illuminance",
+                    "unavailable",  # Invalid value
+                    attributes={"device_class": "illuminance"},
+                ),
+            }
+            return states.get(entity_id)
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        result = area_manager.get_area_illuminance("living_room")
+
+        # Should return None when value is invalid
+        assert result is None
+
+    def test_temperature_with_non_numeric_state(self, area_manager, hass):
+        """Test temperature sensor with non-numeric state."""
+
+        def get_state(entity_id):
+            states = {
+                "sensor.bedroom_temperature": State(
+                    "sensor.bedroom_temperature",
+                    "unknown",
+                    attributes={"device_class": "temperature"},
+                ),
+            }
+            return states.get(entity_id)
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        result = area_manager.get_area_temperature("bedroom")
+
+        # Should return None when all sensors are invalid
+        assert result is None
+
+    def test_humidity_with_unavailable_state(self, area_manager, hass):
+        """Test humidity sensor with unavailable state."""
+
+        def get_state(entity_id):
+            states = {
+                "sensor.bedroom_humidity": State(
+                    "sensor.bedroom_humidity",
+                    "unavailable",
+                    attributes={"device_class": "humidity"},
+                ),
+            }
+            return states.get(entity_id)
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        result = area_manager.get_area_humidity("bedroom")
+
+        # Should return None when sensor unavailable
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_area_state_with_nonexistent_area(self, area_manager):
+        """Test getting state for area that doesn't exist."""
+        result = await area_manager.get_area_state("nonexistent_area")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_area_state_with_no_entities(self, area_manager, hass):
+        """Test area with no monitored entities."""
+        # Kitchen has no presence sensors in fixture
+        result = await area_manager.get_area_state("empty_area")
+
+        # Should return None for areas with no entities
+        assert result is None
+
+    def test_get_entity_area_with_none_entity(self, area_manager):
+        """Test get_entity_area with None entity result."""
+        result = area_manager.get_entity_area("sensor.does_not_exist")
+
+        assert result is None
+
+    def test_illuminance_averaging_with_one_invalid_sensor(
+        self, area_manager, entity_registry_mock, hass
+    ):
+        """Test illuminance averaging when one sensor has invalid value."""
+        entities = entity_registry_mock.entities.copy()
+        entities["sensor.living_room_illuminance_2"] = _create_mock_entity(
+            "sensor.living_room_illuminance_2", "living_room", None, "illuminance"
+        )
+        type(entity_registry_mock).entities = PropertyMock(return_value=entities)
+
+        def get_state(entity_id):
+            states = {
+                "sensor.living_room_illuminance": State(
+                    "sensor.living_room_illuminance",
+                    "50",
+                    attributes={"device_class": "illuminance"},
+                ),
+                "sensor.living_room_illuminance_2": State(
+                    "sensor.living_room_illuminance_2",
+                    "unavailable",  # Invalid
+                    attributes={"device_class": "illuminance"},
+                ),
+            }
+            return states.get(entity_id)
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        result = area_manager.get_area_illuminance("living_room")
+
+        # Should average only valid sensors
+        assert result == 50.0
+
+    def test_illuminance_averaging_with_multiple_valid_sensors(
+        self, hass, area_registry_mock, entity_registry_mock, device_registry_mock, monkeypatch
+    ):
+        """Test illuminance averaging with 3+ valid sensors."""
+        # Add more illuminance sensors to living room
+        entities = entity_registry_mock.entities.copy()
+        entities["sensor.living_room_illuminance_2"] = _create_mock_entity(
+            "sensor.living_room_illuminance_2", "living_room", None, "illuminance"
+        )
+        entities["sensor.living_room_illuminance_3"] = _create_mock_entity(
+            "sensor.living_room_illuminance_3", "living_room", None, "illuminance"
+        )
+        type(entity_registry_mock).entities = PropertyMock(return_value=entities)
+
+        def get_state(entity_id):
+            states = {
+                "sensor.living_room_illuminance": State(
+                    "sensor.living_room_illuminance",
+                    "10.0",
+                    attributes={"device_class": "illuminance"},
+                ),
+                "sensor.living_room_illuminance_2": State(
+                    "sensor.living_room_illuminance_2",
+                    "20.0",
+                    attributes={"device_class": "illuminance"},
+                ),
+                "sensor.living_room_illuminance_3": State(
+                    "sensor.living_room_illuminance_3",
+                    "30.0",
+                    attributes={"device_class": "illuminance"},
+                ),
+            }
+            return states.get(entity_id)
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        # Create new AreaManager instance after modifying entities
+        monkeypatch.setattr(
+            "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
+        )
+        monkeypatch.setattr(
+            "homeassistant.helpers.entity_registry.async_get",
+            lambda h: entity_registry_mock,
+        )
+        monkeypatch.setattr(
+            "homeassistant.helpers.device_registry.async_get",
+            lambda h: device_registry_mock,
+        )
+        area_manager = AreaManager(hass)
+
+        result = area_manager.get_area_illuminance("living_room")
+
+        # Should average all 3 sensors: (10 + 20 + 30) / 3 = 20.0
+        assert result == 20.0
+
+    def test_humidity_averaging_ignores_invalid_values(
+        self, area_manager, entity_registry_mock, hass
+    ):
+        """Test humidity averaging ignores invalid sensor values."""
+        entities = entity_registry_mock.entities.copy()
+        entities["sensor.bedroom_humidity_2"] = _create_mock_entity(
+            "sensor.bedroom_humidity_2", "bedroom", None, "humidity"
+        )
+        type(entity_registry_mock).entities = PropertyMock(return_value=entities)
+
+        def get_state(entity_id):
+            states = {
+                "sensor.bedroom_humidity": State(
+                    "sensor.bedroom_humidity",
+                    "65.0",
+                    attributes={"device_class": "humidity"},
+                ),
+                "sensor.bedroom_humidity_2": State(
+                    "sensor.bedroom_humidity_2",
+                    "unknown",  # Invalid
+                    attributes={"device_class": "humidity"},
+                ),
+            }
+            return states.get(entity_id)
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        result = area_manager.get_area_humidity("bedroom")
+
+        # Should only use valid sensor
+        assert result == 65.0
+
+    def test_sun_elevation_with_missing_elevation_attribute(self, area_manager, hass):
+        """Test sun elevation when elevation attribute is missing."""
+        sun_state = State("sun.sun", "above_horizon", attributes={})
+        hass.states.get = MagicMock(return_value=sun_state)
+
+        result = area_manager.get_sun_elevation()
+
+        assert result is None
+
+    def test_sun_elevation_with_non_numeric_value(self, area_manager, hass):
+        """Test sun elevation with non-numeric elevation value."""
+        sun_state = State(
+            "sun.sun", "above_horizon", attributes={"elevation": "invalid"}
+        )
+        hass.states.get = MagicMock(return_value=sun_state)
+
+        result = area_manager.get_sun_elevation()
+
+        assert result is None
+
+
+class TestAreaManagerDeviceAreaLookup:
+    """Test device-based area lookup for entities without direct area assignment."""
+
+    def test_entity_without_area_but_with_device(
+        self, hass, area_registry_mock, entity_registry_mock, device_registry_mock, monkeypatch
+    ):
+        """Test entity lookup when entity has no area but device does."""
+        # Create entity with device_id but no area_id
+        test_entity = _create_mock_entity(
+            "sensor.test_sensor", None, "device_123", "temperature"
+        )
+        
+        # Mock entity registry to return our test entity
+        entity_registry_mock.async_get = MagicMock(return_value=test_entity)
+
+        # Create mock device with area
+        mock_device = MagicMock()
+        mock_device.area_id = "living_room"
+        device_registry_mock.async_get = MagicMock(return_value=mock_device)
+
+        monkeypatch.setattr(
+            "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
+        )
+        monkeypatch.setattr(
+            "homeassistant.helpers.entity_registry.async_get",
+            lambda h: entity_registry_mock,
+        )
+        monkeypatch.setattr(
+            "homeassistant.helpers.device_registry.async_get",
+            lambda h: device_registry_mock,
+        )
+
+        area_manager = AreaManager(hass)
+
+        # Should find area via device
+        result = area_manager.get_entity_area("sensor.test_sensor")
+
+        assert result == "living_room"
+        entity_registry_mock.async_get.assert_called_with("sensor.test_sensor")
+        device_registry_mock.async_get.assert_called_with("device_123")
+
+    def test_entity_without_area_and_device_without_area(
+        self, hass, area_registry_mock, entity_registry_mock, device_registry_mock, monkeypatch
+    ):
+        """Test entity lookup when neither entity nor device has area."""
+        # Create entity with device_id but no area_id
+        test_entity = _create_mock_entity(
+            "sensor.test_sensor", None, "device_123", "temperature"
+        )
+        
+        # Mock entity registry to return our test entity
+        entity_registry_mock.async_get = MagicMock(return_value=test_entity)
+
+        # Create mock device WITHOUT area
+        mock_device = MagicMock()
+        mock_device.area_id = None
+        device_registry_mock.async_get = MagicMock(return_value=mock_device)
+
+        monkeypatch.setattr(
+            "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
+        )
+        monkeypatch.setattr(
+            "homeassistant.helpers.entity_registry.async_get",
+            lambda h: entity_registry_mock,
+        )
+        monkeypatch.setattr(
+            "homeassistant.helpers.device_registry.async_get",
+            lambda h: device_registry_mock,
+        )
+
+        area_manager = AreaManager(hass)
+
+        # Should return None when no area found
+        result = area_manager.get_entity_area("sensor.test_sensor")
+
+        assert result is None
+
+    def test_entity_without_area_and_without_device(
+        self, hass, area_registry_mock, entity_registry_mock, device_registry_mock, monkeypatch
+    ):
+        """Test entity lookup when entity has no area and no device."""
+        # Create entity without device_id and without area_id
+        test_entity = _create_mock_entity(
+            "sensor.test_sensor", None, None, "temperature"
+        )
+        
+        # Mock entity_registry.async_get() to return our test entity
+        entity_registry_mock.async_get.return_value = test_entity
+
+        monkeypatch.setattr(
+            "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
+        )
+        monkeypatch.setattr(
+            "homeassistant.helpers.entity_registry.async_get",
+            lambda h: entity_registry_mock,
+        )
+        monkeypatch.setattr(
+            "homeassistant.helpers.device_registry.async_get",
+            lambda h: device_registry_mock,
+        )
+
+        area_manager = AreaManager(hass)
+
+        # Should return None
+        result = area_manager.get_entity_area("sensor.test_sensor")
+
+        assert result is None

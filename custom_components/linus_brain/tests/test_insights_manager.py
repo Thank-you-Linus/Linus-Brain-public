@@ -67,16 +67,7 @@ def sample_insights():
             "metadata": {"source": "default"},
             "updated_at": "2025-10-26T00:00:00Z",
         },
-        {
-            "id": "insight-4",
-            "instance_id": None,
-            "area_id": None,
-            "insight_type": "bright_threshold_lux",
-            "value": {"threshold": 500},
-            "confidence": 0.3,
-            "metadata": {"source": "default"},
-            "updated_at": "2025-10-26T00:00:00Z",
-        },
+
         {
             "id": "insight-5",
             "instance_id": None,
@@ -122,7 +113,7 @@ class TestAsyncLoad:
         assert result is True
         assert insights_manager.is_loaded()
         assert insights_manager._last_loaded is not None
-        assert len(insights_manager._cache) == 5
+        assert len(insights_manager._cache) == 4
         mock_supabase_client.fetch_area_insights.assert_called_once_with("inst-123")
 
     @pytest.mark.asyncio
@@ -133,7 +124,7 @@ class TestAsyncLoad:
         # First load
         mock_supabase_client.fetch_area_insights.return_value = sample_insights
         await insights_manager.async_load("inst-123")
-        assert len(insights_manager._cache) == 5
+        assert len(insights_manager._cache) == 4
 
         # Second load with different data
         new_insights = [sample_insights[0]]  # Only one insight
@@ -344,16 +335,15 @@ class TestGetAllInsightsForArea:
 
         # Should include all insight types available
         assert "dark_threshold_lux" in insights
-        assert "bright_threshold_lux" in insights
         assert "dark_mode_brightness_pct" in insights
 
         # Should use instance-specific for dark_threshold_lux
         assert insights["dark_threshold_lux"]["value"]["threshold"] == 150
         assert insights["dark_threshold_lux"]["source"] == "instance_area_specific"
 
-        # Should use global defaults for others
-        assert insights["bright_threshold_lux"]["value"]["threshold"] == 500
-        assert insights["bright_threshold_lux"]["source"] == "global_default"
+        # Should use global defaults for dark_mode_brightness_pct
+        assert insights["dark_mode_brightness_pct"]["value"]["brightness"] == 30
+        assert insights["dark_mode_brightness_pct"]["source"] == "global_default"
 
     @pytest.mark.asyncio
     async def test_get_all_insights_empty_cache(self, insights_manager):
@@ -391,9 +381,8 @@ class TestGetAllInsightTypes:
 
         insight_types = insights_manager.get_all_insight_types()
 
-        assert len(insight_types) == 3
+        assert len(insight_types) == 2
         assert "dark_threshold_lux" in insight_types
-        assert "bright_threshold_lux" in insight_types
         assert "dark_mode_brightness_pct" in insight_types
         # Should be sorted
         assert insight_types == sorted(insight_types)
@@ -418,11 +407,11 @@ class TestGetCacheStats:
 
         stats = insights_manager.get_cache_stats()
 
-        assert stats["total_insights"] == 5
+        assert stats["total_insights"] == 4
         assert stats["instance_specific"] == 1  # inst-123 + salon
         assert stats["global_area_specific"] == 1  # None + cuisine
-        assert stats["global_defaults"] == 3  # None + None (3 types)
-        assert stats["insight_types"] == 3
+        assert stats["global_defaults"] == 2  # None + None (2 types)
+        assert stats["insight_types"] == 2
         assert stats["last_loaded"] is not None
 
     def test_cache_stats_empty(self, insights_manager):

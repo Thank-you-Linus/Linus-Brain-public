@@ -259,7 +259,7 @@ class InsightsManager:
 
         Example:
             >>> manager.get_all_insight_types()
-            ['dark_threshold_lux', 'bright_threshold_lux', 'dark_mode_brightness_pct', ...]
+            ['dark_threshold_lux', 'dark_mode_brightness_pct', ...]
         """
         insight_types = set()
         for _, _, insight_type in self._cache.keys():

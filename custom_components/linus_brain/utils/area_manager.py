@@ -553,10 +553,9 @@ class AreaManager:
         - humidity: Humidity from configured sensor or average
         - sun_elevation: Current sun angle
         - is_dark: True if lux < dark_threshold OR sun < 3 degrees
-        - is_bright: True if lux > bright_threshold AND sun > 10 degrees
 
         Thresholds are AI-learned via InsightsManager if available,
-        otherwise fall back to defaults (dark=20, bright=500).
+        otherwise fall back to defaults (dark=20).
 
         Args:
             area_id: The area ID to check
@@ -596,7 +595,6 @@ class AreaManager:
 
         # Get AI-learned thresholds or use defaults
         dark_threshold = 20.0  # Default fallback
-        bright_threshold = 500.0  # Default fallback
 
         if self._insights_manager and instance_id:
             # Try to get dark threshold from insights
@@ -608,17 +606,7 @@ class AreaManager:
                     dark_insight["value"].get("threshold", dark_threshold)
                 )
 
-            # Try to get bright threshold from insights
-            bright_insight = self._insights_manager.get_insight(
-                instance_id, area_id, "bright_threshold_lux"
-            )
-            if bright_insight and "value" in bright_insight:
-                bright_threshold = float(
-                    bright_insight["value"].get("threshold", bright_threshold)
-                )
-
         is_dark = False
-        is_bright = False
 
         if illuminance is not None and sun_elevation is not None:
             _LOGGER.debug(
@@ -626,26 +614,23 @@ class AreaManager:
                 f"(illuminance={illuminance} < {dark_threshold} OR sun_elevation={sun_elevation} < 3)"
             )
             is_dark = illuminance < dark_threshold or sun_elevation < 3
-            is_bright = illuminance > bright_threshold and sun_elevation > 10
         elif illuminance is not None:
             _LOGGER.debug(
                 f"Area {area_id}: Using ONLY illuminance "
                 f"(illuminance={illuminance} < {dark_threshold})"
             )
             is_dark = illuminance < dark_threshold
-            is_bright = illuminance > bright_threshold
         elif sun_elevation is not None:
             _LOGGER.debug(
                 f"Area {area_id}: Using ONLY sun_elevation "
                 f"(sun_elevation={sun_elevation} < 3)"
             )
             is_dark = sun_elevation < 3
-            is_bright = sun_elevation > 10
 
         _LOGGER.debug(
             f"Environmental state for {area_id}: "
-            f"dark_threshold={dark_threshold}, bright_threshold={bright_threshold}, "
-            f"is_dark={is_dark}, is_bright={is_bright}"
+            f"dark_threshold={dark_threshold}, "
+            f"is_dark={is_dark}"
         )
 
         return {
@@ -654,7 +639,6 @@ class AreaManager:
             "humidity": humidity,
             "sun_elevation": sun_elevation,
             "is_dark": is_dark,
-            "is_bright": is_bright,
         }
 
     def get_area_temperature(self, area_id: str) -> float | None:

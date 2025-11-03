@@ -28,6 +28,7 @@ from .entity_resolver import EntityResolver
 _LOGGER = logging.getLogger(__name__)
 
 COOLDOWN_SECONDS = 30
+COOLDOWN_ENVIRONMENTAL_SECONDS = 300  # 5 minutes for environmental transitions
 DEBOUNCE_SECONDS = 2
 
 
@@ -80,6 +81,10 @@ class RuleEngine:
         self._last_triggered: dict[str, datetime] = {}
         self._debounce_tasks: dict[str, asyncio.Task] = {}
         self._last_actions: dict[str, dict[str, Any]] = {}
+        
+        # Environmental state tracking for transition detection
+        # Format: {area_id: {"is_dark": bool}}
+        self._previous_env_state: dict[str, dict[str, bool]] = {}
 
         self._stats = {
             "total_triggers": 0,
@@ -295,6 +300,55 @@ class RuleEngine:
 
         return False
 
+    def _get_current_environmental_state(self, area_id: str) -> dict[str, bool]:
+        """
+        Get current environmental state for an area.
+
+        Uses area_manager.get_area_environmental_state() to compute:
+        - is_dark: True if illuminance < 20 lux or sun elevation < 3°
+
+        Args:
+            area_id: Area ID
+
+        Returns:
+            Dictionary with is_dark boolean value
+        """
+        if not self.area_manager:
+            return {"is_dark": False}
+
+        env_state = self.area_manager.get_area_environmental_state(area_id)
+        return {
+            "is_dark": env_state.get("is_dark", False),
+        }
+
+    def _detect_environmental_transition(
+        self, area_id: str, current_state: dict[str, bool]
+    ) -> str | None:
+        """
+        Detect environmental state transitions.
+
+        Compares current state to previous state and returns transition type:
+        - "became_dark": is_dark changed from False to True
+
+        Args:
+            area_id: Area ID
+            current_state: Current environmental state {"is_dark": bool}
+
+        Returns:
+            Transition type string or None if no transition detected
+        """
+        previous_state = self._previous_env_state.get(area_id)
+        
+        if previous_state is None:
+            # First time seeing this area, no transition
+            return None
+
+        # Check for darkness transition
+        if not previous_state.get("is_dark") and current_state.get("is_dark"):
+            return "became_dark"
+
+        return None
+
     async def enable_area(self, area_id: str) -> None:
         """
         Enable automation for an area.
@@ -371,6 +425,16 @@ class RuleEngine:
 
         self._listeners[area_id] = listeners
 
+        # Initialize environmental state cache for areas using area_state conditions
+        if uses_area_state:
+            self._previous_env_state[area_id] = self._get_current_environmental_state(
+                area_id
+            )
+            _LOGGER.debug(
+                f"Initialized environmental state cache for {area_id}: "
+                f"{self._previous_env_state[area_id]}"
+            )
+
         condition_count = len(all_entities - presence_entities - environmental_entities)
         env_count = len(environmental_entities)
 
@@ -385,7 +449,7 @@ class RuleEngine:
         """
         Disable automation for an area.
 
-        Removes all listeners for the area.
+        Removes all listeners for the area and clears environmental state cache.
 
         Args:
             area_id: Area ID
@@ -394,6 +458,7 @@ class RuleEngine:
             listener()
 
         self._listeners.pop(area_id, None)
+        self._previous_env_state.pop(area_id, None)
 
         _LOGGER.info(f"Disabled automation for area: {area_id}")
 
@@ -459,19 +524,53 @@ class RuleEngine:
                 affected_areas.append(area_id)
 
         for area_id in affected_areas:
-            key = f"{area_id}_{entity_id}"
+            # Check if this is an environmental entity triggering a state transition
+            environmental_entities = self._get_area_environmental_entities(area_id)
+            is_environmental = entity_id in environmental_entities
+
+            if is_environmental:
+                # Check for environmental state transition
+                current_env_state = self._get_current_environmental_state(area_id)
+                transition = self._detect_environmental_transition(
+                    area_id, current_env_state
+                )
+
+                # Update cache for next comparison
+                self._previous_env_state[area_id] = current_env_state
+
+                if transition:
+                    _LOGGER.info(
+                        f"Environmental transition detected for {area_id}: {transition} "
+                        f"(triggered by {entity_id})"
+                    )
+                    # Environmental transition detected, trigger immediate evaluation
+                    # Use separate debounce key for environmental triggers
+                    key = f"{area_id}_env_transition"
+                else:
+                    # Environmental entity changed but no transition, skip
+                    _LOGGER.debug(
+                        f"Environmental entity {entity_id} changed for {area_id} "
+                        f"but no transition detected, skipping"
+                    )
+                    continue
+            else:
+                # Non-environmental entity (presence or condition entity)
+                key = f"{area_id}_{entity_id}"
 
             if key in self._debounce_tasks and not self._debounce_tasks[key].done():
                 self._debounce_tasks[key].cancel()
 
             self._debounce_tasks[key] = asyncio.create_task(
-                self._async_evaluate_rule_debounced(area_id, entity_id)
+                self._async_evaluate_rule_debounced(
+                    area_id, entity_id, is_environmental=is_environmental
+                )
             )
 
     async def _async_evaluate_rule_debounced(
         self,
         area_id: str,
         entity_id: str,
+        is_environmental: bool = False,
     ) -> None:
         """
         Evaluate rule after debounce delay.
@@ -479,14 +578,18 @@ class RuleEngine:
         Args:
             area_id: Area ID
             entity_id: Entity that changed
+            is_environmental: True if triggered by environmental transition
         """
         await asyncio.sleep(DEBOUNCE_SECONDS)
 
-        _LOGGER.info(f"Evaluating rule for {area_id} (triggered by {entity_id})")
+        trigger_type = "environmental transition" if is_environmental else entity_id
+        _LOGGER.info(f"Evaluating rule for {area_id} (triggered by {trigger_type})")
 
-        await self._async_evaluate_and_execute(area_id)
+        await self._async_evaluate_and_execute(area_id, is_environmental=is_environmental)
 
-    async def _async_evaluate_and_execute(self, area_id: str) -> None:
+    async def _async_evaluate_and_execute(
+        self, area_id: str, is_environmental: bool = False
+    ) -> None:
         """
         Evaluate conditions and execute actions based on current activity.
 
@@ -499,6 +602,7 @@ class RuleEngine:
 
         Args:
             area_id: Area ID
+            is_environmental: True if triggered by environmental transition
         """
         self._stats["total_triggers"] += 1
 
@@ -546,9 +650,12 @@ class RuleEngine:
             )
             return
 
-        if not self._check_cooldown(area_id, current_activity):
+        if not self._check_cooldown(area_id, current_activity, is_environmental):
             self._stats["cooldown_blocks"] += 1
-            _LOGGER.debug(f"Rule {area_id}:{current_activity} in cooldown, skipping")
+            trigger_type = "environmental" if is_environmental else "activity"
+            _LOGGER.debug(
+                f"Rule {area_id}:{current_activity} ({trigger_type}) in cooldown, skipping"
+            )
             return
 
         action_config = activity_actions[current_activity]
@@ -583,7 +690,9 @@ class RuleEngine:
 
                 if success:
                     self._stats["successful_executions"] += 1
-                    self._update_last_triggered(area_id, current_activity)
+                    self._update_last_triggered(
+                        area_id, current_activity, is_environmental=is_environmental
+                    )
 
                     self._last_actions[area_id] = {
                         "activity": current_activity,
@@ -617,29 +726,49 @@ class RuleEngine:
             )
             self._stats["failed_executions"] += 1
 
-    def _check_cooldown(self, area_id: str, activity_type: str | None = None) -> bool:
+    def _check_cooldown(
+        self,
+        area_id: str,
+        activity_type: str | None = None,
+        is_environmental: bool = False,
+    ) -> bool:
         """
         Check if rule is in cooldown period.
+
+        Environmental triggers use a longer cooldown (5 minutes) than activity triggers (30 seconds).
 
         Args:
             area_id: Area ID
             activity_type: Optional activity type for activity-based rules
+            is_environmental: True if checking environmental trigger cooldown
 
         Returns:
             True if not in cooldown, False if in cooldown
         """
-        cooldown_key = f"{area_id}_{activity_type}" if activity_type else area_id
+        # Use separate cooldown key for environmental triggers
+        if is_environmental:
+            cooldown_key = f"{area_id}_env"
+        else:
+            cooldown_key = f"{area_id}_{activity_type}" if activity_type else area_id
 
         if cooldown_key not in self._last_triggered:
             return True
 
         last_trigger = self._last_triggered[cooldown_key]
-        cooldown_until = last_trigger + timedelta(seconds=COOLDOWN_SECONDS)
+        
+        # Use different cooldown duration for environmental triggers
+        cooldown_duration = (
+            COOLDOWN_ENVIRONMENTAL_SECONDS if is_environmental else COOLDOWN_SECONDS
+        )
+        cooldown_until = last_trigger + timedelta(seconds=cooldown_duration)
 
         return dt_util.utcnow() > cooldown_until
 
     def _update_last_triggered(
-        self, area_id: str, activity_type: str | None = None
+        self,
+        area_id: str,
+        activity_type: str | None = None,
+        is_environmental: bool = False,
     ) -> None:
         """
         Update last triggered timestamp for an area/activity.
@@ -647,8 +776,13 @@ class RuleEngine:
         Args:
             area_id: Area ID
             activity_type: Optional activity type for activity-based rules
+            is_environmental: True if updating environmental trigger timestamp
         """
-        cooldown_key = f"{area_id}_{activity_type}" if activity_type else area_id
+        # Use separate cooldown key for environmental triggers
+        if is_environmental:
+            cooldown_key = f"{area_id}_env"
+        else:
+            cooldown_key = f"{area_id}_{activity_type}" if activity_type else area_id
         self._last_triggered[cooldown_key] = dt_util.utcnow()
 
     async def reload_assignments(self) -> int:
