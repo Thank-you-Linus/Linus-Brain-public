@@ -207,11 +207,12 @@ class RuleEngine:
         """
         Get all presence detection entities for an area.
 
-        Uses PRESENCE_DETECTION_DOMAINS from const.py to find:
+        Uses dynamic get_presence_detection_domains() to find:
         - binary_sensor.motion
         - binary_sensor.presence
         - binary_sensor.occupancy
         - media_player (any)
+        - Plus any domains from activity detection_conditions
 
         Args:
             area_id: Area ID
@@ -219,7 +220,7 @@ class RuleEngine:
         Returns:
             Set of entity IDs
         """
-        from ..const import PRESENCE_DETECTION_DOMAINS
+        from .area_manager import get_presence_detection_domains
 
         entities: set[str] = set()
 
@@ -227,7 +228,8 @@ class RuleEngine:
             _LOGGER.warning("No area_manager available for presence entity lookup")
             return entities
 
-        for domain, device_classes in PRESENCE_DETECTION_DOMAINS.items():
+        presence_domains = get_presence_detection_domains()
+        for domain, device_classes in presence_domains.items():
             if not device_classes:
                 domain_entities = self.area_manager.get_area_entities(
                     area_id, domain=domain

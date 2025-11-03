@@ -135,6 +135,8 @@ class LinusBrainSyncSensor(CoordinatorEntity, SensorEntity):
 
     def _update_from_coordinator(self) -> None:
         """Update sensor attributes from coordinator data."""
+        from .utils.area_manager import get_monitored_domains, get_presence_detection_domains
+        
         # Get real cloud sync time from app_storage
         sync_time = self.coordinator.app_storage.get_sync_time()  # type: ignore[attr-defined]
 
@@ -153,12 +155,16 @@ class LinusBrainSyncSensor(CoordinatorEntity, SensorEntity):
                 "assignments_loaded": len(assignments),
                 "is_fallback_data": is_fallback,
                 "supabase_url": self.coordinator.supabase_url,  # type: ignore[attr-defined]
+                "monitored_domains": get_monitored_domains(),
+                "presence_detection_domains": get_presence_detection_domains(),
             }
         else:
             self._attr_native_value = None
             self._attr_extra_state_attributes = {
                 "status": "Never synced",
                 "is_fallback_data": self.coordinator.app_storage.is_fallback_data(),  # type: ignore[attr-defined]
+                "monitored_domains": get_monitored_domains(),
+                "presence_detection_domains": get_presence_detection_domains(),
             }
 
 

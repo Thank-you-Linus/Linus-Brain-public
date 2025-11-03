@@ -12,19 +12,6 @@ CONF_SUPABASE_URL = "supabase_url"
 CONF_SUPABASE_KEY = "supabase_key"
 CONF_USE_SUN_ELEVATION = "use_sun_elevation"
 
-# Monitored domains and device classes
-MONITORED_DOMAINS = {
-    "binary_sensor": ["motion", "presence", "occupancy"],
-    "sensor": ["illuminance"],
-    "media_player": [],  # No device class
-}
-
-# Presence detection configuration
-PRESENCE_DETECTION_DOMAINS = {
-    "binary_sensor": ["motion", "presence", "occupancy"],
-    "media_player": [],
-}
-
 # Activity types
 ACTIVITY_EMPTY = "empty"
 
@@ -89,6 +76,17 @@ DEFAULT_ACTIVITY_TYPES = {
         "is_transition_state": False,
         "is_system": True,
     },
+    "inactive": {
+        "activity_id": "inactive",
+        "activity_name": "Inactive",
+        "description": "Transition state after movement stops, before area becomes empty",
+        "detection_conditions": [],
+        "duration_threshold_seconds": 0,
+        "timeout_seconds": 60,
+        "transition_to": "empty",
+        "is_transition_state": True,
+        "is_system": True,
+    },
     "movement": {
         "activity_id": "movement",
         "activity_name": "Movement Detected",
@@ -105,12 +103,6 @@ DEFAULT_ACTIVITY_TYPES = {
                     },
                     {
                         "condition": "state",
-                        "domain": "binary_sensor",
-                        "device_class": "occupancy",
-                        "state": "on",
-                    },
-                    {
-                        "condition": "state",
                         "domain": "media_player",
                         "state": "playing",
                     },
@@ -118,20 +110,9 @@ DEFAULT_ACTIVITY_TYPES = {
             }
         ],
         "duration_threshold_seconds": 0,
-        "timeout_seconds": 30,
+        "timeout_seconds": 1,
         "transition_to": "inactive",
         "is_transition_state": False,
-        "is_system": True,
-    },
-    "inactive": {
-        "activity_id": "inactive",
-        "activity_name": "Inactive",
-        "description": "Transition state after movement stops, before area becomes empty",
-        "detection_conditions": [],
-        "duration_threshold_seconds": 0,
-        "timeout_seconds": 60,
-        "transition_to": "empty",
-        "is_transition_state": True,
         "is_system": True,
     },
     "occupied": {
@@ -150,19 +131,13 @@ DEFAULT_ACTIVITY_TYPES = {
                     },
                     {
                         "condition": "state",
-                        "domain": "binary_sensor",
-                        "device_class": "occupancy",
-                        "state": "on",
-                    },
-                    {
-                        "condition": "state",
                         "domain": "media_player",
                         "state": "playing",
                     },
                 ],
             }
         ],
-        "duration_threshold_seconds": 60,
+        "duration_threshold_seconds": 300,
         "timeout_seconds": 300,
         "transition_to": "inactive",
         "is_transition_state": False,
@@ -249,4 +224,20 @@ DEFAULT_AUTOLIGHT_APP = {
             "description": "Turn off lights when area is empty",
         },
     },
+}
+
+
+# Monitored domains for entity discovery and tracking
+# Maps domain to list of device_classes (empty list = monitor all entities in that domain)
+MONITORED_DOMAINS = {
+    "binary_sensor": ["motion"],  # Presence detection
+    "media_player": [],  # Media player presence detection (all media players)
+    "sensor": ["humidity", "illuminance", "temperature"],  # Environmental sensors for insights
+}
+
+# Presence detection domains for activity tracking
+# Only includes domains/device_classes used for presence/movement detection
+PRESENCE_DETECTION_DOMAINS = {
+    "binary_sensor": ["motion"],  # Motion and presence sensors
+    "media_player": [],  # Media players (playing state indicates presence)
 }

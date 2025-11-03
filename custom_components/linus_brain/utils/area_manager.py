@@ -18,9 +18,131 @@ from typing import Any
 from homeassistant.core import HomeAssistant, State, split_entity_id
 from homeassistant.helpers import area_registry, device_registry, entity_registry
 
-from ..const import MONITORED_DOMAINS, PRESENCE_DETECTION_DOMAINS
+from ..const import (
+    DEFAULT_ACTIVITY_TYPES,
+    DEFAULT_AUTOLIGHT_APP,
+    MONITORED_DOMAINS,  # Used in module-level get_monitored_domains()
+    PRESENCE_DETECTION_DOMAINS,  # Used in module-level get_presence_detection_domains()
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _extract_domains_from_conditions(conditions: list) -> dict[str, set[str]]:
+    """
+    Recursively extract domains and device_classes from condition structures.
+    
+    Args:
+        conditions: List of condition dictionaries
+        
+    Returns:
+        Dictionary mapping domain to set of device_classes
+    """
+    result: dict[str, set[str]] = {}
+    
+    if not conditions:
+        return result
+    
+    for condition in conditions:
+        # Handle nested OR/AND conditions
+        if condition.get("condition") in ("or", "and"):
+            nested = _extract_domains_from_conditions(condition.get("conditions", []))
+            for domain, device_classes in nested.items():
+                if domain not in result:
+                    result[domain] = set()
+                result[domain].update(device_classes)
+        
+        # Handle state conditions with domain/device_class
+        elif condition.get("condition") == "state":
+            domain = condition.get("domain")
+            device_class = condition.get("device_class")
+            
+            if domain:
+                if domain not in result:
+                    result[domain] = set()
+                if device_class:
+                    result[domain].add(device_class)
+    
+    return result
+
+
+def get_monitored_domains() -> dict[str, list[str]]:
+    """
+    Dynamically compute monitored domains from activity detection conditions.
+    
+    Returns:
+        Dictionary mapping domain to list of device_classes (empty list = monitor all)
+    """
+    domains: dict[str, set[str]] = {}
+    
+    # 1. Extract from activity detection conditions
+    for activity in DEFAULT_ACTIVITY_TYPES.values():
+        conditions = activity.get("detection_conditions", [])
+        extracted = _extract_domains_from_conditions(conditions)
+        for domain, device_classes in extracted.items():
+            if domain not in domains:
+                domains[domain] = set()
+            domains[domain].update(device_classes)
+    
+    # 2. Extract from app conditions (e.g., automatic_lighting)
+    for activity_actions in DEFAULT_AUTOLIGHT_APP["activity_actions"].values():
+        conditions = activity_actions.get("conditions", [])
+        extracted = _extract_domains_from_conditions(conditions)
+        for domain, device_classes in extracted.items():
+            if domain not in domains:
+                domains[domain] = set()
+            domains[domain].update(device_classes)
+    
+    # 3. Add base sensors for insights (illuminance, temperature, humidity, presence)
+    # These are always monitored from MONITORED_DOMAINS constant
+    for domain, device_classes in MONITORED_DOMAINS.items():
+        if domain not in domains:
+            domains[domain] = set()
+        domains[domain].update(device_classes)
+    
+    # Convert sets to lists (empty list means monitor all entities in that domain)
+    result = {}
+    for domain, device_classes in domains.items():
+        result[domain] = sorted(list(device_classes)) if device_classes else []
+    
+    return result
+
+
+def get_presence_detection_domains() -> dict[str, list[str]]:
+    """
+    Dynamically compute presence detection domains from activity detection conditions.
+    Only includes domains/device_classes used for presence/movement detection.
+    
+    Returns:
+        Dictionary mapping domain to list of device_classes (empty list = monitor all)
+    """
+    domains: dict[str, set[str]] = {}
+    
+    # 1. Extract only from activities that detect presence (movement, occupied)
+    presence_activities = ["movement", "occupied"]
+    for activity_id in presence_activities:
+        activity = DEFAULT_ACTIVITY_TYPES.get(activity_id)
+        if activity:
+            conditions = activity.get("detection_conditions", [])
+            extracted = _extract_domains_from_conditions(conditions)
+            for domain, device_classes in extracted.items():
+                if domain not in domains:
+                    domains[domain] = set()
+                domains[domain].update(device_classes)
+    
+    # 2. Add base presence detection domains (e.g., 'presence' device class)
+    # These are always monitored from PRESENCE_DETECTION_DOMAINS constant
+    for domain, device_classes in PRESENCE_DETECTION_DOMAINS.items():
+        if domain not in domains:
+            domains[domain] = set()
+        domains[domain].update(device_classes)
+    
+    # Convert sets to lists
+    result = {}
+    for domain, device_classes in domains.items():
+        result[domain] = sorted(list(device_classes)) if device_classes else []
+    
+    return result
 
 
 class AreaManager:
@@ -62,17 +184,20 @@ class AreaManager:
             Dictionary mapping area_id to list of entity_ids
         """
         area_entities: dict[str, list[str]] = {}
+        
+        # Get dynamically computed monitored domains
+        monitored_domains = get_monitored_domains()
 
         # Iterate through all registered entities
         for entity in self._entity_registry.entities.values():
             # Check if entity is in a monitored domain
             domain = entity.domain
 
-            if domain not in MONITORED_DOMAINS:
+            if domain not in monitored_domains:
                 continue
 
             # Check device class (if applicable)
-            device_classes = MONITORED_DOMAINS[domain]
+            device_classes = monitored_domains[domain]
             if device_classes and entity.original_device_class not in device_classes:
                 continue
 
@@ -334,7 +459,7 @@ class AreaManager:
         """
         Check if area has presence detection capabilities.
 
-        Uses PRESENCE_DETECTION_DOMAINS from const.py by default, or custom config.
+        Uses dynamically computed presence detection domains by default, or custom config.
 
         Args:
             area_id: Area ID to check
@@ -345,7 +470,7 @@ class AreaManager:
         Returns:
             True if area has at least one presence detection entity
         """
-        config = presence_config or PRESENCE_DETECTION_DOMAINS
+        config = presence_config or get_presence_detection_domains()
 
         for domain, device_classes in config.items():
             if not device_classes:
@@ -442,7 +567,7 @@ class AreaManager:
         Get binary presence detection for an area.
 
         Checks if any presence detection entities are currently active (on).
-        Uses PRESENCE_DETECTION_DOMAINS from const.py by default.
+        Uses dynamically computed presence detection domains by default.
 
         Args:
             area_id: The area ID to check
@@ -452,7 +577,7 @@ class AreaManager:
         Returns:
             True if presence detected, False otherwise
         """
-        config = presence_config or PRESENCE_DETECTION_DOMAINS
+        config = presence_config or get_presence_detection_domains()
 
         for entity in self._entity_registry.entities.values():
             entity_area_id = self._get_entity_area_id(entity)
@@ -784,8 +909,8 @@ class AreaManager:
         """
         Get entity IDs used for activity tracking and environmental state in an area.
 
-        Returns entities from MONITORED_DOMAINS (motion, presence, occupancy,
-        illuminance, media_player) that are actually tracked for area state.
+        Returns entities from dynamically computed monitored domains (motion, presence,
+        illuminance, media_player, etc.) that are actually tracked for area state.
 
         Args:
             area_id: The area ID

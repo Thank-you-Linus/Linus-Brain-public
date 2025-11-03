@@ -23,8 +23,6 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-MONITORED_DOMAINS = ["binary_sensor", "sensor", "media_player", "light"]
-
 # Device classes to monitor (for binary_sensor and sensor)
 MONITORED_DEVICE_CLASSES = ["motion", "presence", "occupancy", "illuminance"]
 
@@ -74,13 +72,18 @@ class EventListener:
         Returns:
             True if entity should be processed, False otherwise
         """
+        from .area_manager import get_monitored_domains
+
         domain = split_entity_id(entity_id)[0]
 
+        # Get dynamic monitored domains (includes base + activity detection_conditions)
+        monitored_domains = get_monitored_domains()
+        
         # Check if domain is monitored
-        if domain not in MONITORED_DOMAINS:
+        if domain not in monitored_domains:
             return False
 
-        # For media_player, always process
+        # For media_player and light, always process
         if domain in ("media_player", "light"):
             return True
 
