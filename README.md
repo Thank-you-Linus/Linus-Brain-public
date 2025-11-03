@@ -1,6 +1,6 @@
 # Linus Brain - AI Learning for Home Assistant
 
-[![GitHub Release](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/Thank-you-Linus/Linus-Brain)
+[![GitHub Release](https://img.shields.io/badge/version-0.3.0-blue.svg)](https://github.com/Thank-you-Linus/Linus-Brain)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![HACS](https://img.shields.io/badge/HACS-Default-orange.svg)](https://hacs.xyz)
 
@@ -21,6 +21,8 @@ Linus Brain agit comme un **pont IA** entre votre Home Assistant et un système 
 - 💡 **Apprentissage contextuel des lumières** - Capture les actions manuelles avec leur contexte d'activité
 - 🔄 **Automatisations basées sur l'activité** - Commutateurs générés uniquement pour les zones éligibles (lumière + capteur)
 - 🎯 **Sélecteurs d'entités génériques** - Règles qui s'adaptent automatiquement à chaque zone (domain + device_class + area)
+- 🎛️ **Feature Flags** 🆕 - Contrôle granulaire des fonctionnalités par zone (lumières, présence, activités, climat, sécurité)
+- 🧠 **AI Insights** 🆕 - Insights contextuels générés par IA avec système de fallback à trois niveaux
 - ☁️ **Synchronisation cloud** temps réel + heartbeat périodique vers Supabase
 - 🤖 **Infrastructure prête pour l'IA** pour générer des automatisations intelligentes
 - 📈 **Capteurs diagnostiques** pour suivre le fonctionnement de l'intégration
@@ -31,10 +33,13 @@ Linus Brain agit comme un **pont IA** entre votre Home Assistant et un système 
 
 ## 📚 Documentation
 
-- **[Guide de démarrage rapide](custom_components/linus_brain/QUICKSTART.md)** - Installation et configuration en 5 étapes
-- **[Documentation complète](custom_components/linus_brain/README.md)** - Architecture, fonctionnalités détaillées et API
-- **[Format des règles](custom_components/linus_brain/RULE_FORMAT.md)** - Guide complet sur les sélecteurs d'entités génériques
-- **[Configuration](custom_components/linus_brain/CONFIGURATION.md)** - Configuration avancée et personnalisation
+- **[Guide de démarrage rapide](docs/QUICKSTART.md)** - Installation et configuration en 5 étapes
+- **[Feature Flags](docs/FEATURE_FLAGS.md)** 🆕 - Guide complet du système de feature flags par zone
+- **[Apps & Activities](docs/APPS_AND_ACTIVITIES.md)** - Système d'automatisations basées sur les activités
+- **[AI Insights](docs/AI_INSIGHTS.md)** - Documentation du système d'insights IA
+- **[Format des règles](docs/RULE_FORMAT.md)** - Guide complet sur les sélecteurs d'entités génériques
+- **[Configuration](docs/CONFIGURATION.md)** - Configuration avancée et personnalisation
+- **[Architecture](ARCHITECTURE.md)** - Architecture détaillée du système
 - **[Code source](custom_components/linus_brain/)** - Commenté et documenté pour faciliter la compréhension
 
 ---
@@ -140,16 +145,65 @@ Home Assistant → Linus Brain → Supabase → Agent IA → Règles → Home As
 
 ---
 
+## 🎛️ Feature Flags - Contrôle Granulaire 🆕
+
+Linus Brain v0.3.0 introduit un **système de feature flags par zone** qui vous donne un contrôle total sur les fonctionnalités activées dans chaque pièce de votre maison.
+
+### 5 Feature Flags Disponibles
+
+Chaque zone dispose de **5 commutateurs** (switches) pour contrôler les fonctionnalités :
+
+| Feature | Description | Par défaut |
+|---------|-------------|------------|
+| 🔆 **Automatic Lighting** | Contrôle automatique des lumières basé sur la présence | ✅ ON |
+| 👤 **Presence Detection** | Détection de présence et suivi d'activité | ✅ ON |
+| 📱 **Activity Tracking** | Suivi des activités (TV, Gaming, Cooking, etc.) | ✅ ON |
+| 🌡️ **Climate Control** | Contrôle automatique du climat | ❌ OFF |
+| 🔒 **Security Mode** | Mode sécurité (alertes mouvement, logs) | ❌ OFF |
+
+### Exemples d'Utilisation
+
+**Désactiver l'éclairage automatique dans la chambre la nuit :**
+```yaml
+- service: switch.turn_off
+  target:
+    entity_id: switch.linus_brain_bedroom_automatic_lighting
+```
+
+**Activer le mode sécurité quand vous partez :**
+```yaml
+- service: switch.turn_on
+  target:
+    entity_id:
+      - switch.linus_brain_front_door_security_mode
+      - switch.linus_brain_garage_security_mode
+```
+
+**Vérification dans le code :**
+```python
+if await feature_manager.is_enabled("living_room", "automatic_lighting"):
+    # Fonctionnalité activée, exécuter l'automation
+    pass
+```
+
+👉 **[Documentation complète des Feature Flags](docs/FEATURE_FLAGS.md)**
+
+---
+
 ## 🛠️ Développement
 
 Ce projet est conçu pour être transparent et modulaire. Consultez les fichiers sources avec leurs commentaires détaillés :
 
 - `__init__.py` - Point d'entrée de l'intégration
 - `coordinator.py` - Gestion des mises à jour périodiques
-- `utils/area_manager.py` - Agrégation des données par pièce
+- `utils/area_manager.py` - Agrégation des données par zone
 - `utils/event_listener.py` - Écoute des changements d'état en temps réel
 - `utils/supabase_client.py` - Client HTTP asynchrone pour Supabase
-- `utils/rule_engine.py` - Moteur de règles IA (placeholder)
+- `utils/rule_engine.py` - Moteur de règles IA avec vérification feature flags
+- `utils/feature_flag_manager.py` - Gestion des feature flags par zone
+- `utils/insights_manager.py` - Gestionnaire d'insights IA avec fallback
+- `utils/activity_tracker.py` - Suivi des activités par zone
+- `utils/light_learning.py` - Apprentissage des préférences d'éclairage
 
 ### Tests locaux
 
@@ -180,9 +234,11 @@ hass -c ~/.homeassistant
 - [x] **v0.1.1** - Apprentissage des patterns de contrôle des lumières
 - [x] **v0.1.2** - Support multi-instances Home Assistant
 - [x] **v0.1.3** - Système d'automatisation basé sur l'activité avec suivi de durée
-- [ ] **v0.2.0** - Intégration IA et génération de règles contextuelles
-- [ ] **v0.3.0** - Interface utilisateur avancée et visualisations
-- [ ] **v0.4.0** - Prédiction de scènes lumineuses et optimisation continue
+- [x] **v0.2.0** - Activity Tracking, Apps dynamiques, Light Learning
+- [x] **v0.3.0** - Feature Flags par zone, AI Insights Manager 🎉
+- [ ] **v0.4.0** - Interface utilisateur avancée et visualisations
+- [ ] **v0.5.0** - Prédiction de scènes lumineuses et optimisation continue
+- [ ] **v0.6.0** - Génération automatique de règles IA basées sur patterns
 
 ---
 
