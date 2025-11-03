@@ -138,9 +138,19 @@ DEFAULT_ACTIVITY_TYPES = {
     },
 }
 
-# Default autolight app (ultimate fallback)
+# Feature flags available for apps
+AVAILABLE_FEATURES = {
+    "automatic_lighting": {
+        "app_id": "automatic_lighting",
+        "name": "Automatic Lighting",
+        "description": "Allume automatiquement les lumières en cas de mouvement",
+        "default_enabled": False  # OFF par défaut comme demandé
+    }
+}
+
+# Default automatic_lighting app (ultimate fallback)
 DEFAULT_AUTOLIGHT_APP = {
-    "app_id": "autolight",
+    "app_id": "automatic_lighting",
     "app_name": "Automatic Lighting",
     "description": "Turn lights on when movement detected in dark conditions, turn off when empty",
     "required_domains": ["light"],

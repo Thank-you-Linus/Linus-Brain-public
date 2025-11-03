@@ -185,17 +185,18 @@ class TestRuleEngineEnableDisable:
 
         await rule_engine.enable_area("kitchen")
 
-        assert "kitchen" in rule_engine._enabled_areas
+        # In new architecture, areas are always enabled for activities
+        # Feature flags control app execution, not area enablement
+        assert "kitchen" in rule_engine._listeners
 
     @pytest.mark.asyncio
     async def test_disable_area(self, rule_engine):
         """Test disabling an area."""
-        rule_engine._enabled_areas = {"kitchen"}
         rule_engine._listeners = {"kitchen": []}
 
         await rule_engine.disable_area("kitchen")
 
-        assert "kitchen" not in rule_engine._enabled_areas
+        assert "kitchen" not in rule_engine._listeners
 
 
 class TestRuleEngineStats:
@@ -247,7 +248,7 @@ class TestRuleEngineShutdown:
             "kitchen": [mock_listener_kitchen],
             "bedroom": [mock_listener_bedroom],
         }
-        rule_engine._enabled_areas = {"kitchen", "bedroom"}
+        rule_engine._assignments = {"kitchen": {}, "bedroom": {}}
 
         await rule_engine.async_shutdown()
 

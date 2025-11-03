@@ -50,6 +50,7 @@ class RuleEngine:
         activity_tracker=None,
         app_storage=None,
         area_manager=None,
+        feature_flag_manager=None,
     ) -> None:
         """
         Initialize the rule engine.
@@ -65,6 +66,7 @@ class RuleEngine:
         self.entry_id = entry_id
         self.activity_tracker = activity_tracker
         self.area_manager = area_manager
+        self.feature_flag_manager = feature_flag_manager
 
         self.app_storage = app_storage if app_storage else AppStorage(hass)
         self.entity_resolver = EntityResolver(hass)
@@ -74,7 +76,6 @@ class RuleEngine:
         self.action_executor = ActionExecutor(hass, self.entity_resolver)
 
         self._assignments: dict[str, dict[str, Any]] = {}
-        self._enabled_areas: set[str] = set()
         self._listeners: dict[str, list[Any]] = {}
         self._last_triggered: dict[str, datetime] = {}
         self._debounce_tasks: dict[str, asyncio.Task] = {}
@@ -92,7 +93,7 @@ class RuleEngine:
         Initialize the rule engine.
 
         Loads apps/assignments from AppStorage and registers listeners.
-        If no assignments exist, creates default autolight assignments for all areas.
+        If no assignments exist, creates default automatic_lighting assignments for all areas.
         """
         _LOGGER.info("Initializing rule engine")
 
@@ -115,7 +116,7 @@ class RuleEngine:
 
         _LOGGER.info(
             f"Rule engine initialized: {len(self._assignments)} assignments, "
-            f"{len(self._enabled_areas)} enabled"
+            "initialized"
         )
 
     async def async_shutdown(self) -> None:
@@ -126,7 +127,7 @@ class RuleEngine:
         """
         _LOGGER.info("Shutting down rule engine")
 
-        for area_id in list(self._enabled_areas):
+        for area_id in self._assignments.keys():
             await self.disable_area(area_id)
 
         for task in self._debounce_tasks.values():
@@ -139,7 +140,7 @@ class RuleEngine:
         """
         Ensure all areas have app assignments.
 
-        Creates default autolight assignments for areas without assignments.
+        Creates default automatic_lighting assignments for areas without assignments.
         Uses cloud-first strategy: tries Supabase first, then local storage.
         """
         try:
@@ -162,7 +163,7 @@ class RuleEngine:
 
                 assignment_data = {
                     "area_id": area.id,
-                    "app_id": "autolight",
+                    "app_id": "automatic_lighting",
                     "enabled": True,
                     "created_at": dt_util.utcnow().isoformat(),
                     "is_default": True,
@@ -174,11 +175,11 @@ class RuleEngine:
                         await coordinator.supabase_client.save_area_assignment(
                             instance_id=instance_id,
                             area_id=area.id,
-                            app_id="autolight",
+                            app_id="automatic_lighting",
                             enabled=True,
                         )
                         _LOGGER.debug(
-                            f"Created cloud assignment for area {area.id}: autolight"
+                            f"Created cloud assignment for area {area.id}: automatic_lighting"
                         )
                     except Exception as err:
                         _LOGGER.warning(
@@ -190,7 +191,7 @@ class RuleEngine:
                 created_count += 1
 
             await self.app_storage.async_save()
-            _LOGGER.info(f"Created {created_count} default autolight assignments")
+            _LOGGER.info(f"Created {created_count} default automatic_lighting assignments")
 
         except Exception as err:
             _LOGGER.error(f"Failed to create default assignments: {err}")
@@ -281,15 +282,15 @@ class RuleEngine:
         """
         for condition in conditions:
             condition_type = condition.get("condition")
-            
+
             if condition_type == "area_state":
                 return True
-            
+
             if condition_type in ["and", "or"]:
                 nested_conditions = condition.get("conditions", [])
                 if self._has_area_state_condition(nested_conditions):
                     return True
-        
+
         return False
 
     async def enable_area(self, area_id: str) -> None:
@@ -308,9 +309,8 @@ class RuleEngine:
             _LOGGER.warning(f"No assignment found for area: {area_id}")
             return
 
-        if area_id in self._enabled_areas:
-            _LOGGER.debug(f"Area {area_id} already enabled")
-            return
+        # Areas are always "enabled" for activities, feature flags control app execution
+        _LOGGER.debug(f"Enabling area {area_id} for activity tracking")
 
         assignment = self._assignments[area_id]
         app_id = assignment.get("app_id")
@@ -335,11 +335,11 @@ class RuleEngine:
         if activity_actions:
             for activity_id, action_config in activity_actions.items():
                 conditions = action_config.get("conditions", [])
-                
+
                 # Check if any condition uses area_state
                 if self._has_area_state_condition(conditions):
                     uses_area_state = True
-                
+
                 condition_entities = self.condition_evaluator.get_referenced_entities(
                     conditions, area_id
                 )
@@ -368,11 +368,10 @@ class RuleEngine:
             listeners.append(listener)
 
         self._listeners[area_id] = listeners
-        self._enabled_areas.add(area_id)
 
         condition_count = len(all_entities - presence_entities - environmental_entities)
         env_count = len(environmental_entities)
-        
+
         _LOGGER.info(
             f"Enabled automation for {area_id} (app: {app_id}): "
             f"tracking {len(presence_entities)} presence + "
@@ -389,14 +388,10 @@ class RuleEngine:
         Args:
             area_id: Area ID
         """
-        if area_id not in self._enabled_areas:
-            return
-
         for listener in self._listeners.get(area_id, []):
             listener()
 
         self._listeners.pop(area_id, None)
-        self._enabled_areas.discard(area_id)
 
         _LOGGER.info(f"Disabled automation for area: {area_id}")
 
@@ -418,7 +413,7 @@ class RuleEngine:
             return
 
         affected_areas = []
-        for area_id in self._enabled_areas:
+        for area_id in self._assignments.keys():
             assignment = self._assignments.get(area_id, {})
             app_id = assignment.get("app_id")
 
@@ -443,8 +438,10 @@ class RuleEngine:
                 if activity_actions:
                     for activity_id, action_config in activity_actions.items():
                         conditions = action_config.get("conditions", [])
-                        condition_entities = self.condition_evaluator.get_referenced_entities(
-                            conditions, area_id
+                        condition_entities = (
+                            self.condition_evaluator.get_referenced_entities(
+                                conditions, area_id
+                            )
                         )
                         if entity_id in condition_entities:
                             is_tracked = True
@@ -503,10 +500,6 @@ class RuleEngine:
         """
         self._stats["total_triggers"] += 1
 
-        if area_id not in self._enabled_areas:
-            _LOGGER.debug(f"Area {area_id} not enabled, skipping evaluation")
-            return
-
         if area_id not in self._assignments:
             _LOGGER.debug(f"No assignment for area {area_id}")
             return
@@ -530,6 +523,19 @@ class RuleEngine:
         if not app:
             _LOGGER.warning(f"App {app_id} not found for area {area_id}")
             return
+
+        # Check if this app/feature is enabled for this area
+        if self.feature_flag_manager:
+            # Use app_id as feature_id directly (they should match now)
+            app_feature_id = app_id
+
+            if not self.feature_flag_manager.is_feature_enabled(
+                area_id, app_feature_id
+            ):
+                _LOGGER.debug(
+                    f"App {app_id} (feature: {app_feature_id}) not enabled for area {area_id}, skipping execution"
+                )
+                return
 
         activity_actions = app.get("activity_actions", {})
         if current_activity not in activity_actions:
@@ -652,7 +658,7 @@ class RuleEngine:
         """
         _LOGGER.info("Reloading assignments from storage")
 
-        for area_id in list(self._enabled_areas):
+        for area_id in list(self._assignments.keys()):
             await self.disable_area(area_id)
 
         self._assignments = self.app_storage.get_assignments()
@@ -673,7 +679,6 @@ class RuleEngine:
         """
         return {
             "total_assignments": len(self._assignments),
-            "enabled_areas": len(self._enabled_areas),
             **self._stats,
         }
 

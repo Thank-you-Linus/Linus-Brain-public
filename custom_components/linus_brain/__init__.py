@@ -99,6 +99,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_check_activity_timeouts(_now=None):
         """Check and update activity states based on timeouts."""
+        # Check activity states for all areas (activity tracking is always active)
         for area_id in coordinator.activity_tracker._area_states:
             await coordinator.activity_tracker.async_evaluate_activity(area_id)
         coordinator.async_update_listeners()
@@ -117,12 +118,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator.activity_tracker,
         coordinator.app_storage,
         coordinator.area_manager,
+        coordinator.feature_flag_manager,
     )
     await rule_engine.async_initialize()
     entry.async_on_unload(rule_engine.async_shutdown)
 
     # Link rule_engine to coordinator for activity-triggered evaluations
     coordinator.rule_engine = rule_engine
+    
+
 
     # Link coordinator to activity_tracker for timeout-triggered updates
     coordinator.activity_tracker.coordinator = coordinator

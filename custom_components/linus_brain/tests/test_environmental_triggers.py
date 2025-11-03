@@ -6,7 +6,7 @@ even when activity remains constant, for rules with area_state conditions.
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -189,8 +189,8 @@ class TestEnvironmentalChangeTriggersEvaluation:
         
         await rule_engine.async_initialize()
 
-        # Verify area is enabled
-        assert "salon" in rule_engine._enabled_areas
+        # Verify area is enabled (has listeners)
+        assert "salon" in rule_engine._listeners
 
         # Simulate illuminance sensor change
         event = MagicMock()

@@ -75,8 +75,8 @@
       }
     },
     "switch": {
-      "autolight": {
-        "name": "AutoLight {area_name}"
+      "automatic_lighting": {
+        "name": "Automatic Lighting - {area_name}"
       }
     }
   },

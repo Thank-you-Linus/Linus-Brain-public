@@ -747,14 +747,14 @@ class SupabaseClient:
         Fetch an app with all its activity actions.
 
         Args:
-            app_id: The app identifier (e.g., "autolight")
+            app_id: The app identifier (e.g., "automatic_lighting")
             version: Optional version timestamp (ISO format).
                     If None, fetches latest version.
 
         Returns:
             App data with nested activity_actions:
             {
-                "app_id": "autolight",
+                "app_id": "automatic_lighting",
                 "app_name": "Automatic Lighting",
                 "description": "...",
                 "required_domains": ["light"],
@@ -892,7 +892,7 @@ class SupabaseClient:
             {
                 "kitchen": {
                     "area_id": "kitchen",
-                    "app_id": "autolight",
+                    "app_id": "automatic_lighting",
                     "app_version": "2025-10-26T12:00:00Z",
                     "config_overrides": {...},
                     "global_conditions": [...],

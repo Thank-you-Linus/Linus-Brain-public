@@ -402,8 +402,8 @@ class LinusBrainRuleEngineStatsSensor(CoordinatorEntity, SensorEntity):
 
         self._attr_native_value = total_triggers
 
-        # Get enabled areas list
-        enabled_areas = list(self._rule_engine._enabled_areas)
+        # Get enabled areas from assignments
+        enabled_areas = list(self._rule_engine._assignments.keys())
 
         self._attr_extra_state_attributes = {
             "total_triggers": total_triggers,

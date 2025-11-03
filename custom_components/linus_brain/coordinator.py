@@ -19,6 +19,7 @@ from .utils.app_storage import AppStorage
 from .utils.area_manager import AreaManager
 from .utils.condition_evaluator import ConditionEvaluator
 from .utils.entity_resolver import EntityResolver
+from .utils.feature_flag_manager import FeatureFlagManager
 from .utils.supabase_client import SupabaseClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -74,6 +75,11 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
 
         # Initialize app storage (must be before activity_tracker)
         self.app_storage = AppStorage(hass)
+
+        # Initialize feature flag manager
+        self.feature_flag_manager = FeatureFlagManager()
+        self.feature_flag_manager.set_area_manager(self.area_manager)
+        self.feature_flag_manager.set_app_storage(self.app_storage)
 
         # Initialize utilities for activity tracker
         self.entity_resolver = EntityResolver(hass)
@@ -135,9 +141,9 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
                 if area_id and isinstance(area_id, str):
                     active_entities = area_data.get("active_presence_entities", [])
                     old_activity = self.last_rules.get(area_id, {}).get("activity")
-                    activity = await self.activity_tracker.async_evaluate_activity(
-                        area_id
-                    )
+                    
+                    # Activities (movement/inactive/empty) always work regardless of feature flags
+                    activity = await self.activity_tracker.async_evaluate_activity(area_id)
 
                     # Store active presence entities
                     self.active_presence_entities[area_id] = active_entities
@@ -149,7 +155,6 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
                     if (
                         activity != old_activity
                         and self.rule_engine
-                        and area_id in self.rule_engine._enabled_areas
                     ):
                         _LOGGER.debug(
                             f"Heartbeat detected activity change for {area_id}: {old_activity} -> {activity}"
@@ -212,10 +217,14 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
                 area_id = area_data.get("area_id")
                 if area_id and isinstance(area_id, str):
                     active_entities = area_data.get("active_presence_entities", [])
-                    activity = await self.activity_tracker.async_evaluate_activity(
-                        area_id
-                    )
-                    _LOGGER.debug(f"Updated activity for {area_id}: {activity}")
+                    
+                     # Activities (movement/inactive/empty) always work regardless of feature flags
+                    activity = await self.activity_tracker.async_evaluate_activity(area_id)
+                    
+                    if activity is not None:
+                        _LOGGER.debug(f"Updated activity for {area_id}: {activity}")
+                    else:
+                        _LOGGER.debug(f"Skipped activity evaluation for disabled area {area_id}")
 
                     # Store active presence entities
                     self.active_presence_entities[area_id] = active_entities
@@ -224,11 +233,8 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
                     )
 
                     # Trigger rule engine evaluation for this area
-                    _LOGGER.debug(
-                        f"Rule engine check: rule_engine={self.rule_engine is not None}, "
-                        f"area_id={area_id}, enabled_areas={self.rule_engine._enabled_areas if self.rule_engine else 'N/A'}"
-                    )
-                    if self.rule_engine and area_id in self.rule_engine._enabled_areas:
+                    # Activities always trigger, but automation rules only execute if features are enabled
+                    if True:
                         old_activity = self.last_rules.get(area_id, {}).get("activity")
                         self.previous_activities[area_id] = (
                             old_activity if old_activity else "empty"
@@ -236,12 +242,11 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
                         _LOGGER.info(
                             f"Triggering rule engine evaluation for {area_id} (activity: {activity})"
                         )
-                        await self.rule_engine._async_evaluate_and_execute(area_id)
+                        if self.rule_engine is not None:
+                            await self.rule_engine._async_evaluate_and_execute(area_id)
                     else:
-                        _LOGGER.warning(
-                            f"NOT triggering rule engine for {area_id}: "
-                            f"rule_engine={self.rule_engine is not None}, "
-                            f"in_enabled={area_id in self.rule_engine._enabled_areas if self.rule_engine else False}"
+                        _LOGGER.debug(
+                            f"NOT triggering rule engine for {area_id}: area not enabled or feature flag check failed"
                         )
 
                     # Trigger sensor update for this area only

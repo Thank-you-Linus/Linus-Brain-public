@@ -12,12 +12,10 @@ This test suite ensures that all entities follow the translation requirements:
 import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
-from homeassistant.components.sensor import SensorDeviceClass
-from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from .. import button, sensor, switch
@@ -373,11 +371,21 @@ class TestSwitchTranslations:
         class MockAreaManager:
             def get_light_automation_eligible_areas(self):
                 return {"test_area": "Test Area"}
+            
+            async def get_all_areas(self):
+                return ["test_area"]
 
         class MockCoordinator:
-            def __init__(self, hass_instance: HomeAssistant):
+            def __init__(self, hass_instance):
                 self.hass = hass_instance
                 self.area_manager = MockAreaManager()
+                self.feature_flag_manager = MagicMock()
+                self.feature_flag_manager.get_feature_definitions.return_value = {
+                    "automatic_lighting": {
+                        "name": "Automatic Lighting",
+                        "default_enabled": False
+                    }
+                }
 
             async def async_config_entry_first_refresh(self):
                 pass
@@ -400,7 +408,8 @@ class TestSwitchTranslations:
         assert len(entities) > 0
         for entity in entities:
             assert hasattr(entity, "_attr_translation_key")
-            assert entity._attr_translation_key == "autolight"
+            # New feature switches use feature_{feature_id} translation keys
+            assert entity._attr_translation_key.startswith("feature_")
             assert hasattr(entity, "_attr_has_entity_name")
             assert entity._attr_has_entity_name is True
             assert hasattr(entity, "_attr_translation_placeholders")

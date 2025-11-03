@@ -93,6 +93,11 @@ class AppStorage:
             and not self._data.get("assignments")
         )
 
+    def _load_file(self) -> dict[str, Any]:
+        """Synchronous file load operation."""
+        with open(self.storage_file, "r") as f:
+            return json.load(f)
+
     async def async_load(self) -> dict[str, Any]:
         """
         Load data from local cache.
@@ -105,8 +110,7 @@ class AppStorage:
                 _LOGGER.debug("No local storage file found")
                 return self._data
 
-            with open(self.storage_file, "r") as f:
-                loaded_data = json.load(f)
+            loaded_data = await self.hass.async_add_executor_job(self._load_file)
 
             if loaded_data.get("version") != STORAGE_VERSION:
                 _LOGGER.warning(
@@ -128,6 +132,12 @@ class AppStorage:
             _LOGGER.error(f"Failed to load from cache: {err}")
             return self._data
 
+    def _save_file(self) -> None:
+        """Synchronous file save operation."""
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
+        with open(self.storage_file, "w") as f:
+            json.dump(self._data, f, indent=2, default=str)
+
     async def async_save(self) -> bool:
         """
         Save current data to local cache.
@@ -136,11 +146,7 @@ class AppStorage:
             True if successful
         """
         try:
-            self.storage_dir.mkdir(parents=True, exist_ok=True)
-
-            with open(self.storage_file, "w") as f:
-                json.dump(self._data, f, indent=2, default=str)
-
+            await self.hass.async_add_executor_job(self._save_file)
             _LOGGER.debug(f"Saved to cache: {self.storage_file}")
             return True
 
@@ -174,14 +180,14 @@ class AppStorage:
         self._data = {
             "version": STORAGE_VERSION,
             "activities": DEFAULT_ACTIVITY_TYPES,
-            "apps": {"autolight": DEFAULT_AUTOLIGHT_APP},
+            "apps": {"automatic_lighting": DEFAULT_AUTOLIGHT_APP},
             "assignments": {},
             "synced_at": existing_sync_time,
             "is_fallback": True,
         }
 
         _LOGGER.warning(
-            "Using hardcoded fallback: 3 activities, 1 app (autolight), 0 assignments"
+            "Using hardcoded fallback: 3 activities, 1 app (automatic_lighting), 0 assignments"
         )
 
         return self._data
