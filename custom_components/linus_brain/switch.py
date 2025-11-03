@@ -11,7 +11,6 @@ from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -111,11 +110,12 @@ class LinusBrainFeatureSwitch(RestoreEntity, SwitchEntity):
         area_name = area.name if area else area_id.replace("_", " ").title()
 
         # Set entity attributes
-        feature_name = feature_def.get("name", feature_id)
-
         self._attr_unique_id = f"{DOMAIN}_feature_{feature_id}_{area_id}"
-        self._attr_name = f"{feature_name} - {area_name}"
         self._attr_has_entity_name = True
+
+        # Use translation key for proper localization
+        self._attr_translation_key = f"feature_{feature_id}"
+        self._attr_translation_placeholders = {"area_name": area_name}
 
         # Associate with Linus Brain device
         self._attr_device_info = {

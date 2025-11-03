@@ -28,6 +28,12 @@ def mock_hass():
     hass.services.async_call = AsyncMock()
     hass.bus = MagicMock()
     hass.bus.async_listen = MagicMock()
+
+    # Mock async_add_executor_job to execute functions directly
+    async def mock_executor_job(func, *args):
+        return func(*args)
+
+    hass.async_add_executor_job = mock_executor_job
     return hass
 
 
@@ -256,7 +262,7 @@ class TestIntegrationFallback:
 
         assert storage.is_fallback_data() is True
         assert len(storage.get_activities()) == 4
-        assert "autolight" in storage.get_apps()
+        assert "automatic_lighting" in storage.get_apps()
 
     @pytest.mark.asyncio
     async def test_system_works_with_fallback_data(self, mock_hass, tmp_path):

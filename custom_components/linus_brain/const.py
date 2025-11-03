@@ -144,7 +144,7 @@ AVAILABLE_FEATURES = {
         "app_id": "automatic_lighting",
         "name": "Automatic Lighting",
         "description": "Allume automatiquement les lumières en cas de mouvement",
-        "default_enabled": False  # OFF par défaut comme demandé
+        "default_enabled": False,  # OFF par défaut comme demandé
     }
 }
 

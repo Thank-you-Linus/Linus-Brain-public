@@ -39,7 +39,7 @@ def mock_activity_tracker():
 def mock_app_storage():
     """Mock AppStorage with autolight app."""
     storage = MagicMock()
-    
+
     # Autolight app with area_state condition
     autolight_app = {
         "app_id": "autolight",
@@ -76,19 +76,23 @@ def mock_app_storage():
             },
         },
     }
-    
-    storage.get_assignments = MagicMock(return_value={
-        "salon": {
+
+    storage.get_assignments = MagicMock(
+        return_value={
+            "salon": {
+                "area_id": "salon",
+                "app_id": "autolight",
+                "enabled": True,
+            }
+        }
+    )
+    storage.get_assignment = MagicMock(
+        return_value={
             "area_id": "salon",
             "app_id": "autolight",
             "enabled": True,
         }
-    })
-    storage.get_assignment = MagicMock(return_value={
-        "area_id": "salon",
-        "app_id": "autolight",
-        "enabled": True,
-    })
+    )
     storage.get_app = MagicMock(return_value=autolight_app)
     storage.get_apps = MagicMock(return_value={"autolight": autolight_app})
     storage.remove_assignment = MagicMock()
@@ -100,7 +104,7 @@ def mock_app_storage():
 def mock_area_manager():
     """Mock AreaManager with environmental entities."""
     manager = MagicMock()
-    
+
     # Return environmental entities when requested
     def get_area_entities(area_id, domain=None, device_class=None):
         if domain == "sensor" and device_class == "illuminance":
@@ -108,7 +112,7 @@ def mock_area_manager():
         if domain == "binary_sensor" and device_class == "motion":
             return ["binary_sensor.salon_motion"]
         return []
-    
+
     manager.get_area_entities = MagicMock(side_effect=get_area_entities)
     return manager
 
@@ -135,12 +139,12 @@ class TestEnvironmentalEntityTracking:
         """Test that environmental entities are tracked when app uses area_state."""
         # Mock sun.sun entity exists
         mock_hass.states.get = MagicMock(return_value=MagicMock())
-        
+
         await rule_engine.async_initialize()
 
         # Check that environmental entities were identified
         environmental_entities = rule_engine._get_area_environmental_entities("salon")
-        
+
         assert "sensor.salon_illuminance" in environmental_entities
         assert "sun.sun" in environmental_entities
 
@@ -165,9 +169,9 @@ class TestEnvironmentalEntityTracking:
                 }
             },
         }
-        
+
         mock_app_storage.get_app = MagicMock(return_value=app_without_area_state)
-        
+
         await rule_engine.async_initialize()
 
         # Environmental entities should not be tracked
@@ -184,9 +188,11 @@ class TestEnvironmentalChangeTriggersEvaluation:
     ):
         """Test that illuminance sensor change triggers rule evaluation."""
         # Setup: Area with movement, lights should respond to lux changes
-        mock_activity_tracker.async_evaluate_activity = AsyncMock(return_value="movement")
+        mock_activity_tracker.async_evaluate_activity = AsyncMock(
+            return_value="movement"
+        )
         mock_hass.states.get = MagicMock(return_value=MagicMock())
-        
+
         await rule_engine.async_initialize()
 
         # Verify area is enabled (has listeners)
@@ -195,7 +201,7 @@ class TestEnvironmentalChangeTriggersEvaluation:
         # Simulate illuminance sensor change
         event = MagicMock()
         event.data = {"entity_id": "sensor.salon_illuminance"}
-        
+
         # This should trigger evaluation
         rule_engine._async_state_change_handler(event)
 
@@ -210,15 +216,17 @@ class TestEnvironmentalChangeTriggersEvaluation:
         self, rule_engine, mock_hass, mock_activity_tracker
     ):
         """Test that sun.sun entity change triggers rule evaluation."""
-        mock_activity_tracker.async_evaluate_activity = AsyncMock(return_value="movement")
+        mock_activity_tracker.async_evaluate_activity = AsyncMock(
+            return_value="movement"
+        )
         mock_hass.states.get = MagicMock(return_value=MagicMock())
-        
+
         await rule_engine.async_initialize()
 
         # Simulate sun.sun change (e.g., elevation crosses threshold)
         event = MagicMock()
         event.data = {"entity_id": "sun.sun"}
-        
+
         rule_engine._async_state_change_handler(event)
 
         await asyncio.sleep(2.5)
@@ -237,7 +245,7 @@ class TestEnvironmentalChangeTriggersEvaluation:
         # Simulate multiple rapid illuminance changes
         event = MagicMock()
         event.data = {"entity_id": "sensor.salon_illuminance"}
-        
+
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(0.1)
         rule_engine._async_state_change_handler(event)
@@ -261,8 +269,10 @@ class TestEnvironmentalConditionsWithConstantActivity:
     ):
         """Test lights turn off when area becomes bright, even with constant movement."""
         # Setup: Activity stays "movement", but area goes from dark to bright
-        mock_activity_tracker.async_evaluate_activity = AsyncMock(return_value="movement")
-        
+        mock_activity_tracker.async_evaluate_activity = AsyncMock(
+            return_value="movement"
+        )
+
         # Create app that turns OFF lights when bright during movement
         app_with_bright_condition = {
             "app_id": "autolight",
@@ -285,16 +295,16 @@ class TestEnvironmentalConditionsWithConstantActivity:
                 }
             },
         }
-        
+
         mock_app_storage.get_app = MagicMock(return_value=app_with_bright_condition)
         mock_hass.states.get = MagicMock(return_value=MagicMock())
-        
+
         await rule_engine.async_initialize()
 
         # Simulate illuminance rising above bright threshold
         event = MagicMock()
         event.data = {"entity_id": "sensor.salon_illuminance"}
-        
+
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
 
@@ -307,10 +317,8 @@ class TestHelperMethods:
 
     def test_has_area_state_condition_simple(self, rule_engine):
         """Test detection of area_state condition in simple list."""
-        conditions = [
-            {"condition": "area_state", "attribute": "is_dark"}
-        ]
-        
+        conditions = [{"condition": "area_state", "attribute": "is_dark"}]
+
         assert rule_engine._has_area_state_condition(conditions) is True
 
     def test_has_area_state_condition_nested_and(self, rule_engine):
@@ -324,7 +332,7 @@ class TestHelperMethods:
                 ],
             }
         ]
-        
+
         assert rule_engine._has_area_state_condition(conditions) is True
 
     def test_has_area_state_condition_nested_or(self, rule_engine):
@@ -338,7 +346,7 @@ class TestHelperMethods:
                 ],
             }
         ]
-        
+
         assert rule_engine._has_area_state_condition(conditions) is True
 
     def test_has_area_state_condition_none(self, rule_engine):
@@ -347,7 +355,7 @@ class TestHelperMethods:
             {"condition": "state", "entity_id": "light.test", "state": "off"},
             {"condition": "time", "after": "22:00"},
         ]
-        
+
         assert rule_engine._has_area_state_condition(conditions) is False
 
     def test_has_area_state_condition_empty(self, rule_engine):

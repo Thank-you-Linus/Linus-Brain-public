@@ -117,7 +117,9 @@ class ActivityTracker:
         task = asyncio.create_task(self._timeout_handler(area_id, timeout_seconds))
         self._timeout_tasks[area_id] = task
         current_activity = self._area_states.get(area_id, {}).get("activity", "unknown")
-        _LOGGER.debug(f"Scheduled timeout for {area_id} in {timeout_seconds}s (current: {current_activity})")
+        _LOGGER.debug(
+            f"Scheduled timeout for {area_id} in {timeout_seconds}s (current: {current_activity})"
+        )
 
     def _cancel_timeout(self, area_id: str) -> None:
         """
@@ -130,8 +132,12 @@ class ActivityTracker:
             task = self._timeout_tasks[area_id]
             if not task.done():
                 task.cancel()
-                current_activity = self._area_states.get(area_id, {}).get("activity", "unknown")
-                _LOGGER.debug(f"Cancelled timeout for {area_id} (current: {current_activity})")
+                current_activity = self._area_states.get(area_id, {}).get(
+                    "activity", "unknown"
+                )
+                _LOGGER.debug(
+                    f"Cancelled timeout for {area_id} (current: {current_activity})"
+                )
             del self._timeout_tasks[area_id]
 
     def _get_next_activity(self, current_activity_id: str) -> str | None:
@@ -371,7 +377,9 @@ class ActivityTracker:
                 # Don't process timeout logic for transition states when conditions are false
                 # Transition states should only be entered via timeout, not direct evaluation
                 if is_transition_state:
-                    _LOGGER.debug(f"Area {area_id}: {current_activity} is transition state, skipping timeout logic")
+                    _LOGGER.debug(
+                        f"Area {area_id}: {current_activity} is transition state, skipping timeout logic"
+                    )
                     if area_id in self._conditions_false_since:
                         del self._conditions_false_since[area_id]
                     self._cancel_timeout(area_id)
@@ -415,9 +423,13 @@ class ActivityTracker:
                             self._schedule_timeout(area_id, timeout)
             else:
                 if area_id in self._conditions_false_since:
-                    _LOGGER.debug(f"Area {area_id}: {current_activity} conditions match again, clearing conditions_false_since")
+                    _LOGGER.debug(
+                        f"Area {area_id}: {current_activity} conditions match again, clearing conditions_false_since"
+                    )
                     del self._conditions_false_since[area_id]
-                _LOGGER.debug(f"Area {area_id}: {current_activity} conditions match, cancelling timeout")
+                _LOGGER.debug(
+                    f"Area {area_id}: {current_activity} conditions match, cancelling timeout"
+                )
                 self._cancel_timeout(area_id)
 
         return self.get_activity(area_id)

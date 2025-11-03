@@ -31,6 +31,12 @@ def mock_hass_with_storage(temp_storage_dir):
     """Mock Home Assistant with temporary storage."""
     hass = MagicMock()
     hass.config.path.return_value = str(temp_storage_dir / STORAGE_KEY)
+
+    # Mock async_add_executor_job to execute functions directly
+    async def mock_executor_job(func, *args):
+        return func(*args)
+
+    hass.async_add_executor_job = mock_executor_job
     return hass
 
 
@@ -136,8 +142,8 @@ class TestAppStorageFallback:
         app_storage.load_hardcoded_fallback()
 
         assert app_storage._data["activities"] == DEFAULT_ACTIVITY_TYPES
-        assert "autolight" in app_storage._data["apps"]
-        assert app_storage._data["apps"]["autolight"] == DEFAULT_AUTOLIGHT_APP
+        assert "automatic_lighting" in app_storage._data["apps"]
+        assert app_storage._data["apps"]["automatic_lighting"] == DEFAULT_AUTOLIGHT_APP
         assert app_storage._data["is_fallback"] is True
 
     def test_load_hardcoded_fallback_marks_as_fallback(self, app_storage):
@@ -369,7 +375,7 @@ class TestAppStorageInitialize:
 
         assert data["is_fallback"] is True
         assert len(data["activities"]) == 4
-        assert "autolight" in data["apps"]
+        assert "automatic_lighting" in data["apps"]
 
     @pytest.mark.asyncio
     async def test_async_initialize_with_cached_data(

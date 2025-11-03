@@ -125,8 +125,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Link rule_engine to coordinator for activity-triggered evaluations
     coordinator.rule_engine = rule_engine
-    
-
 
     # Link coordinator to activity_tracker for timeout-triggered updates
     coordinator.activity_tracker.coordinator = coordinator

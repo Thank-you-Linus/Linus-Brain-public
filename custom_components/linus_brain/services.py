@@ -229,7 +229,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def handle_debug_area_status(call: ServiceCall) -> None:
         """
         Handle debug_area_status service call.
-        
+
         Provides detailed debugging information for a specific area.
         """
         area_id = call.data.get("area_id")
@@ -241,21 +241,25 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             if coordinator and hasattr(coordinator, "feature_flag_manager"):
                 try:
                     # Get debug information directly from feature flag manager
-                    debug_info = coordinator.feature_flag_manager.get_area_status_explanation(area_id)
-                    
+                    debug_info = (
+                        coordinator.feature_flag_manager.get_area_status_explanation(
+                            area_id
+                        )
+                    )
+
                     _LOGGER.info(f"Debug info for {area_id}: {debug_info}")
-                    
+
                     # Store debug info in a convenient location
                     hass.data.setdefault(f"{DOMAIN}_debug", {})
                     hass.data[f"{DOMAIN}_debug"][f"area_{area_id}"] = debug_info
-                    
+
                 except Exception as err:
                     _LOGGER.error(f"Failed to debug area {area_id}: {err}")
 
     async def handle_debug_system_overview(call: ServiceCall) -> None:
         """
         Handle debug_system_overview service call.
-        
+
         Provides system-wide debugging information.
         """
         _LOGGER.info("Service debug_system_overview called")
@@ -267,20 +271,20 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 try:
                     # Get system overview directly from feature flag manager
                     overview = coordinator.feature_flag_manager.get_system_overview()
-                    
+
                     _LOGGER.info(f"System overview: {overview}")
-                    
+
                     # Store overview in hass data
                     hass.data.setdefault(f"{DOMAIN}_debug", {})
                     hass.data[f"{DOMAIN}_debug"]["system_overview"] = overview
-                    
+
                 except Exception as err:
                     _LOGGER.error(f"Failed to get system overview: {err}")
 
     async def handle_debug_validate_area(call: ServiceCall) -> None:
         """
         Handle debug_validate_area service call.
-        
+
         Validates area configuration and provides recommendations.
         """
         area_id = call.data.get("area_id")
@@ -293,10 +297,16 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 try:
                     # Validate area
                     if area_id is not None:
-                        result = await coordinator.feature_flag_manager.validate_area_state(area_id)
-                        
-                        _LOGGER.info(f"Validation result for {area_id}: {result.get_summary()}")
-                        
+                        result = (
+                            await coordinator.feature_flag_manager.validate_area_state(
+                                area_id
+                            )
+                        )
+
+                        _LOGGER.info(
+                            f"Validation result for {area_id}: {result.get_summary()}"
+                        )
+
                         # Store validation result
                         hass.data.setdefault(f"{DOMAIN}_debug", {})
                         hass.data[f"{DOMAIN}_debug"][f"validation_{area_id}"] = {
@@ -308,19 +318,21 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                         }
                     else:
                         _LOGGER.warning("No area_id provided for validation")
-                    
+
                 except Exception as err:
                     _LOGGER.error(f"Failed to validate area {area_id}: {err}")
 
     async def handle_debug_export_data(call: ServiceCall) -> None:
         """
         Handle debug_export_data service call.
-        
+
         Exports debug data in specified format.
         """
         format_type = call.data.get("format", "json")
         area_id = call.data.get("area_id")
-        _LOGGER.info(f"Service debug_export_data called with format: {format_type}, area_id: {area_id}")
+        _LOGGER.info(
+            f"Service debug_export_data called with format: {format_type}, area_id: {area_id}"
+        )
 
         # Get coordinator and debugger
         for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
@@ -328,25 +340,33 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             if coordinator and hasattr(coordinator, "feature_flag_manager"):
                 try:
                     # Export debug data directly from feature flag manager
-                    export_data = coordinator.feature_flag_manager.export_debug_data(format_type)
-                    
-                    _LOGGER.info(f"Exported debug data ({format_type}): {len(export_data)} characters")
-                    
+                    export_data = coordinator.feature_flag_manager.export_debug_data(
+                        format_type
+                    )
+
+                    _LOGGER.info(
+                        f"Exported debug data ({format_type}): {len(export_data)} characters"
+                    )
+
                     # Store export data
                     hass.data.setdefault(f"{DOMAIN}_debug", {})
                     hass.data[f"{DOMAIN}_debug"]["export"] = {
                         "format": format_type,
                         "data": export_data,
-                        "timestamp": coordinator.debugger._debug_history[-1]["timestamp"] if coordinator.debugger._debug_history else None,
+                        "timestamp": (
+                            coordinator.debugger._debug_history[-1]["timestamp"]
+                            if coordinator.debugger._debug_history
+                            else None
+                        ),
                     }
-                    
+
                 except Exception as err:
                     _LOGGER.error(f"Failed to export debug data: {err}")
 
     async def handle_debug_reset_metrics(call: ServiceCall) -> None:
         """
         Handle debug_reset_metrics service call.
-        
+
         Resets feature flag metrics and debug history.
         """
         _LOGGER.info("Service debug_reset_metrics called")
@@ -358,11 +378,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 try:
                     # Reset metrics
                     coordinator.feature_flag_manager.reset_metrics()
-                    
+
                     # Debug history is now managed within feature flag manager
-                    
+
                     _LOGGER.info("Feature flag metrics and debug history reset")
-                    
+
                 except Exception as err:
                     _LOGGER.error(f"Failed to reset metrics: {err}")
 

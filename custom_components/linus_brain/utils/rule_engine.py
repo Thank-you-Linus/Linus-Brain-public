@@ -191,7 +191,9 @@ class RuleEngine:
                 created_count += 1
 
             await self.app_storage.async_save()
-            _LOGGER.info(f"Created {created_count} default automatic_lighting assignments")
+            _LOGGER.info(
+                f"Created {created_count} default automatic_lighting assignments"
+            )
 
         except Exception as err:
             _LOGGER.error(f"Failed to create default assignments: {err}")

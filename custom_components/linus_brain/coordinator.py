@@ -141,9 +141,11 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
                 if area_id and isinstance(area_id, str):
                     active_entities = area_data.get("active_presence_entities", [])
                     old_activity = self.last_rules.get(area_id, {}).get("activity")
-                    
+
                     # Activities (movement/inactive/empty) always work regardless of feature flags
-                    activity = await self.activity_tracker.async_evaluate_activity(area_id)
+                    activity = await self.activity_tracker.async_evaluate_activity(
+                        area_id
+                    )
 
                     # Store active presence entities
                     self.active_presence_entities[area_id] = active_entities
@@ -152,10 +154,7 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
                     )
 
                     # Trigger rule engine if activity changed
-                    if (
-                        activity != old_activity
-                        and self.rule_engine
-                    ):
+                    if activity != old_activity and self.rule_engine:
                         _LOGGER.debug(
                             f"Heartbeat detected activity change for {area_id}: {old_activity} -> {activity}"
                         )
@@ -217,14 +216,18 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
                 area_id = area_data.get("area_id")
                 if area_id and isinstance(area_id, str):
                     active_entities = area_data.get("active_presence_entities", [])
-                    
-                     # Activities (movement/inactive/empty) always work regardless of feature flags
-                    activity = await self.activity_tracker.async_evaluate_activity(area_id)
-                    
+
+                    # Activities (movement/inactive/empty) always work regardless of feature flags
+                    activity = await self.activity_tracker.async_evaluate_activity(
+                        area_id
+                    )
+
                     if activity is not None:
                         _LOGGER.debug(f"Updated activity for {area_id}: {activity}")
                     else:
-                        _LOGGER.debug(f"Skipped activity evaluation for disabled area {area_id}")
+                        _LOGGER.debug(
+                            f"Skipped activity evaluation for disabled area {area_id}"
+                        )
 
                     # Store active presence entities
                     self.active_presence_entities[area_id] = active_entities

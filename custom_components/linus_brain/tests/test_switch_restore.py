@@ -3,7 +3,7 @@ Test feature switch state restoration after Home Assistant restart.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 from homeassistant.core import HomeAssistant, State
 from homeassistant.config_entries import ConfigEntry
 
@@ -19,14 +19,15 @@ async def test_feature_switch_restores_on_state(hass: HomeAssistant) -> None:
     entry.entry_id = "test_entry"
 
     # Mock previous state (ON)
-    previous_state = State("switch.linus_brain_feature_automatic_lighting_living_room", "on")
+    previous_state = State(
+        "switch.linus_brain_feature_automatic_lighting_living_room", "on"
+    )
 
     # Create feature switch
-    feature_def = {
-        "name": "Automatic Lighting",
-        "default_enabled": False
-    }
-    switch = LinusBrainFeatureSwitch(hass, entry, "living_room", "automatic_lighting", feature_def)
+    feature_def = {"name": "Automatic Lighting", "default_enabled": False}
+    switch = LinusBrainFeatureSwitch(
+        hass, entry, "living_room", "automatic_lighting", feature_def
+    )
 
     # Mock coordinator with feature flag manager
     coordinator = MagicMock()
@@ -46,7 +47,9 @@ async def test_feature_switch_restores_on_state(hass: HomeAssistant) -> None:
     assert switch.is_on is True
 
     # Verify feature flag manager was checked
-    coordinator.feature_flag_manager.is_feature_enabled.assert_called_once_with("living_room", "automatic_lighting")
+    coordinator.feature_flag_manager.is_feature_enabled.assert_called_once_with(
+        "living_room", "automatic_lighting"
+    )
 
 
 @pytest.mark.asyncio
@@ -57,14 +60,15 @@ async def test_feature_switch_restores_off_state(hass: HomeAssistant) -> None:
     entry.entry_id = "test_entry"
 
     # Mock previous state (OFF)
-    previous_state = State("switch.linus_brain_feature_automatic_lighting_living_room", "off")
+    previous_state = State(
+        "switch.linus_brain_feature_automatic_lighting_living_room", "off"
+    )
 
     # Create feature switch
-    feature_def = {
-        "name": "Automatic Lighting",
-        "default_enabled": False
-    }
-    switch = LinusBrainFeatureSwitch(hass, entry, "living_room", "automatic_lighting", feature_def)
+    feature_def = {"name": "Automatic Lighting", "default_enabled": False}
+    switch = LinusBrainFeatureSwitch(
+        hass, entry, "living_room", "automatic_lighting", feature_def
+    )
 
     # Mock coordinator with feature flag manager
     coordinator = MagicMock()
@@ -84,7 +88,9 @@ async def test_feature_switch_restores_off_state(hass: HomeAssistant) -> None:
     assert switch.is_on is False
 
     # Verify feature flag manager was checked
-    coordinator.feature_flag_manager.is_feature_enabled.assert_called_once_with("living_room", "automatic_lighting")
+    coordinator.feature_flag_manager.is_feature_enabled.assert_called_once_with(
+        "living_room", "automatic_lighting"
+    )
 
 
 @pytest.mark.asyncio
@@ -97,16 +103,17 @@ async def test_feature_switch_defaults_to_off_when_no_previous_state(
     entry.entry_id = "test_entry"
 
     # Create feature switch
-    feature_def = {
-        "name": "Automatic Lighting",
-        "default_enabled": False
-    }
-    switch = LinusBrainFeatureSwitch(hass, entry, "living_room", "automatic_lighting", feature_def)
+    feature_def = {"name": "Automatic Lighting", "default_enabled": False}
+    switch = LinusBrainFeatureSwitch(
+        hass, entry, "living_room", "automatic_lighting", feature_def
+    )
 
     # Mock coordinator with feature flag manager
     coordinator = MagicMock()
     coordinator.feature_flag_manager = MagicMock()
-    coordinator.feature_flag_manager.is_feature_enabled.return_value = False  # Default OFF
+    coordinator.feature_flag_manager.is_feature_enabled.return_value = (
+        False  # Default OFF
+    )
     hass.data[DOMAIN] = {
         "test_entry": {
             "coordinator": coordinator,
@@ -121,7 +128,9 @@ async def test_feature_switch_defaults_to_off_when_no_previous_state(
     assert switch.is_on is False
 
     # Verify feature flag manager was checked
-    coordinator.feature_flag_manager.is_feature_enabled.assert_called_once_with("living_room", "automatic_lighting")
+    coordinator.feature_flag_manager.is_feature_enabled.assert_called_once_with(
+        "living_room", "automatic_lighting"
+    )
 
 
 @pytest.mark.asyncio
@@ -132,11 +141,10 @@ async def test_feature_switch_turn_on_updates_feature_flag(hass: HomeAssistant) 
     entry.entry_id = "test_entry"
 
     # Create feature switch
-    feature_def = {
-        "name": "Automatic Lighting",
-        "default_enabled": False
-    }
-    switch = LinusBrainFeatureSwitch(hass, entry, "living_room", "automatic_lighting", feature_def)
+    feature_def = {"name": "Automatic Lighting", "default_enabled": False}
+    switch = LinusBrainFeatureSwitch(
+        hass, entry, "living_room", "automatic_lighting", feature_def
+    )
 
     # Mock coordinator with feature flag manager
     coordinator = MagicMock()
@@ -159,25 +167,28 @@ async def test_feature_switch_turn_on_updates_feature_flag(hass: HomeAssistant) 
         await switch.async_turn_on()
 
     # Verify feature flag was updated
-    coordinator.feature_flag_manager.set_feature_enabled.assert_called_once_with("living_room", "automatic_lighting", True)
-    
+    coordinator.feature_flag_manager.set_feature_enabled.assert_called_once_with(
+        "living_room", "automatic_lighting", True
+    )
+
     # Verify switch state is ON
     assert switch.is_on is True
 
 
 @pytest.mark.asyncio
-async def test_feature_switch_turn_off_updates_feature_flag(hass: HomeAssistant) -> None:
+async def test_feature_switch_turn_off_updates_feature_flag(
+    hass: HomeAssistant,
+) -> None:
     """Test that turning switch OFF updates the feature flag."""
     # Mock config entry
     entry = MagicMock(spec=ConfigEntry)
     entry.entry_id = "test_entry"
 
     # Create feature switch
-    feature_def = {
-        "name": "Automatic Lighting",
-        "default_enabled": False
-    }
-    switch = LinusBrainFeatureSwitch(hass, entry, "living_room", "automatic_lighting", feature_def)
+    feature_def = {"name": "Automatic Lighting", "default_enabled": False}
+    switch = LinusBrainFeatureSwitch(
+        hass, entry, "living_room", "automatic_lighting", feature_def
+    )
 
     # Mock coordinator with feature flag manager
     coordinator = MagicMock()
@@ -200,7 +211,9 @@ async def test_feature_switch_turn_off_updates_feature_flag(hass: HomeAssistant)
         await switch.async_turn_off()
 
     # Verify feature flag was updated
-    coordinator.feature_flag_manager.set_feature_enabled.assert_called_once_with("living_room", "automatic_lighting", False)
-    
+    coordinator.feature_flag_manager.set_feature_enabled.assert_called_once_with(
+        "living_room", "automatic_lighting", False
+    )
+
     # Verify switch state is OFF
     assert switch.is_on is False

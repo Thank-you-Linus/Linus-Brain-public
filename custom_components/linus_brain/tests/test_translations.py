@@ -371,8 +371,8 @@ class TestSwitchTranslations:
         class MockAreaManager:
             def get_light_automation_eligible_areas(self):
                 return {"test_area": "Test Area"}
-            
-            async def get_all_areas(self):
+
+            def get_all_areas(self):
                 return ["test_area"]
 
         class MockCoordinator:
@@ -383,7 +383,7 @@ class TestSwitchTranslations:
                 self.feature_flag_manager.get_feature_definitions.return_value = {
                     "automatic_lighting": {
                         "name": "Automatic Lighting",
-                        "default_enabled": False
+                        "default_enabled": False,
                     }
                 }
 
@@ -421,13 +421,17 @@ class TestSwitchTranslations:
         """Test that switch translation exists in en.json and fr.json."""
         assert "entity" in en_translations
         assert "switch" in en_translations["entity"]
-        assert "autolight" in en_translations["entity"]["switch"]
-        assert "name" in en_translations["entity"]["switch"]["autolight"]
+        assert "feature_automatic_lighting" in en_translations["entity"]["switch"]
+        assert (
+            "name" in en_translations["entity"]["switch"]["feature_automatic_lighting"]
+        )
 
         assert "entity" in fr_translations
         assert "switch" in fr_translations["entity"]
-        assert "autolight" in fr_translations["entity"]["switch"]
-        assert "name" in fr_translations["entity"]["switch"]["autolight"]
+        assert "feature_automatic_lighting" in fr_translations["entity"]["switch"]
+        assert (
+            "name" in fr_translations["entity"]["switch"]["feature_automatic_lighting"]
+        )
 
 
 class TestTranslationFilesStructure:
