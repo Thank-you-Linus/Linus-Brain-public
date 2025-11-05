@@ -19,7 +19,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers import area_registry
+from homeassistant.helpers import area_registry, entity_registry as er
 
 from .const import DOMAIN
 from .coordinator import LinusBrainCoordinator
@@ -32,6 +32,153 @@ from .utils.rule_engine import RuleEngine
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.BUTTON, Platform.SENSOR, Platform.SWITCH]
+
+
+async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """
+    Migrate entity IDs from localized names to English.
+    
+    This function automatically renames entities that were created with localized
+    entity_ids (e.g., French) to their proper English equivalents.
+    
+    This migration is safe to run multiple times - it will only rename entities
+    that need renaming.
+    
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry for this integration
+    """
+    entity_reg = er.async_get(hass)
+    
+    # Get all entities for this integration
+    entities = er.async_entries_for_config_entry(entity_reg, entry.entry_id)
+    
+    if not entities:
+        _LOGGER.debug("No entities found for migration check")
+        return
+    
+    # Define the mapping from translation_key to expected English entity_id suffix
+    # These are the patterns we expect for properly named entities
+    EXPECTED_ENTITY_IDS = {
+        # Button entities
+        "sync": "sync",
+        
+        # Sensor entities (global)
+        "last_sync": "last_sync",
+        "monitored_areas": "monitored_areas",
+        "errors": "errors",
+        "cloud_health": "cloud_health",
+        "rule_engine": "rule_engine",
+        "activities": "activities",
+        
+        # Sensor entities (per-area activity sensors use pattern: activity_{area_id})
+        "activity": "activity",
+        
+        # Sensor entities (per-app sensors use pattern: app_{app_id})
+        "app": "app",
+        
+        # Switch entities (per-area feature switches use pattern: feature_{feature_id}_{area_id})
+        "feature_automatic_lighting": "feature_automatic_lighting",
+    }
+    
+    migrations_needed = []
+    
+    for entity_entry in entities:
+        # Skip entities without translation_key
+        if not entity_entry.translation_key:
+            continue
+        
+        current_entity_id = entity_entry.entity_id
+        platform, current_name = current_entity_id.split(".", 1)
+        
+        # Determine expected entity_id based on translation_key
+        translation_key = entity_entry.translation_key
+        
+        # Handle different entity types
+        if translation_key == "activity":
+            # Activity sensors: sensor.linus_brain_activity_{area_id}
+            # Extract area_id from unique_id which is: linus_brain_activity_{area_id}
+            if entity_entry.unique_id and entity_entry.unique_id.startswith("linus_brain_activity_"):
+                area_id = entity_entry.unique_id.replace("linus_brain_activity_", "")
+                expected_name = f"linus_brain_activity_{area_id}"
+            else:
+                continue
+                
+        elif translation_key == "app":
+            # App sensors: sensor.linus_brain_app_{app_id}
+            # Extract app_id from unique_id which is: linus_brain_app_{app_id}
+            if entity_entry.unique_id and entity_entry.unique_id.startswith("linus_brain_app_"):
+                app_id = entity_entry.unique_id.replace("linus_brain_app_", "")
+                expected_name = f"linus_brain_app_{app_id}"
+            else:
+                continue
+                
+        elif translation_key.startswith("feature_"):
+            # Feature switches: switch.linus_brain_feature_{feature_id}_{area_id}
+            # Extract from unique_id which is: linus_brain_feature_{feature_id}_{area_id}
+            if entity_entry.unique_id and entity_entry.unique_id.startswith("linus_brain_feature_"):
+                suffix = entity_entry.unique_id.replace("linus_brain_", "")
+                expected_name = f"linus_brain_{suffix}"
+            else:
+                continue
+                
+        elif translation_key in EXPECTED_ENTITY_IDS:
+            # Standard entities: use direct mapping
+            expected_name = f"linus_brain_{EXPECTED_ENTITY_IDS[translation_key]}"
+        else:
+            # Unknown translation_key, skip
+            continue
+        
+        expected_entity_id = f"{platform}.{expected_name}"
+        
+        # Check if migration is needed
+        if current_entity_id != expected_entity_id:
+            migrations_needed.append({
+                "entity_entry": entity_entry,
+                "current": current_entity_id,
+                "expected": expected_entity_id,
+                "translation_key": translation_key,
+            })
+    
+    if not migrations_needed:
+        _LOGGER.info("Entity ID migration check: All entities already have English entity_ids ✓")
+        return
+    
+    # Perform migrations
+    _LOGGER.info(f"Entity ID migration: Found {len(migrations_needed)} entities to migrate")
+    
+    migrated_count = 0
+    for migration in migrations_needed:
+        entity_entry = migration["entity_entry"]
+        current_id = migration["current"]
+        expected_id = migration["expected"]
+        
+        try:
+            # Check if target entity_id already exists
+            if entity_reg.async_get(expected_id):
+                _LOGGER.warning(
+                    f"Cannot migrate {current_id} → {expected_id}: Target entity_id already exists"
+                )
+                continue
+            
+            # Perform the migration
+            entity_reg.async_update_entity(
+                entity_entry.entity_id,
+                new_entity_id=expected_id
+            )
+            
+            _LOGGER.info(f"Migrated: {current_id} → {expected_id}")
+            migrated_count += 1
+            
+        except Exception as err:
+            _LOGGER.error(
+                f"Failed to migrate {current_id} → {expected_id}: {err}"
+            )
+    
+    if migrated_count > 0:
+        _LOGGER.info(f"Entity ID migration complete: {migrated_count} entities renamed to English")
+    else:
+        _LOGGER.warning("Entity ID migration complete: No entities could be migrated")
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -144,6 +291,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if len(hass.data[DOMAIN]) == 1:
         await async_setup_services(hass)
         entry.async_on_unload(lambda: async_unload_services(hass))
+
+    # Migrate entity IDs from localized names to English (if needed)
+    # This runs before platforms are loaded, so it renames existing entities
+    # before new ones are created
+    await async_migrate_entity_ids(hass, entry)
 
     # Forward the setup to sensor platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

@@ -58,8 +58,9 @@ class LinusBrainSyncButton(CoordinatorEntity, ButtonEntity):
         super().__init__(coordinator)
         self._insights_manager = insights_manager
         self._attr_translation_key = "sync"
-        self._attr_unique_id = "sync"
+        self._attr_unique_id = "sync"  # Keep stable unique_id (never change this!)
         self._attr_has_entity_name = True
+        self._attr_suggested_object_id = f"{DOMAIN}_sync"  # Force English entity_id
         self._attr_icon = "mdi:cloud-sync"
         self._attr_entity_category = EntityCategory.CONFIG
         self._attr_device_info = {

@@ -112,6 +112,7 @@ class LinusBrainFeatureSwitch(RestoreEntity, SwitchEntity):
         # Set entity attributes
         self._attr_unique_id = f"{DOMAIN}_feature_{feature_id}_{area_id}"
         self._attr_has_entity_name = True
+        self._attr_suggested_object_id = f"{DOMAIN}_feature_{feature_id}_{area_id}"  # Force English entity_id
 
         # Use translation key for proper localization
         self._attr_translation_key = f"feature_{feature_id}"
