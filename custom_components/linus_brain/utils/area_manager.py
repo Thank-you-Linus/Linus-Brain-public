@@ -18,6 +18,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant, State, split_entity_id
 from homeassistant.helpers import area_registry, device_registry, entity_registry
 
+from .state_validator import is_state_valid
 from ..const import (
     DEFAULT_ACTIVITY_TYPES,
     DEFAULT_AUTOLIGHT_APP,
@@ -307,7 +308,8 @@ class AreaManager:
 
         for entity_id in entity_ids:
             state = self._get_entity_state(entity_id)
-            if not state:
+            if not is_state_valid(state):
+                _LOGGER.debug(f"Skipping entity {entity_id} with invalid state: {state.state if state else 'None'}")
                 continue
 
             domain = split_entity_id(entity_id)[0]
@@ -595,7 +597,8 @@ class AreaManager:
                 continue
 
             state = self._get_entity_state(entity.entity_id)
-            if state and state.state == "on":
+            if is_state_valid(state) and state.state == "on":
+                _LOGGER.debug(f"Presence detected in {area_id}: {entity.entity_id} is 'on'")
                 return True
 
         return False

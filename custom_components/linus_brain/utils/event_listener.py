@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, Any, Callable
 from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.core import Event, HomeAssistant, State, callback, split_entity_id
 
+from .state_validator import is_state_valid
+
 if TYPE_CHECKING:
     from .light_learning import LightLearning
 
@@ -130,9 +132,13 @@ class EventListener:
         """
         import time
 
+        # Skip invalid states
+        if not is_state_valid(new_state):
+            _LOGGER.debug(f"Skipping debounce check for {entity_id} with invalid state: {new_state.state}")
+            return True  # Debounce (skip) invalid states
+
         domain = split_entity_id(entity_id)[0]
-        device_class = new_state.attributes.get(
-            "original_device_class"
+        device_class = new_state.attributes.get("original_device_class"
         ) or new_state.attributes.get("device_class")
 
         if domain == "binary_sensor" and device_class in (

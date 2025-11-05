@@ -12,5 +12,13 @@ This package contains utility modules for:
 from .app_storage import AppStorage
 from .entity_resolver import EntityResolver
 from .feature_flag_manager import FeatureFlagManager, ValidationResult
+from .state_validator import INVALID_STATES, is_state_valid
 
-__all__ = ["AppStorage", "EntityResolver", "FeatureFlagManager", "ValidationResult"]
+__all__ = [
+    "AppStorage",
+    "EntityResolver", 
+    "FeatureFlagManager",
+    "ValidationResult",
+    "is_state_valid",
+    "INVALID_STATES",
+]

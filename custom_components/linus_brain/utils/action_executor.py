@@ -11,6 +11,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
+from .state_validator import is_state_valid
 from .entity_resolver import EntityResolver
 
 _LOGGER = logging.getLogger(__name__)
@@ -235,8 +236,10 @@ class ActionExecutor:
         filtered = []
         for entity_id in entity_ids:
             state = self.hass.states.get(entity_id)
-            if state and state.state == required_state:
+            if is_state_valid(state) and state.state == required_state:
                 filtered.append(entity_id)
+            elif not is_state_valid(state):
+                _LOGGER.debug(f"Skipping entity {entity_id} with invalid state: {state.state if state else 'None'}")
 
         return filtered
 

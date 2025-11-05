@@ -1093,3 +1093,171 @@ class TestAreaManagerDeviceAreaLookup:
         result = area_manager.get_entity_area("sensor.test_sensor")
 
         assert result is None
+
+
+class TestAreaManagerInvalidStates:
+    """Test handling of invalid states (unavailable, unknown, etc.)."""
+
+    def test_presence_with_multiple_motion_sensors_some_unavailable(
+        self, hass, area_registry_mock, entity_registry_mock, device_registry_mock, monkeypatch
+    ):
+        """Test presence detection when some motion sensors are unavailable.
+        
+        Scenario: 3 motion sensors in garage
+        - 2 sensors are unavailable
+        - 1 sensor is on
+        Expected: Presence should be detected (True)
+        """
+        # Add 2 more motion sensors to living_room
+        entities = entity_registry_mock.entities.copy()
+        entities["binary_sensor.living_room_motion_2"] = _create_mock_entity(
+            "binary_sensor.living_room_motion_2", "living_room", None, "motion"
+        )
+        entities["binary_sensor.living_room_motion_3"] = _create_mock_entity(
+            "binary_sensor.living_room_motion_3", "living_room", None, "motion"
+        )
+        type(entity_registry_mock).entities = PropertyMock(return_value=entities)
+
+        def get_state(entity_id):
+            states = {
+                "binary_sensor.living_room_motion": State(
+                    "binary_sensor.living_room_motion", "unavailable"
+                ),
+                "binary_sensor.living_room_motion_2": State(
+                    "binary_sensor.living_room_motion_2", "unavailable"
+                ),
+                "binary_sensor.living_room_motion_3": State(
+                    "binary_sensor.living_room_motion_3", "on"
+                ),
+            }
+            return states.get(entity_id)
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        monkeypatch.setattr(
+            "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
+        )
+        monkeypatch.setattr(
+            "homeassistant.helpers.entity_registry.async_get",
+            lambda h: entity_registry_mock,
+        )
+        monkeypatch.setattr(
+            "homeassistant.helpers.device_registry.async_get",
+            lambda h: device_registry_mock,
+        )
+
+        area_manager = AreaManager(hass)
+
+        # Test presence detection
+        result = area_manager.get_area_presence_binary("living_room")
+
+        # Should detect presence because one valid sensor is "on"
+        assert result is True
+
+    def test_presence_with_all_motion_sensors_unavailable(
+        self, hass, area_registry_mock, entity_registry_mock, device_registry_mock, monkeypatch
+    ):
+        """Test presence detection when all motion sensors are unavailable.
+        
+        Scenario: 3 motion sensors in garage, all unavailable
+        Expected: No presence detected (False)
+        """
+        # Add 2 more motion sensors to living_room
+        entities = entity_registry_mock.entities.copy()
+        entities["binary_sensor.living_room_motion_2"] = _create_mock_entity(
+            "binary_sensor.living_room_motion_2", "living_room", None, "motion"
+        )
+        entities["binary_sensor.living_room_motion_3"] = _create_mock_entity(
+            "binary_sensor.living_room_motion_3", "living_room", None, "motion"
+        )
+        type(entity_registry_mock).entities = PropertyMock(return_value=entities)
+
+        def get_state(entity_id):
+            # All sensors unavailable
+            return State(entity_id, "unavailable")
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        monkeypatch.setattr(
+            "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
+        )
+        monkeypatch.setattr(
+            "homeassistant.helpers.entity_registry.async_get",
+            lambda h: entity_registry_mock,
+        )
+        monkeypatch.setattr(
+            "homeassistant.helpers.device_registry.async_get",
+            lambda h: device_registry_mock,
+        )
+
+        area_manager = AreaManager(hass)
+
+        # Test presence detection
+        result = area_manager.get_area_presence_binary("living_room")
+
+        # Should NOT detect presence when all sensors are unavailable
+        assert result is False
+
+    def test_presence_with_mixed_invalid_states(
+        self, hass, area_registry_mock, entity_registry_mock, device_registry_mock, monkeypatch
+    ):
+        """Test presence detection with various invalid states.
+        
+        Scenario: 4 motion sensors with different invalid states + 1 valid "off"
+        - 1 sensor is unknown
+        - 1 sensor is unavailable
+        - 1 sensor is undefined
+        - 1 sensor is off (valid)
+        Expected: No presence detected (False)
+        """
+        # Add 3 more motion sensors to living_room
+        entities = entity_registry_mock.entities.copy()
+        entities["binary_sensor.living_room_motion_2"] = _create_mock_entity(
+            "binary_sensor.living_room_motion_2", "living_room", None, "motion"
+        )
+        entities["binary_sensor.living_room_motion_3"] = _create_mock_entity(
+            "binary_sensor.living_room_motion_3", "living_room", None, "motion"
+        )
+        entities["binary_sensor.living_room_motion_4"] = _create_mock_entity(
+            "binary_sensor.living_room_motion_4", "living_room", None, "motion"
+        )
+        type(entity_registry_mock).entities = PropertyMock(return_value=entities)
+
+        def get_state(entity_id):
+            states = {
+                "binary_sensor.living_room_motion": State(
+                    "binary_sensor.living_room_motion", "unknown"
+                ),
+                "binary_sensor.living_room_motion_2": State(
+                    "binary_sensor.living_room_motion_2", "unavailable"
+                ),
+                "binary_sensor.living_room_motion_3": State(
+                    "binary_sensor.living_room_motion_3", "undefined"
+                ),
+                "binary_sensor.living_room_motion_4": State(
+                    "binary_sensor.living_room_motion_4", "off"
+                ),
+            }
+            return states.get(entity_id)
+
+        hass.states.get = MagicMock(side_effect=get_state)
+
+        monkeypatch.setattr(
+            "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
+        )
+        monkeypatch.setattr(
+            "homeassistant.helpers.entity_registry.async_get",
+            lambda h: entity_registry_mock,
+        )
+        monkeypatch.setattr(
+            "homeassistant.helpers.device_registry.async_get",
+            lambda h: device_registry_mock,
+        )
+
+        area_manager = AreaManager(hass)
+
+        # Test presence detection
+        result = area_manager.get_area_presence_binary("living_room")
+
+        # Should NOT detect presence (only valid sensor is "off")
+        assert result is False

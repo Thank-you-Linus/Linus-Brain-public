@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import template
 from homeassistant.util import dt as dt_util
 
+from .state_validator import is_state_valid
 from .entity_resolver import EntityResolver
 
 _LOGGER = logging.getLogger(__name__)
@@ -264,8 +265,8 @@ class ConditionEvaluator:
             return False
 
         state = self.hass.states.get(entity_id)
-        if state is None:
-            _LOGGER.debug(f"Entity {entity_id} not found")
+        if not is_state_valid(state):
+            _LOGGER.debug(f"Entity {entity_id} has invalid state: {state.state if state else 'None'}")
             return False
 
         for_duration = condition.get("for")
@@ -300,7 +301,8 @@ class ConditionEvaluator:
             return False
 
         state = self.hass.states.get(entity_id)
-        if state is None:
+        if not is_state_valid(state):
+            _LOGGER.debug(f"Entity {entity_id} has invalid state: {state.state if state else 'None'}")
             return False
 
         try:
