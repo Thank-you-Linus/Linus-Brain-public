@@ -285,3 +285,49 @@ async def test_get_next_activity_returns_correct_transition(
     assert activity_tracker_with_inactive._get_next_activity("inactive") == "empty"
     assert activity_tracker_with_inactive._get_next_activity("empty") is None
     assert activity_tracker_with_inactive._get_next_activity("nonexistent") is None
+
+
+@pytest.mark.asyncio
+async def test_inactive_transitions_to_empty_despite_continuous_reevaluation(
+    hass: HomeAssistant,
+    activity_tracker_with_inactive: ActivityTracker,
+    mock_condition_evaluator: MagicMock,
+    mock_coordinator: MagicMock,
+):
+    """
+    Test that simulates real production behavior where the coordinator
+    continuously re-evaluates activities (e.g., heartbeat every 60s, state changes).
+    
+    This test catches the bug where re-evaluation during transition state
+    would cancel the timeout, causing the activity to stay stuck on "inactive".
+    """
+    area_id = "living_room"
+    activity_tracker_with_inactive.coordinator = mock_coordinator
+
+    # Start with movement
+    mock_condition_evaluator.evaluate_conditions = AsyncMock(return_value=True)
+    activity = await activity_tracker_with_inactive.async_evaluate_activity(area_id)
+    assert activity == "movement"
+
+    # Movement conditions stop, should transition to inactive
+    mock_condition_evaluator.evaluate_conditions = AsyncMock(return_value=False)
+    await activity_tracker_with_inactive.async_evaluate_activity(area_id)
+
+    await asyncio.sleep(0.2)
+    assert activity_tracker_with_inactive.get_activity(area_id) == "inactive"
+
+    # Simulate continuous re-evaluation (like coordinator heartbeat or state changes)
+    # This should NOT cancel the timeout - the activity should still transition to empty
+    for i in range(3):
+        await asyncio.sleep(0.5)
+        # Re-evaluate activity (conditions still false)
+        await activity_tracker_with_inactive.async_evaluate_activity(area_id)
+        current = activity_tracker_with_inactive.get_activity(area_id)
+        # Should still be inactive until timeout expires
+        if i < 2:
+            assert current == "inactive", f"Iteration {i}: Expected inactive, got {current}"
+
+    # After the 2-second timeout (plus our 1.5s of re-evaluations), should transition to empty
+    await asyncio.sleep(1)
+    final_activity = activity_tracker_with_inactive.get_activity(area_id)
+    assert final_activity == "empty", f"Expected empty after timeout, got {final_activity}"

@@ -42,12 +42,12 @@ DEFAULT_ACTIVITY_RULES = {
         ],
         "description": "Turn on lights when presence detected AND area is dark",
     },
-    "none": {
+    "empty": {
         "conditions": [
             {
                 "condition": "activity",
                 "area_id": "current",
-                "state": "none",
+                "state": "empty",
                 "description": "No presence detected in area",
             }
         ],

@@ -376,13 +376,14 @@ class ActivityTracker:
 
                 # Don't process timeout logic for transition states when conditions are false
                 # Transition states should only be entered via timeout, not direct evaluation
+                # IMPORTANT: We do NOT cancel existing timeouts - they should complete naturally
                 if is_transition_state:
                     _LOGGER.debug(
-                        f"Area {area_id}: {current_activity} is transition state, skipping timeout logic"
+                        f"Area {area_id}: {current_activity} is transition state, allowing existing timeout to complete"
                     )
                     if area_id in self._conditions_false_since:
                         del self._conditions_false_since[area_id]
-                    self._cancel_timeout(area_id)
+                    # DO NOT cancel timeout - let it complete naturally to allow transition
                 elif area_id not in self._conditions_false_since:
                     self._conditions_false_since[area_id] = now
 
