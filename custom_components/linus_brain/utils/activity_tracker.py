@@ -104,6 +104,47 @@ class ActivityTracker:
 
         self._initialized = True
 
+    async def async_reload_activities(self) -> bool:
+        """
+        Reload activity definitions from AppStorage.
+
+        This is useful when activity configurations (like timeouts) are updated
+        from the cloud without restarting HA.
+
+        Returns:
+            True if reload was successful, False otherwise
+        """
+        if not self.app_storage:
+            _LOGGER.warning("No AppStorage available, cannot reload activities")
+            return False
+
+        try:
+            activities = self.app_storage.get_activities()
+
+            if not activities:
+                _LOGGER.warning("No activities found after reload")
+                return False
+
+            old_count = len(self._activities)
+            self._activities = activities
+
+            _LOGGER.info(
+                f"Reloaded {len(self._activities)} activities (was {old_count}): {list(self._activities.keys())}"
+            )
+
+            # Log timeout changes for debugging
+            for activity_id, activity_data in self._activities.items():
+                timeout = activity_data.get("timeout_seconds", 0)
+                _LOGGER.debug(
+                    f"Activity '{activity_id}' timeout: {timeout}s"
+                )
+
+            return True
+
+        except Exception as err:
+            _LOGGER.error(f"Failed to reload activities: {err}")
+            return False
+
     def _schedule_timeout(self, area_id: str, timeout_seconds: float) -> None:
         """
         Schedule a timeout task to expire activity after timeout_seconds.

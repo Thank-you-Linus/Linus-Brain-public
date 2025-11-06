@@ -259,6 +259,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     entry.async_on_unload(timeout_checker)
 
+    async def async_refresh_remote_config(_now=None):
+        """Refresh remote configuration (activities, timeouts) from cloud."""
+        try:
+            _LOGGER.info("Refreshing remote configuration from cloud")
+            
+            # Refresh activities from Supabase
+            activities_updated = await coordinator.app_storage.async_refresh_activities(
+                coordinator.supabase_client
+            )
+            
+            if activities_updated:
+                # Reload activities in ActivityTracker
+                tracker_updated = await coordinator.activity_tracker.async_reload_activities()
+                
+                if tracker_updated:
+                    _LOGGER.info("Remote configuration refreshed successfully")
+                    coordinator.async_update_listeners()
+                else:
+                    _LOGGER.debug("Remote configuration unchanged")
+            else:
+                _LOGGER.debug("No updates from cloud")
+                
+        except Exception as err:
+            _LOGGER.warning(f"Failed to refresh remote configuration: {err}")
+    
+    # Refresh remote config every hour
+    remote_config_refresher = async_track_time_interval(
+        hass, async_refresh_remote_config, timedelta(hours=1)
+    )
+    entry.async_on_unload(remote_config_refresher)
+
     rule_engine = RuleEngine(
         hass,
         entry.entry_id,

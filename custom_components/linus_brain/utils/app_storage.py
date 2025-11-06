@@ -224,8 +224,12 @@ class AppStorage:
             async with asyncio.timeout(CLOUD_SYNC_TIMEOUT):
                 assignments = await supabase_client.fetch_area_assignments(instance_id)
 
+                # ALWAYS fetch system activities (independent of assignments)
+                # This ensures we have latest timeout configurations from cloud
+                _LOGGER.debug("Fetching all system activities for timeout configs")
+                activities = await supabase_client.fetch_activity_types(activity_ids=None)
+                
                 apps = {}
-                activity_ids = set()
 
                 if assignments:
                     assigned_app_ids = set()
@@ -239,18 +243,8 @@ class AppStorage:
 
                         if app_data:
                             apps[app_id] = app_data
-
-                            for activity_id in app_data.get(
-                                "activity_actions", {}
-                            ).keys():
-                                activity_ids.add(activity_id)
-
-                    activities = await supabase_client.fetch_activity_types(
-                        list(activity_ids)
-                    )
                 else:
                     _LOGGER.info("No assignments in cloud (empty is valid state)")
-                    activities = {}
 
                 sync_time = dt_util.utcnow().isoformat()
 
@@ -390,6 +384,49 @@ class AppStorage:
         if synced_at:
             return dt_util.parse_datetime(synced_at)
         return None
+
+    async def async_refresh_activities(
+        self, supabase_client, instance_id: str | None = None
+    ) -> bool:
+        """
+        Refresh ONLY activity types from cloud (for timeout updates).
+
+        This is a lightweight refresh that only updates activity definitions
+        without touching apps or assignments. Useful for periodic config updates.
+
+        Args:
+            supabase_client: SupabaseClient instance
+            instance_id: Optional instance ID (not used for activities, they're global)
+
+        Returns:
+            True if refresh succeeded, False otherwise
+        """
+        try:
+            _LOGGER.debug("Refreshing activity configurations from cloud")
+
+            async with asyncio.timeout(CLOUD_SYNC_TIMEOUT):
+                activities = await supabase_client.fetch_activity_types(
+                    activity_ids=None
+                )
+
+                if activities:
+                    self._data["activities"] = activities
+                    await self.async_save()
+                    _LOGGER.info(
+                        f"Refreshed {len(activities)} activity configurations from cloud"
+                    )
+                    return True
+                else:
+                    _LOGGER.debug("No activities returned from cloud")
+                    return False
+
+        except asyncio.TimeoutError:
+            _LOGGER.warning("Activity refresh timeout (10s)")
+            return False
+
+        except Exception as err:
+            _LOGGER.warning(f"Activity refresh failed: {err}")
+            return False
 
     async def async_initialize(
         self, supabase_client, instance_id: str, area_ids: list[str]
