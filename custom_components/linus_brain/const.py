@@ -241,3 +241,99 @@ PRESENCE_DETECTION_DOMAINS = {
     "binary_sensor": ["motion"],  # Motion and presence sensors
     "media_player": [],  # Media players (playing state indicates presence)
 }
+
+
+# Cache for manifest data to avoid repeated file reads
+_MANIFEST_CACHE: dict[str, str] | None = None
+
+
+def _get_manifest_data() -> dict[str, str]:
+    """
+    Get manifest data (cached).
+    
+    Returns:
+        Dictionary with manifest fields like version, documentation_url, etc.
+    """
+    global _MANIFEST_CACHE
+    
+    if _MANIFEST_CACHE is not None:
+        return _MANIFEST_CACHE
+    
+    import json
+    from pathlib import Path
+    
+    manifest_path = Path(__file__).parent / "manifest.json"
+    try:
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+            _MANIFEST_CACHE = {
+                "version": manifest.get("version", "unknown"),
+                "documentation": manifest.get("documentation", ""),
+            }
+    except Exception:
+        _MANIFEST_CACHE = {
+            "version": "unknown",
+            "documentation": "https://github.com/Thank-you-Linus/Linus-Brain-public",
+        }
+    
+    return _MANIFEST_CACHE
+
+
+def get_area_device_info(entry_id: str, area_id: str, area_name: str) -> dict:
+    """
+    Get device_info for an area-specific Linus Brain device.
+    
+    Creates a device per area that groups all Linus Brain entities for that area:
+    - Area context sensor
+    - Feature switches (automatic_lighting, etc.)
+    
+    Args:
+        entry_id: Config entry ID
+        area_id: Home Assistant area ID
+        area_name: Human-readable area name
+        
+    Returns:
+        Device info dictionary for device registry
+    """
+    manifest = _get_manifest_data()
+    
+    return {
+        "identifiers": {(DOMAIN, f"{entry_id}_{area_id}")},
+        "name": f"Linus Brain - {area_name}",
+        "manufacturer": "Linus Brain",
+        "model": "Area Intelligence",
+        "sw_version": manifest["version"],
+        "suggested_area": area_id,  # Auto-assign device to area
+        "via_device": (DOMAIN, entry_id),  # Link to main integration device
+        "configuration_url": f"{manifest['documentation']}/blob/master/docs/QUICKSTART.md",
+    }
+
+
+def get_integration_device_info(entry_id: str) -> dict:
+    """
+    Get device_info for the main Linus Brain integration device.
+    
+    This is the parent device that shows integration-wide sensors:
+    - Last sync time
+    - Cloud health
+    - Total areas monitored
+    
+    Args:
+        entry_id: Config entry ID
+        
+    Returns:
+        Device info dictionary for device registry
+    """
+    from homeassistant.helpers.device_registry import DeviceEntryType
+    
+    manifest = _get_manifest_data()
+    
+    return {
+        "identifiers": {(DOMAIN, entry_id)},
+        "name": "Linus Brain",
+        "manufacturer": "Linus Brain",
+        "model": "Automation Engine",
+        "sw_version": manifest["version"],
+        "entry_type": DeviceEntryType.SERVICE,
+        "configuration_url": f"{manifest['documentation']}/blob/master/docs/QUICKSTART.md",
+    }

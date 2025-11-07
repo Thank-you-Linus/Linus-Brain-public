@@ -16,7 +16,7 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, get_area_device_info  # type: ignore[attr-defined]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -118,13 +118,10 @@ class LinusBrainFeatureSwitch(RestoreEntity, SwitchEntity):
         self._attr_translation_key = f"feature_{feature_id}"
         self._attr_translation_placeholders = {"area_name": area_name}
 
-        # Associate with Linus Brain device
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Linus Brain",
-            "manufacturer": "Linus Brain",
-            "model": "Automation Engine",
-        }
+        # Associate with area-specific device
+        self._attr_device_info = get_area_device_info(  # type: ignore[assignment]
+            entry.entry_id, area_id, area_name
+        )
 
         # Mark as config entity
         # self._attr_entity_category = EntityCategory.CONFIG
@@ -157,7 +154,7 @@ class LinusBrainFeatureSwitch(RestoreEntity, SwitchEntity):
         coordinator = self.hass.data[DOMAIN][self._entry.entry_id]["coordinator"]
         feature_flag_manager = coordinator.feature_flag_manager
 
-        feature_flag_manager.set_feature_enabled(self._area_id, self._feature_id, True)
+        await feature_flag_manager.set_feature_enabled(self._area_id, self._feature_id, True)
         self._attr_is_on = True
         self.async_write_ha_state()
 
@@ -168,7 +165,7 @@ class LinusBrainFeatureSwitch(RestoreEntity, SwitchEntity):
         coordinator = self.hass.data[DOMAIN][self._entry.entry_id]["coordinator"]
         feature_flag_manager = coordinator.feature_flag_manager
 
-        feature_flag_manager.set_feature_enabled(self._area_id, self._feature_id, False)
+        await feature_flag_manager.set_feature_enabled(self._area_id, self._feature_id, False)
         self._attr_is_on = False
         self.async_write_ha_state()
 

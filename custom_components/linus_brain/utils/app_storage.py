@@ -18,8 +18,26 @@ CLOUD-FIRST SYNC PHILOSOPHY:
 SYNC SCENARIOS:
 1. Cloud has data → Download and save locally
 2. Cloud empty, local has data → Clear local (cloud wins)
-3. Cloud empty, local empty → Load fallback
-4. Cloud timeout/error → Keep existing local data
+3. Cloud empty, local empty → Accept empty state (no fallback loaded here)
+4. Cloud timeout/error + has local → Keep existing local data
+5. Cloud timeout/error + empty local → Load fallback
+
+AUTO-CREATION BEHAVIOR:
+- app_storage does NOT auto-create apps/activities
+- rule_engine handles auto-creation when needed:
+  * If no assignments exist → Creates default "automatic_lighting" assignments
+  * If assignments exist but app missing → Loads fallback app + activities
+  * This ensures automation works even when cloud returns empty data
+  * Auto-created assignments are synced back to cloud (cloud-first)
+
+TYPICAL FLOW (Empty Cloud):
+1. app_storage.async_initialize() → Cloud empty → Storage has 0 apps, 0 assignments
+2. rule_engine.async_initialize() → No assignments found
+3. rule_engine._ensure_default_assignments() → Detects user has areas with entities
+4. → Loads fallback app (automatic_lighting) + activities (movement, inactive, empty)
+5. → Creates assignments for all areas
+6. → Syncs assignments back to cloud
+7. → Enables areas → Automation works!
 """
 
 import asyncio
@@ -133,10 +151,14 @@ class AppStorage:
             return self._data
 
     def _save_file(self) -> None:
-        """Synchronous file save operation."""
+        """Synchronous file save operation with fsync for durability."""
+        import os
+        
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         with open(self.storage_file, "w") as f:
             json.dump(self._data, f, indent=2, default=str)
+            f.flush()  # Flush Python buffers
+            os.fsync(f.fileno())  # Force OS to write to disk
 
     async def async_save(self) -> bool:
         """
@@ -257,9 +279,9 @@ class AppStorage:
                     "is_fallback": False,
                 }
 
-                if self.is_empty():
-                    _LOGGER.info("Cloud data empty → loading fallback")
-                    self.load_hardcoded_fallback(preserve_sync_time=True)
+                # Cloud sync succeeded - accept cloud data as-is (even if empty)
+                # Empty cloud data is valid and intentional (no assignments configured)
+                # Note: We don't load fallback here because cloud is source of truth
 
                 await self.async_save()
 
@@ -272,22 +294,28 @@ class AppStorage:
                 return True
 
         except asyncio.TimeoutError:
-            _LOGGER.warning("Cloud sync timeout (10s)")
+            _LOGGER.warning("Cloud sync timeout (10s) - keeping existing local data")
 
+            # Only load fallback if we have absolutely no local data
             if self.is_empty():
-                _LOGGER.info("No local data → using fallback")
+                _LOGGER.info("No local data available → loading fallback")
                 self.load_hardcoded_fallback()
                 await self.async_save()
+            else:
+                _LOGGER.info("Preserving existing local cache (graceful degradation)")
 
             return False
 
         except Exception as err:
-            _LOGGER.warning(f"Cloud sync failed: {err}")
+            _LOGGER.warning(f"Cloud sync failed: {err} - keeping existing local data")
 
+            # Only load fallback if we have absolutely no local data
             if self.is_empty():
-                _LOGGER.info("No local data → using fallback")
+                _LOGGER.info("No local data available → loading fallback")
                 self.load_hardcoded_fallback()
                 await self.async_save()
+            else:
+                _LOGGER.info("Preserving existing local cache (graceful degradation)")
 
             return False
 
@@ -449,12 +477,16 @@ class AppStorage:
         Returns:
             Loaded data dictionary
         """
+        # Load from local cache first
         await self.async_load()
 
+        # Try cloud sync (will handle fallback internally if needed)
         await self.async_sync_from_cloud(supabase_client, instance_id, area_ids)
 
+        # After initialization, if still completely empty, load fallback
+        # This catches the edge case where both cloud and local are empty
         if self.is_empty():
-            _LOGGER.warning("After sync, still empty → loading fallback")
+            _LOGGER.warning("After initialization, storage is empty → loading fallback")
             self.load_hardcoded_fallback()
             await self.async_save()
 

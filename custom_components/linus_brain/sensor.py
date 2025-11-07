@@ -36,7 +36,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, get_area_device_info, get_integration_device_info
 from .coordinator import LinusBrainCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -121,12 +121,7 @@ class LinusBrainSyncSensor(CoordinatorEntity, SensorEntity):
         self._attr_suggested_object_id = f"{DOMAIN}_last_sync"  # Force English entity_id
         self._attr_icon = "mdi:cloud-sync"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Linus Brain",
-            "manufacturer": "Linus Brain",
-            "model": "Automation Engine",
-        }
+        self._attr_device_info = get_integration_device_info(entry.entry_id)  # type: ignore[assignment]
         self._update_from_coordinator()
 
     def _handle_coordinator_update(self) -> None:
@@ -136,7 +131,10 @@ class LinusBrainSyncSensor(CoordinatorEntity, SensorEntity):
 
     def _update_from_coordinator(self) -> None:
         """Update sensor attributes from coordinator data."""
-        from .utils.area_manager import get_monitored_domains, get_presence_detection_domains
+        from .utils.area_manager import (
+            get_monitored_domains,
+            get_presence_detection_domains,
+        )
         
         # Get real cloud sync time from app_storage
         sync_time = self.coordinator.app_storage.get_sync_time()  # type: ignore[attr-defined]
@@ -185,12 +183,7 @@ class LinusBrainRoomsSensor(CoordinatorEntity, SensorEntity):
         self._attr_suggested_object_id = f"{DOMAIN}_monitored_areas"  # Force English entity_id
         self._attr_icon = "mdi:home-group"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Linus Brain",
-            "manufacturer": "Linus Brain",
-            "model": "Automation Engine",
-        }
+        self._attr_device_info = get_integration_device_info(entry.entry_id)  # type: ignore[assignment]
         self._update_from_coordinator()
 
     def _handle_coordinator_update(self) -> None:
@@ -233,12 +226,7 @@ class LinusBrainErrorsSensor(CoordinatorEntity, SensorEntity):
         self._attr_suggested_object_id = f"{DOMAIN}_errors"  # Force English entity_id
         self._attr_icon = "mdi:alert-circle"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Linus Brain",
-            "manufacturer": "Linus Brain",
-            "model": "Automation Engine",
-        }
+        self._attr_device_info = get_integration_device_info(entry.entry_id)  # type: ignore[assignment]
         self._update_from_coordinator()
 
     def _handle_coordinator_update(self) -> None:
@@ -301,12 +289,9 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
         self._attr_icon = "mdi:home-analytics"
         self._attr_device_class = SensorDeviceClass.ENUM
         self._attr_options = ["empty", "movement", "occupied", "inactive"]
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Linus Brain",
-            "manufacturer": "Linus Brain",
-            "model": "Automation Engine",
-        }
+        self._attr_device_info = get_area_device_info(  # type: ignore[assignment]
+            entry.entry_id, area_id, area_name
+        )
         self._update_from_activity_tracker()
 
     def _handle_coordinator_update(self) -> None:
@@ -348,6 +333,9 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
                 self._coordinator.instance_id, self._area_id
             )
 
+        # Get configured timeouts for all activities
+        configured_timeouts = self._activity_tracker.get_configured_timeouts()
+
         self._attr_extra_state_attributes = {
             "activity_level": activity_level,
             "seconds_until_timeout": seconds_until_timeout,
@@ -360,6 +348,7 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
             "tracking_entities": tracking_entities,
             "last_automation_rule": last_rule,
             "insights": insights,
+            "configured_timeouts": configured_timeouts,
         }
 
 
@@ -382,12 +371,7 @@ class LinusBrainRuleEngineStatsSensor(CoordinatorEntity, SensorEntity):
         self._attr_suggested_object_id = f"{DOMAIN}_rule_engine"  # Force English entity_id
         self._attr_icon = "mdi:robot"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Linus Brain",
-            "manufacturer": "Linus Brain",
-            "model": "Automation Engine",
-        }
+        self._attr_device_info = get_integration_device_info(entry.entry_id)  # type: ignore[assignment]
         self._update_from_rule_engine()
 
     def _handle_coordinator_update(self) -> None:
@@ -446,12 +430,7 @@ class LinusBrainCloudHealthSensor(CoordinatorEntity, SensorEntity):
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_device_class = SensorDeviceClass.ENUM
         self._attr_options = ["connected", "disconnected", "error"]
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Linus Brain",
-            "manufacturer": "Linus Brain",
-            "model": "Automation Engine",
-        }
+        self._attr_device_info = get_integration_device_info(entry.entry_id)  # type: ignore[assignment]
         self._update_from_coordinator()
 
     def _handle_coordinator_update(self) -> None:
@@ -524,12 +503,7 @@ class LinusBrainActivitiesSensor(CoordinatorEntity, SensorEntity):
         self._attr_suggested_object_id = f"{DOMAIN}_activities"  # Force English entity_id
         self._attr_icon = "mdi:run"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Linus Brain",
-            "manufacturer": "Linus Brain",
-            "model": "Automation Engine",
-        }
+        self._attr_device_info = get_integration_device_info(entry.entry_id)  # type: ignore[assignment]
         self._update_from_coordinator()
 
     def _handle_coordinator_update(self) -> None:
@@ -580,12 +554,7 @@ class LinusBrainAppSensor(CoordinatorEntity, SensorEntity):
         self._attr_suggested_object_id = f"{DOMAIN}_app_{app_id}"  # Force English entity_id
         self._attr_icon = "mdi:application-cog"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Linus Brain",
-            "manufacturer": "Linus Brain",
-            "model": "Automation Engine",
-        }
+        self._attr_device_info = get_integration_device_info(entry.entry_id)  # type: ignore[assignment]
         self._update_from_coordinator()
 
     def _handle_coordinator_update(self) -> None:

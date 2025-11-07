@@ -146,6 +146,7 @@ class RuleEngine:
         Ensure all areas have app assignments.
 
         Creates default automatic_lighting assignments for areas without assignments.
+        Also ensures the automatic_lighting app exists in storage (loads fallback if needed).
         Uses cloud-first strategy: tries Supabase first, then local storage.
         """
         try:
@@ -155,6 +156,31 @@ class RuleEngine:
             if not areas:
                 _LOGGER.info("No areas found, skipping default assignment creation")
                 return
+
+            # Ensure automatic_lighting app AND required activities exist
+            # This handles the case where cloud returns empty but user has areas with entities
+            app = self.app_storage.get_app("automatic_lighting")
+            if not app:
+                _LOGGER.info(
+                    "automatic_lighting app not found in storage, loading fallback app and activities"
+                )
+                from ..const import DEFAULT_AUTOLIGHT_APP, DEFAULT_ACTIVITY_TYPES
+                
+                # Load default app
+                self.app_storage.set_app("automatic_lighting", DEFAULT_AUTOLIGHT_APP)
+                
+                # Ensure required activities exist (movement, inactive, empty)
+                for activity_id in ["movement", "inactive", "empty"]:
+                    if not self.app_storage.get_activity(activity_id):
+                        if activity_id in DEFAULT_ACTIVITY_TYPES:
+                            self.app_storage.set_activity(
+                                activity_id, DEFAULT_ACTIVITY_TYPES[activity_id]
+                            )
+                
+                await self.app_storage.async_save()
+                _LOGGER.info(
+                    "Loaded fallback: 1 app (automatic_lighting) + 3 activities (movement, inactive, empty)"
+                )
 
             from ..const import DOMAIN
 

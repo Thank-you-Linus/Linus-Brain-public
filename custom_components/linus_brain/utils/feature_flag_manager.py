@@ -133,11 +133,8 @@ class FeatureFlagManager:
             return
 
         try:
-            # AppStorage manages its own data, we need to update it directly
-            data = await self.app_storage.async_load()
-            data["feature_states"] = self._area_feature_states
-            # Update the internal data in AppStorage
-            self.app_storage._data = data
+            # Update the internal data in AppStorage (use existing data, don't reload)
+            self.app_storage._data["feature_states"] = self._area_feature_states
             await self.app_storage.async_save()
             _LOGGER.debug("Feature states persisted to AppStorage")
 
@@ -175,7 +172,7 @@ class FeatureFlagManager:
 
         return is_enabled
 
-    def set_feature_enabled(self, area_id: str, feature_id: str, enabled: bool) -> None:
+    async def set_feature_enabled(self, area_id: str, feature_id: str, enabled: bool) -> None:
         """
         Enable or disable a feature for an area.
 
@@ -196,10 +193,8 @@ class FeatureFlagManager:
                 f"FeatureFlag: Feature {feature_id} {'ENABLED' if enabled else 'DISABLED'} for area {area_id}"
             )
 
-            # Persist immediately
-            import asyncio
-
-            asyncio.create_task(self.persist_feature_states())
+            # Persist immediately (await to ensure it completes)
+            await self.persist_feature_states()
 
     def get_feature_definitions(self) -> dict[str, dict[str, Any]]:
         """

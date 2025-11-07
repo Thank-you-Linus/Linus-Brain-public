@@ -602,6 +602,20 @@ class ActivityTracker:
             }
         return result
 
+    def get_configured_timeouts(self) -> dict[str, int]:
+        """
+        Get configured timeout values for all activities.
+
+        Returns:
+            Dictionary mapping activity_id to timeout_seconds
+            Example: {"movement": 1, "inactive": 60, "occupied": 0}
+        """
+        timeouts = {}
+        for activity_id, activity_data in self._activities.items():
+            timeout = activity_data.get("timeout_seconds", 0)
+            timeouts[activity_id] = timeout
+        return timeouts
+
     def reset_area(self, area_id: str) -> None:
         """
         Reset activity tracking for an area.

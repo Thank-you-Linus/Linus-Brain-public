@@ -188,10 +188,9 @@ def test_is_feature_enabled_for_nonexistent_feature(initialized_manager):
     assert result is False
 
 
-def test_set_feature_enabled_creates_new_area(feature_flag_manager):
+async def test_set_feature_enabled_creates_new_area(feature_flag_manager):
     """Test setting feature enabled creates new area if needed."""
-    with patch("asyncio.create_task"):
-        feature_flag_manager.set_feature_enabled("new_area", "automatic_lighting", True)
+    await feature_flag_manager.set_feature_enabled("new_area", "automatic_lighting", True)
 
     assert "new_area" in feature_flag_manager._area_feature_states
     assert (
@@ -202,7 +201,7 @@ def test_set_feature_enabled_creates_new_area(feature_flag_manager):
     )
 
 
-def test_set_feature_enabled_updates_existing_feature(initialized_manager):
+async def test_set_feature_enabled_updates_existing_feature(initialized_manager):
     """Test setting feature enabled updates existing feature state."""
     # Initial state is False
     assert (
@@ -210,8 +209,7 @@ def test_set_feature_enabled_updates_existing_feature(initialized_manager):
     )
 
     # Enable feature
-    with patch("asyncio.create_task"):
-        initialized_manager.set_feature_enabled("kitchen", "automatic_lighting", True)
+    await initialized_manager.set_feature_enabled("kitchen", "automatic_lighting", True)
 
     # Verify state changed
     assert (
@@ -222,14 +220,13 @@ def test_set_feature_enabled_updates_existing_feature(initialized_manager):
     )
 
 
-def test_set_feature_enabled_no_change_if_same_value(initialized_manager):
+async def test_set_feature_enabled_no_change_if_same_value(initialized_manager):
     """Test that setting same value doesn't trigger persistence."""
     # Set to same value (already False)
-    with patch("asyncio.create_task"):
-        initialized_manager.set_feature_enabled("kitchen", "automatic_lighting", False)
+    await initialized_manager.set_feature_enabled("kitchen", "automatic_lighting", False)
 
-        # persist_feature_states should not be called since value didn't change
-        # Note: Due to asyncio.create_task, we can't easily verify this without complex mocking
+    # persist_feature_states should not be called since value didn't change
+    # (The internal check prevents unnecessary persistence)
 
 
 def test_get_area_feature_states(initialized_manager):
@@ -516,10 +513,9 @@ async def test_feature_flag_integration_with_switch_turn_on(feature_flag_manager
     )
 
     # Simulate switch turning on
-    with patch("asyncio.create_task"):
-        feature_flag_manager.set_feature_enabled(
-            "test_area", "automatic_lighting", True
-        )
+    await feature_flag_manager.set_feature_enabled(
+        "test_area", "automatic_lighting", True
+    )
 
     # Verify state changed
     assert (
@@ -538,10 +534,9 @@ async def test_feature_flag_integration_with_switch_turn_off(initialized_manager
     )
 
     # Simulate switch turning off
-    with patch("asyncio.create_task"):
-        initialized_manager.set_feature_enabled(
-            "living_room", "automatic_lighting", False
-        )
+    await initialized_manager.set_feature_enabled(
+        "living_room", "automatic_lighting", False
+    )
 
     # Verify state changed
     assert (
@@ -554,10 +549,9 @@ async def test_feature_flag_integration_with_switch_turn_off(initialized_manager
 async def test_multiple_areas_independent_states(feature_flag_manager):
     """Test that multiple areas can have independent feature states."""
     # Set different states for different areas
-    with patch("asyncio.create_task"):
-        feature_flag_manager.set_feature_enabled("area1", "automatic_lighting", True)
-        feature_flag_manager.set_feature_enabled("area2", "automatic_lighting", False)
-        feature_flag_manager.set_feature_enabled("area3", "automatic_lighting", True)
+    await feature_flag_manager.set_feature_enabled("area1", "automatic_lighting", True)
+    await feature_flag_manager.set_feature_enabled("area2", "automatic_lighting", False)
+    await feature_flag_manager.set_feature_enabled("area3", "automatic_lighting", True)
 
     # Verify independence
     assert (
@@ -588,19 +582,19 @@ def test_concurrent_feature_checks(initialized_manager):
     assert initialized_manager._metrics["total_checks"] == 100
 
 
-def test_feature_toggle_multiple_times(initialized_manager):
+@pytest.mark.asyncio
+async def test_feature_toggle_multiple_times(initialized_manager):
     """Test toggling feature multiple times works correctly."""
     area = "test_area"
     feature = "automatic_lighting"
 
     # Toggle on and off multiple times
-    with patch("asyncio.create_task"):
-        for i in range(10):
-            expected_state = i % 2 == 0
-            initialized_manager.set_feature_enabled(area, feature, expected_state)
-            assert (
-                initialized_manager.is_feature_enabled(area, feature) == expected_state
-            )
+    for i in range(10):
+        expected_state = i % 2 == 0
+        await initialized_manager.set_feature_enabled(area, feature, expected_state)
+        assert (
+            initialized_manager.is_feature_enabled(area, feature) == expected_state
+        )
 
 
 @pytest.mark.asyncio
@@ -610,12 +604,8 @@ async def test_load_then_modify_then_persist(feature_flag_manager, mock_app_stor
     await feature_flag_manager.load_feature_states(["area1", "area2"])
 
     # Modify states
-    with patch("asyncio.create_task"):
-        feature_flag_manager.set_feature_enabled("area1", "automatic_lighting", True)
-        feature_flag_manager.set_feature_enabled("area2", "automatic_lighting", False)
-
-    # Persist
-    await feature_flag_manager.persist_feature_states()
+    await feature_flag_manager.set_feature_enabled("area1", "automatic_lighting", True)
+    await feature_flag_manager.set_feature_enabled("area2", "automatic_lighting", False)
 
     # Verify storage was updated
     mock_app_storage.async_save.assert_called()

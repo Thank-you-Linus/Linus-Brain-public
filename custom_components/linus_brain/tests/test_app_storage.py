@@ -210,14 +210,16 @@ class TestAppStorageCloudSync:
 
         assert result is True
         assert app_storage._data["assignments"] == {}
-        assert app_storage.is_fallback_data() is True
-        assert len(app_storage._data["activities"]) == 4
+        # Cloud sync succeeded with empty data - accept as-is (no fallback loaded)
+        assert app_storage.is_fallback_data() is False
+        assert len(app_storage._data["activities"]) == 0
+        assert len(app_storage._data["apps"]) == 0
 
     @pytest.mark.asyncio
     async def test_async_sync_no_assignments_no_local_data(
         self, app_storage, mock_supabase
     ):
-        """Test cloud sync with no assignments and no local data uses fallback."""
+        """Test cloud sync with no assignments and no local data accepts empty state."""
         mock_supabase.fetch_area_assignments.return_value = {}
 
         result = await app_storage.async_sync_from_cloud(
@@ -225,8 +227,11 @@ class TestAppStorageCloudSync:
         )
 
         assert result is True
-        assert app_storage.is_fallback_data() is True
-        assert len(app_storage._data["activities"]) == 4
+        # Cloud sync succeeded with empty data - accept as-is (no fallback loaded)
+        assert app_storage.is_fallback_data() is False
+        assert len(app_storage._data["activities"]) == 0
+        assert len(app_storage._data["apps"]) == 0
+        assert len(app_storage._data["assignments"]) == 0
 
     @pytest.mark.asyncio
     async def test_async_sync_timeout_with_empty_storage(
@@ -408,31 +413,33 @@ class TestAppStorageInitialize:
         assert len(data["activities"]) == 4
 
     @pytest.mark.asyncio
-    async def test_empty_cloud_sync_preserves_sync_time(
+    async def test_empty_cloud_sync_accepts_empty_state(
         self, app_storage, mock_supabase
     ):
-        """Test that synced_at is preserved when loading fallback after empty cloud sync."""
+        """Test that empty cloud sync is accepted as valid state (no fallback loaded)."""
         # Mock empty cloud response (no apps, no activities, no assignments)
         mock_supabase.fetch_area_assignments.return_value = {}
         mock_supabase.fetch_app_with_actions.return_value = None
         mock_supabase.fetch_activity_types.return_value = {}
 
-        # Perform cloud sync - should load fallback but preserve sync time
+        # Perform cloud sync - should accept empty state without loading fallback
         success = await app_storage.async_sync_from_cloud(
             mock_supabase, "test-instance", ["kitchen"]
         )
 
         assert success is True
-        assert app_storage.is_fallback_data() is True
+        assert app_storage.is_fallback_data() is False
 
-        # The key assertion: synced_at should NOT be None
+        # The key assertion: synced_at should be set (cloud sync succeeded)
         sync_time = app_storage.get_sync_time()
         assert (
             sync_time is not None
-        ), "Sync time should be preserved even when loading fallback"
+        ), "Sync time should be set when cloud sync succeeds"
 
-        # Verify we still have fallback data
+        # Verify we have empty data (cloud is source of truth)
         activities = app_storage.get_activities()
-        assert len(activities) == 4  # Default activities from fallback
-        assert "empty" in activities
-        assert "movement" in activities
+        assert len(activities) == 0  # No fallback loaded
+        apps = app_storage.get_apps()
+        assert len(apps) == 0
+        assignments = app_storage.get_assignments()
+        assert len(assignments) == 0
