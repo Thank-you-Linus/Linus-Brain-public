@@ -34,6 +34,105 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.BUTTON, Platform.SENSOR, Platform.SWITCH]
 
 
+async def async_migrate_device_areas(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """
+    Migrate Linus Brain devices to their correct areas.
+    
+    This function ensures that area-specific Linus Brain devices are assigned
+    to their corresponding Home Assistant areas via the device registry.
+    
+    This is necessary because we removed 'suggested_area' from device_info
+    to prevent creating duplicate areas when area_id is a hash.
+    
+    Instead, we directly assign devices to areas using the device_registry API.
+    
+    This migration is safe to run multiple times - it will only update devices
+    that need updating.
+    
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry for this integration
+    """
+    from homeassistant.helpers import device_registry as dr
+    
+    device_reg = dr.async_get(hass)
+    area_reg = area_registry.async_get(hass)
+    
+    # Get all devices for this integration
+    devices = dr.async_entries_for_config_entry(device_reg, entry.entry_id)
+    
+    if not devices:
+        _LOGGER.debug("No devices found for area migration")
+        return
+    
+    migrations_needed = []
+    
+    for device in devices:
+        # Skip the main integration device (no area assignment needed)
+        for identifier in device.identifiers:
+            if identifier[0] == DOMAIN and identifier[1] == entry.entry_id:
+                # This is the main integration device
+                continue
+            
+            # Check if this is an area-specific device
+            # Format: (DOMAIN, f"{entry_id}_{area_id}")
+            if identifier[0] == DOMAIN and "_" in identifier[1]:
+                # Extract area_id from identifier
+                identifier_str = identifier[1]
+                if identifier_str.startswith(f"{entry.entry_id}_"):
+                    area_id = identifier_str.replace(f"{entry.entry_id}_", "")
+                    
+                    # Verify this area exists in Home Assistant
+                    area = area_reg.async_get_area(area_id)
+                    if not area:
+                        _LOGGER.warning(
+                            f"Device {device.name} references non-existent area: {area_id}"
+                        )
+                        continue
+                    
+                    # Check if device needs migration
+                    if device.area_id != area_id:
+                        migrations_needed.append({
+                            "device": device,
+                            "current_area": device.area_id,
+                            "target_area": area_id,
+                            "area_name": area.name,
+                        })
+    
+    if not migrations_needed:
+        _LOGGER.info("Device area migration check: All devices correctly assigned ✓")
+        return
+    
+    # Perform migrations
+    _LOGGER.info(f"Device area migration: Found {len(migrations_needed)} devices to migrate")
+    
+    migrated_count = 0
+    for migration in migrations_needed:
+        device = migration["device"]
+        target_area = migration["target_area"]
+        area_name = migration["area_name"]
+        
+        try:
+            # Update device area using device_registry
+            device_reg.async_update_device(
+                device.id,
+                area_id=target_area
+            )
+            
+            _LOGGER.info(f"Migrated device '{device.name}' to area '{area_name}' ({target_area})")
+            migrated_count += 1
+            
+        except Exception as err:
+            _LOGGER.error(
+                f"Failed to migrate device '{device.name}' to area '{area_name}': {err}"
+            )
+    
+    if migrated_count > 0:
+        _LOGGER.info(f"Device area migration complete: {migrated_count} devices assigned to areas")
+    else:
+        _LOGGER.warning("Device area migration complete: No devices could be migrated")
+
+
 async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """
     Migrate entity IDs from localized names to English.
@@ -331,6 +430,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # This runs before platforms are loaded, so it renames existing entities
     # before new ones are created
     await async_migrate_entity_ids(hass, entry)
+
+    # Migrate devices to their correct areas (if needed)
+    # This ensures area-specific devices are assigned to the right areas
+    # without using suggested_area (which causes duplicate areas with hash IDs)
+    await async_migrate_device_areas(hass, entry)
 
     # Forward the setup to sensor platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

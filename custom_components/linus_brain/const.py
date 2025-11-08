@@ -243,22 +243,17 @@ PRESENCE_DETECTION_DOMAINS = {
 }
 
 
-# Cache for manifest data to avoid repeated file reads
-_MANIFEST_CACHE: dict[str, str] | None = None
-
-
-def _get_manifest_data() -> dict[str, str]:
+# Load manifest data at module import time (before async context)
+# This avoids blocking I/O warnings when accessing manifest during entity setup
+def _load_manifest_data() -> dict[str, str]:
     """
-    Get manifest data (cached).
+    Load manifest data from manifest.json file.
+    
+    This function is called once at module import time, before any async code runs.
     
     Returns:
         Dictionary with manifest fields like version, documentation_url, etc.
     """
-    global _MANIFEST_CACHE
-    
-    if _MANIFEST_CACHE is not None:
-        return _MANIFEST_CACHE
-    
     import json
     from pathlib import Path
     
@@ -266,17 +261,29 @@ def _get_manifest_data() -> dict[str, str]:
     try:
         with open(manifest_path) as f:
             manifest = json.load(f)
-            _MANIFEST_CACHE = {
+            return {
                 "version": manifest.get("version", "unknown"),
                 "documentation": manifest.get("documentation", ""),
             }
     except Exception:
-        _MANIFEST_CACHE = {
+        return {
             "version": "unknown",
             "documentation": "https://github.com/Thank-you-Linus/Linus-Brain-public",
         }
+
+
+# Load manifest once at module import (synchronous context, before async event loop)
+_MANIFEST_DATA = _load_manifest_data()
+
+
+def _get_manifest_data() -> dict[str, str]:
+    """
+    Get manifest data (loaded at import time).
     
-    return _MANIFEST_CACHE
+    Returns:
+        Dictionary with manifest fields like version, documentation_url, etc.
+    """
+    return _MANIFEST_DATA
 
 
 def get_area_device_info(entry_id: str, area_id: str, area_name: str) -> dict:
@@ -303,7 +310,8 @@ def get_area_device_info(entry_id: str, area_id: str, area_name: str) -> dict:
         "manufacturer": "Linus Brain",
         "model": "Area Intelligence",
         "sw_version": manifest["version"],
-        "suggested_area": area_id,  # Auto-assign device to area
+        # Note: suggested_area removed - devices are assigned via device_registry migration
+        # This prevents creating duplicate areas when area_id is a hash
         "via_device": (DOMAIN, entry_id),  # Link to main integration device
         "configuration_url": f"{manifest['documentation']}/blob/master/docs/QUICKSTART.md",
     }
