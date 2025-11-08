@@ -135,3 +135,21 @@ debug_reset_metrics:
   name: Debug Reset Metrics
   description: Reset feature flag metrics and debug history.
   fields: {}
+
+reset_app_preferences:
+  name: Reset App Preferences
+  description: Reset area-specific app preferences (config_overrides) to default values. This removes all customizations and reverts to the app's default behavior.
+  fields:
+    area_id:
+      name: Area
+      description: The area to reset preferences for.
+      required: true
+      selector:
+        area:
+    app_id:
+      name: App ID (Optional)
+      description: The app ID to reset preferences for. If not specified, resets the currently assigned app for this area.
+      required: false
+      example: "automatic_lighting"
+      selector:
+        text:

@@ -23,6 +23,7 @@ SERVICE_RELOAD_RULES = "reload_rules"
 SERVICE_SIMULATE_ACTIVITY = "simulate_activity"
 SERVICE_LOAD_RULE_FROM_CLOUD = "load_rule_from_cloud"
 SERVICE_RELOAD_APPS = "reload_apps"
+SERVICE_RESET_APP_PREFERENCES = "reset_app_preferences"
 
 # Feature flag debugging services
 SERVICE_DEBUG_AREA_STATUS = "debug_area_status"
@@ -71,6 +72,13 @@ SERVICE_DEBUG_EXPORT_DATA_SCHEMA = vol.Schema(
     {
         vol.Optional("format", default="json"): vol.In(["json", "csv", "txt"]),
         vol.Optional("area_id", default=None): cv.string,
+    }
+)
+
+SERVICE_RESET_APP_PREFERENCES_SCHEMA = vol.Schema(
+    {
+        vol.Required("area_id"): cv.string,
+        vol.Optional("app_id"): cv.string,
     }
 )
 
@@ -386,6 +394,71 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 except Exception as err:
                     _LOGGER.error(f"Failed to reset metrics: {err}")
 
+    async def handle_reset_app_preferences(call: ServiceCall) -> None:
+        """
+        Handle reset_app_preferences service call.
+
+        Resets config_overrides for a specific area assignment to default values.
+        If app_id is specified, only resets that app's preferences.
+        """
+        area_id = call.data.get("area_id")
+        app_id = call.data.get("app_id")
+        
+        _LOGGER.info(f"Service reset_app_preferences called for area: {area_id}, app: {app_id or 'current'}")
+
+        for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
+            coordinator = entry_data.get("coordinator")
+            app_storage = entry_data.get("app_storage")
+            
+            if not coordinator or not app_storage:
+                continue
+            
+            try:
+                # Get current assignment
+                assignment = app_storage.get_assignment(area_id)
+                
+                if not assignment:
+                    _LOGGER.warning(f"No assignment found for area {area_id}")
+                    continue
+                
+                # If app_id specified, verify it matches
+                assignment_app_id = assignment.get("app_id")
+                if app_id and assignment_app_id != app_id:
+                    _LOGGER.warning(
+                        f"Area {area_id} is assigned to {assignment_app_id}, not {app_id}"
+                    )
+                    continue
+                
+                # Reset config_overrides to empty dict (app defaults will be used)
+                assignment["config_overrides"] = {}
+                
+                # Save to local storage
+                app_storage.set_assignment(area_id, assignment)
+                await app_storage.async_save()
+                
+                _LOGGER.info(f"Reset preferences for area {area_id} (app: {assignment_app_id})")
+                
+                # Sync to cloud if available
+                try:
+                    await coordinator.supabase_client.assign_app_to_area(
+                        area_id=area_id,
+                        app_id=assignment_app_id,
+                        app_version=assignment.get("app_version"),
+                        config_overrides={},
+                        global_conditions=assignment.get("global_conditions", []),
+                        enabled=assignment.get("enabled", True),
+                        changed_by="service",
+                        change_reason="Reset preferences to defaults",
+                    )
+                    _LOGGER.info(f"Synced reset preferences to cloud for area {area_id}")
+                except Exception as cloud_err:
+                    _LOGGER.warning(
+                        f"Failed to sync reset preferences to cloud for {area_id}: {cloud_err}"
+                    )
+                
+            except Exception as err:
+                _LOGGER.error(f"Failed to reset preferences for area {area_id}: {err}")
+
     # Register services
     hass.services.async_register(
         DOMAIN,
@@ -460,6 +533,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         handle_debug_reset_metrics,
     )
 
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_RESET_APP_PREFERENCES,
+        handle_reset_app_preferences,
+        schema=SERVICE_RESET_APP_PREFERENCES_SCHEMA,
+    )
+
     _LOGGER.info("Linus Brain services registered")
 
 
@@ -481,5 +561,6 @@ async def async_unload_services(hass: HomeAssistant) -> None:
     hass.services.async_remove(DOMAIN, SERVICE_DEBUG_VALIDATE_AREA)
     hass.services.async_remove(DOMAIN, SERVICE_DEBUG_EXPORT_DATA)
     hass.services.async_remove(DOMAIN, SERVICE_DEBUG_RESET_METRICS)
+    hass.services.async_remove(DOMAIN, SERVICE_RESET_APP_PREFERENCES)
 
     _LOGGER.info("Linus Brain services unregistered")
