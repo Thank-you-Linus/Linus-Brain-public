@@ -243,6 +243,75 @@ PRESENCE_DETECTION_DOMAINS = {
 }
 
 
+# Insight sensor configuration
+# Maps insight_type to HA sensor properties for display
+# This enables future insight types without code changes
+INSIGHT_SENSOR_CONFIG = {
+    "dark_threshold_lux": {
+        "device_class": "illuminance",  # SensorDeviceClass.ILLUMINANCE
+        "unit": "lx",
+        "icon": "mdi:brightness-5",
+        "translation_key": "dark_threshold",
+        "value_path": ["threshold"],  # Path in insight["value"] to extract number
+    },
+    "bright_threshold_lux": {
+        "device_class": "illuminance",
+        "unit": "lx",
+        "icon": "mdi:brightness-7",
+        "translation_key": "bright_threshold",
+        "value_path": ["threshold"],
+    },
+    "default_brightness_pct": {
+        "device_class": None,  # No standard device class for percentage
+        "unit": "%",
+        "icon": "mdi:brightness-percent",
+        "translation_key": "default_brightness",
+        "value_path": ["brightness"],
+    },
+    # Generic fallback for unknown insight types
+    "_default": {
+        "device_class": None,
+        "unit": None,
+        "icon": "mdi:information",
+        "translation_key": "insight",
+        "value_path": None,  # Will use entire value dict
+    },
+}
+
+# Enabled insight types for sensor creation
+# Currently only dark_threshold is enabled
+# To enable more: add "bright_threshold_lux", "default_brightness_pct", etc.
+ENABLED_INSIGHT_SENSORS = ["dark_threshold_lux"]
+
+
+def get_insight_value(insight_data: dict, value_path: list[str] | None) -> any:
+    """
+    Extract value from insight data using path.
+    
+    Args:
+        insight_data: Full insight dict with "value" key
+        value_path: Path through nested dicts (e.g., ["threshold"])
+    
+    Returns:
+        Extracted value or None
+    
+    Example:
+        >>> insight = {"value": {"threshold": 20}, "confidence": 0.85}
+        >>> get_insight_value(insight, ["threshold"])
+        20
+    """
+    if value_path is None:
+        return insight_data.get("value")
+    
+    current = insight_data.get("value", {})
+    for key in value_path:
+        if isinstance(current, dict):
+            current = current.get(key)
+        else:
+            return None
+    return current
+
+
 # Load manifest data at module import time (before async context)
 # This avoids blocking I/O warnings when accessing manifest during entity setup
 def _load_manifest_data() -> dict[str, str]:

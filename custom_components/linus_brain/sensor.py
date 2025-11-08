@@ -98,6 +98,43 @@ async def async_setup_entry(
                 )
             )
 
+    # Add insight sensors for each area
+    if area_manager and insights_manager:
+        from .const import ENABLED_INSIGHT_SENSORS
+        
+        eligible_areas = area_manager.get_activity_tracking_areas()
+        insight_types = insights_manager.get_all_insight_types()
+        
+        # Filter to only enabled insight types
+        enabled_types = [it for it in insight_types if it in ENABLED_INSIGHT_SENSORS]
+        
+        if enabled_types:
+            _LOGGER.info(
+                f"Creating insight sensors for {len(eligible_areas)} areas "
+                f"and {len(enabled_types)} enabled insight types: {enabled_types}"
+            )
+            
+            for area_id, area_name in eligible_areas.items():
+                for insight_type in enabled_types:
+                    _LOGGER.debug(
+                        f"Creating insight sensor: {insight_type} for {area_name}"
+                    )
+                    sensors.append(
+                        LinusInsightSensor(
+                            coordinator,
+                            insights_manager,
+                            area_id,
+                            area_name,
+                            insight_type,
+                            entry,
+                        )
+                    )
+        else:
+            _LOGGER.info(
+                "No enabled insight types found. "
+                f"Available: {insight_types}, Enabled: {ENABLED_INSIGHT_SENSORS}"
+            )
+
     async_add_entities(sensors)
     _LOGGER.info(f"Added {len(sensors)} Linus Brain sensor entities")
 
@@ -599,4 +636,134 @@ class LinusBrainAppSensor(CoordinatorEntity, SensorEntity):
             "total_actions": total_actions,
             "areas_assigned": areas_using_app,
             "areas_count": len(areas_using_app),
+        }
+
+
+class LinusInsightSensor(CoordinatorEntity, SensorEntity):
+    """
+    Sensor showing a specific insight value for an area.
+    
+    Each insight type gets its own sensor entity per area.
+    For example: sensor.linus_brain_dark_threshold_salon
+    
+    Displays native value with proper unit (e.g., "20 lx", "75%")
+    and includes confidence/source in attributes.
+    """
+    
+    coordinator: LinusBrainCoordinator
+    
+    def __init__(
+        self,
+        coordinator: LinusBrainCoordinator,
+        insights_manager: Any,
+        area_id: str,
+        area_name: str,
+        insight_type: str,
+        entry: ConfigEntry,
+    ) -> None:
+        """
+        Initialize the insight sensor.
+        
+        Args:
+            coordinator: Main coordinator
+            insights_manager: Insights manager for data access
+            area_id: Area identifier (e.g., "salon")
+            area_name: Human-readable area name
+            insight_type: Type of insight (e.g., "dark_threshold_lux")
+            entry: Config entry
+        """
+        super().__init__(coordinator)
+        self._coordinator = coordinator
+        self._insights_manager = insights_manager
+        self._area_id = area_id
+        self._area_name = area_name
+        self._insight_type = insight_type
+        
+        # Get config for this insight type
+        from .const import INSIGHT_SENSOR_CONFIG
+        self._config = INSIGHT_SENSOR_CONFIG.get(
+            insight_type,
+            INSIGHT_SENSOR_CONFIG["_default"]
+        )
+        
+        # Set entity attributes
+        self._attr_unique_id = f"{DOMAIN}_insight_{insight_type}_{area_id}"
+        self._attr_translation_key = self._config["translation_key"]
+        self._attr_has_entity_name = True
+        self._attr_suggested_object_id = f"{DOMAIN}_{insight_type}_{area_id}"
+        self._attr_translation_placeholders = {
+            "area_name": area_name,
+            "insight_type": insight_type.replace("_", " ").title(),
+        }
+        self._attr_icon = self._config["icon"]
+        
+        # Use string for device_class to avoid import issues
+        device_class = self._config["device_class"]
+        if device_class == "illuminance":
+            self._attr_device_class = SensorDeviceClass.ILLUMINANCE
+        else:
+            self._attr_device_class = device_class
+        
+        self._attr_native_unit_of_measurement = self._config["unit"]
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        self._attr_device_info = get_area_device_info(  # type: ignore[assignment]
+            entry.entry_id, area_id, area_name
+        )
+        
+        # Initial update
+        self._update_from_insights()
+    
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self._update_from_insights()
+        super()._handle_coordinator_update()
+    
+    def _update_from_insights(self) -> None:
+        """Update sensor value and attributes from insights manager."""
+        from .const import get_insight_value
+        
+        # Get insight with 3-tier fallback
+        insight = self._insights_manager.get_insight(
+            instance_id=self._coordinator.instance_id,
+            area_id=self._area_id,
+            insight_type=self._insight_type,
+            default=None,
+        )
+        
+        if insight is None:
+            # No insight available at any level
+            _LOGGER.debug(
+                "No insight available for %s in area %s",
+                self._insight_type,
+                self._area_id,
+            )
+            self._attr_native_value = None
+            self._attr_available = False
+            self._attr_extra_state_attributes = {
+                "error": "No insight available",
+            }
+            return
+        
+        # Extract value using configured path
+        value = get_insight_value(insight, self._config["value_path"])
+        
+        # Set native value
+        self._attr_native_value = value
+        self._attr_available = True
+        
+        _LOGGER.debug(
+            "Updated insight sensor %s for area %s: value=%s, source=%s",
+            self._insight_type,
+            self._area_id,
+            value,
+            insight.get("source", "unknown"),
+        )
+        
+        # Set attributes with metadata
+        self._attr_extra_state_attributes = {
+            "confidence": insight.get("confidence", 0.0),
+            "source": insight.get("source", "unknown"),
+            "updated_at": insight.get("updated_at"),
+            "metadata": insight.get("metadata", {}),
+            "full_value": insight.get("value", {}),  # Include full value for complex insights
         }

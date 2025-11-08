@@ -78,6 +78,11 @@ class EventListener:
 
         domain = split_entity_id(entity_id)[0]
 
+        # IMPORTANT: Ignore Linus Brain's own entities to prevent feedback loops
+        # Our sensors (context, insights, stats, etc.) should not trigger area updates
+        if entity_id.startswith("sensor.linus_brain_") or entity_id.startswith("switch.linus_brain_"):
+            return False
+
         # Get dynamic monitored domains (includes base + activity detection_conditions)
         monitored_domains = get_monitored_domains()
         

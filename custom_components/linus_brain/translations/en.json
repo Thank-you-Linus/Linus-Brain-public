@@ -72,6 +72,18 @@
           "occupied": "Occupied",
           "inactive": "Inactive"
         }
+      },
+      "dark_threshold": {
+        "name": "Dark Threshold - {area_name}"
+      },
+      "bright_threshold": {
+        "name": "Bright Threshold - {area_name}"
+      },
+      "default_brightness": {
+        "name": "Default Brightness - {area_name}"
+      },
+      "insight": {
+        "name": "{insight_type} - {area_name}"
       }
     },
     "switch": {
