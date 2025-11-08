@@ -133,40 +133,32 @@ class LinusBrainFeatureSwitch(RestoreEntity, SwitchEntity):
             self._attr_icon = "mdi:application-cog"
 
     async def async_added_to_hass(self) -> None:
-        """Run when entity is added to hass - restore state from feature flag manager."""
+        """Run when entity is added to hass - restore state using RestoreEntity."""
         await super().async_added_to_hass()
 
-        # Get coordinator and feature flag manager
-        coordinator = self.hass.data[DOMAIN][self._entry.entry_id]["coordinator"]
-        feature_flag_manager = coordinator.feature_flag_manager
-
-        # Restore state from feature flag manager
-        self._attr_is_on = feature_flag_manager.is_feature_enabled(
-            self._area_id, self._feature_id
-        )
-        _LOGGER.info(
-            f"Restored feature state for {self.entity_id}: {self._attr_is_on} "
-            f"(feature: {self._feature_id}, area: {self._area_id})"
-        )
+        # Try to restore previous state from Home Assistant
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            self._attr_is_on = last_state.state == "on"
+            _LOGGER.info(
+                f"Restored feature state for {self.entity_id}: {self._attr_is_on} "
+                f"(from previous state: {last_state.state})"
+            )
+        else:
+            # No previous state - use feature definition default
+            self._attr_is_on = self._feature_def.get("default_enabled", False)
+            _LOGGER.info(
+                f"No previous state for {self.entity_id}, using default: {self._attr_is_on}"
+            )
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the feature on."""
-        coordinator = self.hass.data[DOMAIN][self._entry.entry_id]["coordinator"]
-        feature_flag_manager = coordinator.feature_flag_manager
-
-        await feature_flag_manager.set_feature_enabled(self._area_id, self._feature_id, True)
         self._attr_is_on = True
         self.async_write_ha_state()
-
         _LOGGER.info(f"Feature {self._feature_id} ENABLED for area {self._area_id}")
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the feature off."""
-        coordinator = self.hass.data[DOMAIN][self._entry.entry_id]["coordinator"]
-        feature_flag_manager = coordinator.feature_flag_manager
-
-        await feature_flag_manager.set_feature_enabled(self._area_id, self._feature_id, False)
         self._attr_is_on = False
         self.async_write_ha_state()
-
         _LOGGER.info(f"Feature {self._feature_id} DISABLED for area {self._area_id}")

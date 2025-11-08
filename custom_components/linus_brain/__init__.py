@@ -333,10 +333,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Pass insights_manager to area_manager for AI-learned thresholds
     coordinator.area_manager._insights_manager = insights_manager
 
-    # Load feature flag states from storage before first refresh
-    _LOGGER.info(f"Loading feature flag states for {len(area_ids)} areas")
-    await coordinator.feature_flag_manager.load_feature_states(area_ids)
-
     # Now do the first refresh - ActivityTracker will have activities available
     await coordinator.async_config_entry_first_refresh()
 

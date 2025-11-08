@@ -1,5 +1,8 @@
 """
 Test feature switch state restoration after Home Assistant restart.
+
+Tests verify that switches use RestoreEntity correctly to persist state
+across Home Assistant restarts without relying on FeatureFlagManager.
 """
 
 import pytest
@@ -29,27 +32,12 @@ async def test_feature_switch_restores_on_state(hass: HomeAssistant) -> None:
         hass, entry, "living_room", "automatic_lighting", feature_def
     )
 
-    # Mock coordinator with feature flag manager
-    coordinator = MagicMock()
-    coordinator.feature_flag_manager = MagicMock()
-    coordinator.feature_flag_manager.is_feature_enabled.return_value = True
-    hass.data[DOMAIN] = {
-        "test_entry": {
-            "coordinator": coordinator,
-        }
-    }
-
     # Mock async_get_last_state to return previous ON state
     with patch.object(switch, "async_get_last_state", return_value=previous_state):
         await switch.async_added_to_hass()
 
     # Verify state was restored to ON
     assert switch.is_on is True
-
-    # Verify feature flag manager was checked
-    coordinator.feature_flag_manager.is_feature_enabled.assert_called_once_with(
-        "living_room", "automatic_lighting"
-    )
 
 
 @pytest.mark.asyncio
@@ -70,27 +58,12 @@ async def test_feature_switch_restores_off_state(hass: HomeAssistant) -> None:
         hass, entry, "living_room", "automatic_lighting", feature_def
     )
 
-    # Mock coordinator with feature flag manager
-    coordinator = MagicMock()
-    coordinator.feature_flag_manager = MagicMock()
-    coordinator.feature_flag_manager.is_feature_enabled.return_value = False
-    hass.data[DOMAIN] = {
-        "test_entry": {
-            "coordinator": coordinator,
-        }
-    }
-
     # Mock async_get_last_state to return previous OFF state
     with patch.object(switch, "async_get_last_state", return_value=previous_state):
         await switch.async_added_to_hass()
 
     # Verify state was restored to OFF
     assert switch.is_on is False
-
-    # Verify feature flag manager was checked
-    coordinator.feature_flag_manager.is_feature_enabled.assert_called_once_with(
-        "living_room", "automatic_lighting"
-    )
 
 
 @pytest.mark.asyncio
@@ -108,34 +81,40 @@ async def test_feature_switch_defaults_to_off_when_no_previous_state(
         hass, entry, "living_room", "automatic_lighting", feature_def
     )
 
-    # Mock coordinator with feature flag manager
-    coordinator = MagicMock()
-    coordinator.feature_flag_manager = MagicMock()
-    coordinator.feature_flag_manager.is_feature_enabled.return_value = (
-        False  # Default OFF
+    # Mock async_get_last_state to return None (no previous state)
+    with patch.object(switch, "async_get_last_state", return_value=None):
+        await switch.async_added_to_hass()
+
+    # Verify state defaults to OFF (from feature definition)
+    assert switch.is_on is False
+
+
+@pytest.mark.asyncio
+async def test_feature_switch_defaults_to_on_when_feature_default_enabled(
+    hass: HomeAssistant,
+) -> None:
+    """Test that feature switch defaults to ON when feature default_enabled is True."""
+    # Mock config entry
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry"
+
+    # Create feature switch with default_enabled=True
+    feature_def = {"name": "Automatic Lighting", "default_enabled": True}
+    switch = LinusBrainFeatureSwitch(
+        hass, entry, "living_room", "automatic_lighting", feature_def
     )
-    hass.data[DOMAIN] = {
-        "test_entry": {
-            "coordinator": coordinator,
-        }
-    }
 
     # Mock async_get_last_state to return None (no previous state)
     with patch.object(switch, "async_get_last_state", return_value=None):
         await switch.async_added_to_hass()
 
-    # Verify state defaults to OFF
-    assert switch.is_on is False
-
-    # Verify feature flag manager was checked
-    coordinator.feature_flag_manager.is_feature_enabled.assert_called_once_with(
-        "living_room", "automatic_lighting"
-    )
+    # Verify state defaults to ON (from feature definition)
+    assert switch.is_on is True
 
 
 @pytest.mark.asyncio
-async def test_feature_switch_turn_on_updates_feature_flag(hass: HomeAssistant) -> None:
-    """Test that turning switch ON updates the feature flag."""
+async def test_feature_switch_turn_on_updates_state(hass: HomeAssistant) -> None:
+    """Test that turning switch ON updates the switch state."""
     # Mock config entry
     entry = MagicMock(spec=ConfigEntry)
     entry.entry_id = "test_entry"
@@ -146,74 +125,49 @@ async def test_feature_switch_turn_on_updates_feature_flag(hass: HomeAssistant) 
         hass, entry, "living_room", "automatic_lighting", feature_def
     )
 
-    # Mock coordinator with feature flag manager
-    coordinator = MagicMock()
-    coordinator.feature_flag_manager = MagicMock()
-    coordinator.feature_flag_manager.is_feature_enabled.return_value = False
-    coordinator.feature_flag_manager.set_feature_enabled = MagicMock()
-    hass.data[DOMAIN] = {
-        "test_entry": {
-            "coordinator": coordinator,
-        }
-    }
-
     # Mock async_get_last_state to return None (no previous state)
     with patch.object(switch, "async_get_last_state", return_value=None):
         await switch.async_added_to_hass()
+
+    # Initial state should be OFF
+    assert switch.is_on is False
 
     # Mock async_write_ha_state to avoid HA platform requirements
     with patch.object(switch, "async_write_ha_state"):
         # Turn switch ON
         await switch.async_turn_on()
 
-    # Verify feature flag was updated
-    coordinator.feature_flag_manager.set_feature_enabled.assert_called_once_with(
-        "living_room", "automatic_lighting", True
-    )
-
     # Verify switch state is ON
     assert switch.is_on is True
 
 
 @pytest.mark.asyncio
-async def test_feature_switch_turn_off_updates_feature_flag(
+async def test_feature_switch_turn_off_updates_state(
     hass: HomeAssistant,
 ) -> None:
-    """Test that turning switch OFF updates the feature flag."""
+    """Test that turning switch OFF updates the switch state."""
     # Mock config entry
     entry = MagicMock(spec=ConfigEntry)
     entry.entry_id = "test_entry"
 
-    # Create feature switch
-    feature_def = {"name": "Automatic Lighting", "default_enabled": False}
+    # Create feature switch starting with ON state
+    feature_def = {"name": "Automatic Lighting", "default_enabled": True}
     switch = LinusBrainFeatureSwitch(
         hass, entry, "living_room", "automatic_lighting", feature_def
     )
 
-    # Mock coordinator with feature flag manager
-    coordinator = MagicMock()
-    coordinator.feature_flag_manager = MagicMock()
-    coordinator.feature_flag_manager.is_feature_enabled.return_value = True
-    coordinator.feature_flag_manager.set_feature_enabled = MagicMock()
-    hass.data[DOMAIN] = {
-        "test_entry": {
-            "coordinator": coordinator,
-        }
-    }
-
     # Mock async_get_last_state to return None (no previous state)
     with patch.object(switch, "async_get_last_state", return_value=None):
         await switch.async_added_to_hass()
+
+    # Initial state should be ON (from default_enabled)
+    assert switch.is_on is True
 
     # Mock async_write_ha_state to avoid HA platform requirements
     with patch.object(switch, "async_write_ha_state"):
         # Turn switch OFF
         await switch.async_turn_off()
 
-    # Verify feature flag was updated
-    coordinator.feature_flag_manager.set_feature_enabled.assert_called_once_with(
-        "living_room", "automatic_lighting", False
-    )
-
     # Verify switch state is OFF
     assert switch.is_on is False
+

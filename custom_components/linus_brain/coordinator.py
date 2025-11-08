@@ -78,8 +78,6 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
 
         # Initialize feature flag manager
         self.feature_flag_manager = FeatureFlagManager()
-        self.feature_flag_manager.set_area_manager(self.area_manager)
-        self.feature_flag_manager.set_app_storage(self.app_storage)
 
         # Initialize utilities for activity tracker
         self.entity_resolver = EntityResolver(hass)

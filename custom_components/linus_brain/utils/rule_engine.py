@@ -659,17 +659,21 @@ class RuleEngine:
             return
 
         # Check if this app/feature is enabled for this area
-        if self.feature_flag_manager:
-            # Use app_id as feature_id directly (they should match now)
-            app_feature_id = app_id
-
-            if not self.feature_flag_manager.is_feature_enabled(
-                area_id, app_feature_id
-            ):
-                _LOGGER.debug(
-                    f"App {app_id} (feature: {app_feature_id}) not enabled for area {area_id}, skipping execution"
-                )
-                return
+        # Check the switch entity state via Home Assistant
+        switch_entity_id = f"switch.linus_brain_feature_{app_id}_{area_id}"
+        switch_state = self.hass.states.get(switch_entity_id)
+        
+        if switch_state is None:
+            _LOGGER.debug(
+                f"Switch {switch_entity_id} not found, assuming app {app_id} is disabled for area {area_id}"
+            )
+            return
+        
+        if switch_state.state != "on":
+            _LOGGER.debug(
+                f"App {app_id} not enabled for area {area_id} (switch is {switch_state.state}), skipping execution"
+            )
+            return
 
         activity_actions = app.get("activity_actions", {})
         if current_activity not in activity_actions:

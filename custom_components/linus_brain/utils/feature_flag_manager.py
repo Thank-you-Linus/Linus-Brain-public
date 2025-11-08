@@ -1,25 +1,22 @@
 """
 Feature Flag Manager for Linus Brain
 
-Centralizes all feature flag logic to eliminate code duplication
-and provide consistent behavior across system.
+Provides feature flag definitions and metadata.
+
+Architecture:
+- Feature definitions (metadata) are provided here
+- Feature states (ON/OFF) are managed by Home Assistant switch entities using RestoreEntity
+- Feature configuration (app assignments) is stored in AppStorage/Supabase
 
 Key responsibilities:
-- Manage feature flags per area (local storage)
-- Provide feature flag checking for apps
-- Handle persistence of feature states
-- Create and manage feature switch entities
-- Structured logging for debugging
-- Metrics collection for monitoring
+- Provide feature definitions (name, description, default state)
+- Provide feature metadata for UI and documentation
+- Validation and diagnostic utilities
 """
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
-
-from .area_manager import AreaManager
-from .app_storage import AppStorage
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,34 +46,20 @@ class ValidationResult:
 
 class FeatureFlagManager:
     """
-    Centralizes feature flag logic for Linus Brain.
+    Provides feature flag definitions and metadata.
 
-    This class provides a single source of truth for all feature flag
-    operations, eliminating code duplication and ensuring consistent
-    behavior across system.
+    This class is the source of truth for feature definitions only.
+    Feature states (ON/OFF) are managed by Home Assistant switch entities.
 
-    New architecture: Feature flags are stored locally and control
-    specific apps per area, while activities remain always active.
+    Architecture:
+    - Feature definitions stored here (metadata)
+    - Feature states stored by HA (RestoreEntity in switches)
+    - Feature configuration stored in Supabase (AppStorage)
     """
 
-    def __init__(self, app_storage: AppStorage | None = None) -> None:
-        """
-        Initialize feature flag manager.
-
-        Args:
-            app_storage: AppStorage instance for persistence
-        """
-        self.app_storage = app_storage
-        self._area_feature_states: dict[str, dict[str, bool]] = {}
+    def __init__(self) -> None:
+        """Initialize feature flag manager."""
         self._feature_definitions = {}
-        self._metrics = {
-            "total_checks": 0,
-            "enabled_checks": 0,
-            "disabled_checks": 0,
-            "feature_evaluations": 0,
-            "skipped_evaluations": 0,
-        }
-        self._last_reset = datetime.now()
 
         # Load feature definitions from const
         try:
@@ -87,252 +70,46 @@ class FeatureFlagManager:
             _LOGGER.warning("Could not load AVAILABLE_FEATURES from const")
             self._feature_definitions = {}
 
-    async def load_feature_states(self, all_areas: list[str]) -> None:
-        """
-        Load feature states from AppStorage.
-
-        Initializes with default values (False) if no data exists.
-
-        Args:
-            all_areas: List of all area IDs to initialize
-        """
-        if not self.app_storage:
-            _LOGGER.warning("No AppStorage available, using empty feature states")
-            self._area_feature_states = {}
-            return
-
-        try:
-            data = await self.app_storage.async_load()
-            feature_states = data.get("feature_states", {})
-
-            # Initialize with default values (False) for all areas/features
-            for area_id in all_areas:
-                if area_id not in feature_states:
-                    feature_states[area_id] = {}
-
-                for feature_id in self._feature_definitions.keys():
-                    feature_key = f"{feature_id}_enabled"
-                    if feature_key not in feature_states[area_id]:
-                        feature_states[area_id][feature_key] = False
-
-            self._area_feature_states = feature_states
-            _LOGGER.info(f"Loaded feature states for {len(feature_states)} areas")
-
-        except Exception as err:
-            _LOGGER.error(f"Failed to load feature states: {err}")
-            self._area_feature_states = {}
-
-    async def persist_feature_states(self) -> None:
-        """
-        Persist feature states to AppStorage.
-
-        Saves immediately when changed.
-        """
-        if not self.app_storage:
-            _LOGGER.warning("No AppStorage available, skipping persistence")
-            return
-
-        try:
-            # Update the internal data in AppStorage (use existing data, don't reload)
-            self.app_storage._data["feature_states"] = self._area_feature_states
-            await self.app_storage.async_save()
-            _LOGGER.debug("Feature states persisted to AppStorage")
-
-        except Exception as err:
-            _LOGGER.error(f"Failed to persist feature states: {err}")
-
-    def is_feature_enabled(self, area_id: str, feature_id: str) -> bool:
-        """
-        Check if a specific feature is enabled for an area.
-
-        Args:
-            area_id: The area ID to check
-            feature_id: The feature ID to check
-
-        Returns:
-            True if feature is enabled, False otherwise
-        """
-        self._metrics["total_checks"] += 1
-        self._metrics["feature_evaluations"] += 1
-
-        feature_key = f"{feature_id}_enabled"
-        is_enabled = self._area_feature_states.get(area_id, {}).get(feature_key, False)
-
-        if is_enabled:
-            self._metrics["enabled_checks"] += 1
-            _LOGGER.debug(
-                f"FeatureFlag: Feature {feature_id} ENABLED for area {area_id}"
-            )
-        else:
-            self._metrics["disabled_checks"] += 1
-            self._metrics["skipped_evaluations"] += 1
-            _LOGGER.debug(
-                f"FeatureFlag: Feature {feature_id} DISABLED for area {area_id}"
-            )
-
-        return is_enabled
-
-    async def set_feature_enabled(self, area_id: str, feature_id: str, enabled: bool) -> None:
-        """
-        Enable or disable a feature for an area.
-
-        Args:
-            area_id: The area ID
-            feature_id: The feature ID
-            enabled: Whether to enable feature
-        """
-        if area_id not in self._area_feature_states:
-            self._area_feature_states[area_id] = {}
-
-        feature_key = f"{feature_id}_enabled"
-        old_value = self._area_feature_states[area_id].get(feature_key, False)
-
-        if old_value != enabled:
-            self._area_feature_states[area_id][feature_key] = enabled
-            _LOGGER.info(
-                f"FeatureFlag: Feature {feature_id} {'ENABLED' if enabled else 'DISABLED'} for area {area_id}"
-            )
-
-            # Persist immediately (await to ensure it completes)
-            await self.persist_feature_states()
-
     def get_feature_definitions(self) -> dict[str, dict[str, Any]]:
         """
         Get all available feature definitions.
 
         Returns:
-            Dictionary of feature definitions
+            Dictionary of feature definitions with metadata for each feature
         """
         return self._feature_definitions.copy()
 
-    def get_area_feature_states(self, area_id: str) -> dict[str, bool]:
+    def get_feature_definition(self, feature_id: str) -> dict[str, Any] | None:
         """
-        Get all feature states for an area.
+        Get definition for a specific feature.
 
         Args:
-            area_id: The area ID
-
-        Returns:
-            Dictionary of feature states for the area
-        """
-        return self._area_feature_states.get(area_id, {}).copy()
-
-    def get_all_feature_states(self) -> dict[str, dict[str, bool]]:
-        """
-        Get all feature states for all areas.
-
-        Returns:
-            Dictionary of all feature states
-        """
-        return {
-            area: states.copy() for area, states in self._area_feature_states.items()
-        }
-
-    def get_metrics(self) -> dict[str, Any]:
-        """
-        Get performance and usage metrics.
-
-        Returns:
-            Dictionary with metrics data
-        """
-        uptime = (datetime.now() - self._last_reset).total_seconds()
-
-        return {
-            "uptime_seconds": uptime,
-            "total_checks": self._metrics["total_checks"],
-            "enabled_checks": self._metrics["enabled_checks"],
-            "disabled_checks": self._metrics["disabled_checks"],
-            "feature_evaluations": self._metrics["feature_evaluations"],
-            "skipped_evaluations": self._metrics["skipped_evaluations"],
-            "enabled_areas_count": len(self._area_feature_states),
-            "enabled_areas": list(self._area_feature_states.keys()),
-            "check_rate": self._metrics["total_checks"] / max(uptime, 1),
-            "skip_rate": self._metrics["skipped_evaluations"]
-            / max(self._metrics["feature_evaluations"], 1),
-        }
-
-    def reset_metrics(self) -> None:
-        """Reset all metrics counters."""
-        self._metrics = {
-            "total_checks": 0,
-            "enabled_checks": 0,
-            "disabled_checks": 0,
-            "feature_evaluations": 0,
-            "skipped_evaluations": 0,
-        }
-        self._last_reset = datetime.now()
-        _LOGGER.info("FeatureFlagManager: Metrics reset")
-
-    def log_feature_status(
-        self, area_id: str, feature_id: str, context: str = ""
-    ) -> None:
-        """
-        Log detailed status information for a feature.
-
-        Args:
-            area_id: The area ID
-            feature_id: The feature ID
-            context: Additional context for log
-        """
-        is_enabled = self.is_feature_enabled(area_id, feature_id)
-
-        log_data = {
-            "area_id": area_id,
-            "feature_id": feature_id,
-            "enabled": is_enabled,
-            "context": context,
-            "timestamp": datetime.now().isoformat(),
-        }
-
-        if is_enabled:
-            _LOGGER.info(
-                f"FeatureFlag: Feature {feature_id} ENABLED for area {area_id} - Context: {context}"
-            )
-        else:
-            _LOGGER.info(
-                f"FeatureFlag: Feature {feature_id} DISABLED for area {area_id} - Context: {context}"
-            )
-
-        _LOGGER.debug(f"FeatureFlag: Feature status details: {log_data}")
-
-    def get_feature_status_explanation(
-        self, area_id: str, feature_id: str
-    ) -> dict[str, Any]:
-        """
-        Get a detailed explanation of why a feature is enabled/disabled.
-
-        Args:
-            area_id: The area ID
             feature_id: The feature ID
 
         Returns:
-            Dictionary with detailed status explanation
+            Feature definition dict or None if not found
         """
-        is_enabled = self.is_feature_enabled(area_id, feature_id)
-        feature_def = self._feature_definitions.get(feature_id, {})
+        return self._feature_definitions.get(feature_id)
 
-        explanation = {
-            "area_id": area_id,
-            "feature_id": feature_id,
-            "is_enabled": is_enabled,
-            "feature_name": feature_def.get("name", feature_id),
-            "feature_description": feature_def.get("description", ""),
-            "default_enabled": feature_def.get("default_enabled", False),
-            "last_check": datetime.now().isoformat(),
-        }
+    def feature_exists(self, feature_id: str) -> bool:
+        """
+        Check if a feature is defined.
 
-        return explanation
+        Args:
+            feature_id: The feature ID to check
+
+        Returns:
+            True if feature is defined, False otherwise
+        """
+        return feature_id in self._feature_definitions
 
     # ===== VALIDATION METHODS =====
 
-    async def validate_feature_state(
-        self, area_id: str, feature_id: str
-    ) -> ValidationResult:
+    def validate_feature_definition(self, feature_id: str) -> ValidationResult:
         """
-        Validate feature configuration and state.
+        Validate that a feature is properly defined.
 
         Args:
-            area_id: The area ID
             feature_id: The feature ID
 
         Returns:
@@ -345,20 +122,16 @@ class FeatureFlagManager:
         # Check if feature exists
         if feature_id not in self._feature_definitions:
             errors.append(f"Feature '{feature_id}' is not defined")
+            suggestions.append("Check AVAILABLE_FEATURES in const.py")
             return ValidationResult(False, errors, warnings, suggestions)
 
-        # Check feature state
-        is_enabled = self.is_feature_enabled(area_id, feature_id)
-        if not is_enabled:
-            warnings.append(
-                f"Feature '{feature_id}' is currently disabled for area '{area_id}'"
-            )
-            suggestions.append("Enable the feature to activate its functionality")
-
-        # Check area exists
-        if area_id not in self._area_feature_states:
-            warnings.append(f"No feature states configured for area '{area_id}'")
-            suggestions.append("Initialize feature states for this area")
+        # Check feature definition has required fields
+        feature_def = self._feature_definitions[feature_id]
+        required_fields = ["name", "description", "default_enabled"]
+        
+        for field in required_fields:
+            if field not in feature_def:
+                warnings.append(f"Feature '{feature_id}' missing field '{field}'")
 
         return ValidationResult(len(errors) == 0, errors, warnings, suggestions)
 
@@ -369,23 +142,13 @@ class FeatureFlagManager:
         Get comprehensive system overview for debugging.
 
         Returns:
-            Dictionary with system-wide debugging information
+            Dictionary with feature definitions and system health
         """
-        metrics = self.get_metrics()
-
         overview: dict[str, Any] = {
-            "timestamp": datetime.now().isoformat(),
-            "system_health": self._assess_system_health(),
-            "metrics": metrics,
             "feature_definitions": self._feature_definitions,
-            "area_feature_states": self._area_feature_states,
-            "issues": [],
-            "recommendations": [],
+            "total_features": len(self._feature_definitions),
+            "system_health": self._assess_system_health(),
         }
-
-        # Identify system-wide issues
-        overview["issues"] = self._identify_system_issues(overview)
-        overview["recommendations"] = self._generate_system_recommendations(overview)
 
         return overview
 
@@ -421,48 +184,12 @@ class FeatureFlagManager:
 
         return health
 
-    def _identify_system_issues(self, overview: dict[str, Any]) -> list[str]:
-        """Identify system-wide issues from overview data."""
-        issues = []
-        metrics = overview["metrics"]
-
-        if len(overview["feature_definitions"]) == 0:
-            issues.append("No feature definitions available")
-
-        if metrics["enabled_areas_count"] == 0:
-            issues.append("No areas have feature states configured")
-
-        if metrics["skip_rate"] > 0.8:
-            issues.append("Very high skip rate for feature evaluations")
-
-        return issues
-
-    def _generate_system_recommendations(self, overview: dict[str, Any]) -> list[str]:
-        """Generate system-wide recommendations."""
-        recommendations = []
-        metrics = overview["metrics"]
-
-        if len(overview["feature_definitions"]) == 0:
-            recommendations.append("Add feature definitions to enable app control")
-
-        if metrics["enabled_areas_count"] == 0:
-            recommendations.append(
-                "Configure feature states for areas to enable app control"
-            )
-
-        if metrics["skip_rate"] > 0.5:
-            recommendations.append(
-                "Review disabled features - consider enabling if needed"
-            )
-
-        return recommendations
-
     def export_debug_data(self, format_type: str = "json") -> str:
         """
         Export debug data in specified format.
 
         Args:
-            format_type: Export format ('json', 'csv', 'txt')
+            format_type: Export format ('json' or 'txt')
 
         Returns:
             Formatted debug data string
@@ -471,23 +198,14 @@ class FeatureFlagManager:
 
         if format_type == "json":
             import json
-
             return json.dumps(overview, indent=2)
-
-        elif format_type == "csv":
-            lines = ["area_id,feature_id,enabled"]
-            for area_id, features in overview["area_feature_states"].items():
-                for feature_id, enabled in features.items():
-                    lines.append(f"{area_id},{feature_id},{enabled}")
-            return "\n".join(lines)
 
         elif format_type == "txt":
             lines = [
-                f"Feature Flag Debug Report - {overview['timestamp']}",
+                "Feature Flag Debug Report",
                 "=" * 50,
                 f"System Health: {overview['system_health']['overall_status']} (Score: {overview['system_health']['score']})",
                 f"Feature Definitions: {len(overview['feature_definitions'])}",
-                f"Areas with States: {len(overview['area_feature_states'])}",
                 "",
                 "Feature Definitions:",
                 "-" * 20,
@@ -504,48 +222,7 @@ class FeatureFlagManager:
                     ]
                 )
 
-            lines.extend(
-                [
-                    "Area Feature States:",
-                    "-" * 25,
-                ]
-            )
-
-            for area_id, features in overview["area_feature_states"].items():
-                lines.append(f"Area: {area_id}")
-                for feature_id, enabled in features.items():
-                    lines.append(f"  {feature_id}: {'ON' if enabled else 'OFF'}")
-                lines.append("")
-
-            if overview["issues"]:
-                lines.extend(
-                    [
-                        "Issues:",
-                        "-" * 10,
-                    ]
-                    + overview["issues"]
-                )
-
-            if overview["recommendations"]:
-                lines.extend(
-                    [
-                        "Recommendations:",
-                        "-" * 20,
-                    ]
-                    + overview["recommendations"]
-                )
-
             return "\n".join(lines)
 
         else:
             raise ValueError(f"Unsupported format: {format_type}")
-
-    # ===== INITIALIZATION HELPERS =====
-
-    def set_area_manager(self, area_manager: AreaManager) -> None:
-        """Set area manager reference for validation."""
-        self._area_manager = area_manager
-
-    def set_app_storage(self, app_storage: AppStorage) -> None:
-        """Set app storage reference for validation."""
-        self.app_storage = app_storage

@@ -15,17 +15,29 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 
 from ..utils.rule_engine import RuleEngine
 
 
+def create_switch_state(area_id: str, feature_id: str, is_on: bool) -> State:
+    """Helper to create a mock switch state."""
+    entity_id = f"switch.linus_brain_feature_{feature_id}_{area_id}"
+    state = "on" if is_on else "off"
+    return State(entity_id, state)
+
+
 @pytest.fixture
 def mock_hass():
-    """Mock Home Assistant instance."""
+    """Mock Home Assistant instance with feature switch enabled by default."""
     hass = MagicMock()
     hass.states = MagicMock()
-    hass.states.get = MagicMock(return_value=None)
+    
+    # By default, return a switch that's ON (feature enabled)
+    default_switch = create_switch_state("living_room", "automatic_lighting", True)
+    hass.states.get = MagicMock(return_value=default_switch)
+    
     hass.services = MagicMock()
     hass.services.async_call = AsyncMock()
     hass.data = {}
@@ -65,9 +77,15 @@ def patch_area_manager(mock_area_manager):
 
 @pytest.fixture
 def mock_feature_flag_manager():
-    """Mock FeatureFlagManager with automatic_lighting enabled."""
+    """Mock FeatureFlagManager - only provides feature definitions."""
     manager = MagicMock()
-    manager.is_feature_enabled = MagicMock(return_value=True)
+    # FeatureFlagManager no longer manages state, only definitions
+    manager.get_feature_definitions = MagicMock(return_value={
+        "automatic_lighting": {
+            "name": "Automatic Lighting",
+            "default_enabled": True
+        }
+    })
     return manager
 
 
@@ -277,14 +295,17 @@ async def test_lights_turn_off_when_empty(rule_engine, mock_hass):
 @pytest.mark.asyncio
 async def test_lights_respect_feature_flag_off(rule_engine, mock_hass):
     """Test that lights do NOT turn on when feature flag (switch) is disabled."""
-    # Setup: Dark room, movement, but feature disabled
+    # Setup: Dark room, movement, but feature disabled via switch state
     rule_engine.activity_tracker.async_evaluate_activity = AsyncMock(
         return_value="movement"
     )
     rule_engine.area_manager.get_area_environmental_state = MagicMock(
         return_value={"is_dark": True, "illuminance": 5}
     )
-    rule_engine.feature_flag_manager.is_feature_enabled = MagicMock(return_value=False)
+    
+    # Mock the switch state to be OFF (feature disabled)
+    off_switch = create_switch_state("living_room", "automatic_lighting", False)
+    mock_hass.states.get = MagicMock(return_value=off_switch)
 
     # Execute: Trigger rule evaluation
     await rule_engine._async_evaluate_and_execute("living_room")
