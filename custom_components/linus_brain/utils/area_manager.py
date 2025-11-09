@@ -22,6 +22,8 @@ from .state_validator import is_state_valid
 from ..const import (
     DEFAULT_ACTIVITY_TYPES,
     DEFAULT_AUTOLIGHT_APP,
+    DEFAULT_DARK_THRESHOLD_LUX,
+    DEFAULT_DARK_THRESHOLD_SUN_ELEVATION,
     MONITORED_DOMAINS,  # Used in module-level get_monitored_domains()
     PRESENCE_DETECTION_DOMAINS,  # Used in module-level get_presence_detection_domains()
 )
@@ -431,7 +433,6 @@ class AreaManager:
             f"Checking for entities in area {area_id} with domain {domain} and device_class {device_class}"
         )
         entities = self._entity_registry.entities.values()
-        _LOGGER.debug(f"Entities in registry: {entities}")
         for entity in entities:
             entity_area_id = self._get_entity_area_id(entity)
 
@@ -561,47 +562,118 @@ class AreaManager:
         return area_id
 
     def get_area_presence_binary(
-        self,
-        area_id: str,
-        presence_config: dict[str, list[str]] | None = None,
-    ) -> bool:
+        self, area_id: str, presence_sensors: list[str]
+    ) -> dict[str, Any]:
         """
         Get binary presence detection for an area.
 
-        Checks if any presence detection entities are currently active (on).
-        Uses dynamically computed presence detection domains by default.
+        This method checks if any presence sensor in the area indicates presence.
 
         Args:
             area_id: The area ID to check
-            presence_config: Optional custom presence detection config
-                           Format: {"domain": ["device_class1", "device_class2"]}
+            presence_sensors: List of entity_ids to check
 
         Returns:
-            True if presence detected, False otherwise
+            Dictionary with binary presence and detection reasons:
+            {
+                "presence_detected": true,
+                "detection_reasons": ["binary_sensor.kitchen_motion", ...],
+                "timestamp": "2025-10-22T21:00:00Z"
+            }
         """
-        config = presence_config or get_presence_detection_domains()
+        detection_reasons = []
 
-        for entity in self._entity_registry.entities.values():
-            entity_area_id = self._get_entity_area_id(entity)
-
-            if entity_area_id != area_id:
+        for entity_id in presence_sensors:
+            state = self._get_entity_state(entity_id)
+            if not state:
                 continue
 
-            domain = entity.domain
-            if domain not in config:
+            domain = split_entity_id(entity_id)[0]
+
+            # Check binary sensors in "on" state
+            if domain == "binary_sensor" and state.state == "on":
+                detection_reasons.append(entity_id)
+            # Check media players playing
+            elif domain == "media_player" and state.state == "playing":
+                detection_reasons.append(entity_id)
+
+        return {
+            "presence_detected": len(detection_reasons) > 0,
+            "detection_reasons": detection_reasons,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    # ========================================================================
+    # Sensor Aggregation Helper (reduce duplication)
+    # ========================================================================
+
+    def _get_area_sensor_average(
+        self,
+        area_id: str,
+        device_class: str,
+        registry_attr: str | None = None,
+        round_digits: int | None = None,
+    ) -> float | None:
+        """
+        Get average value from sensors of a specific device_class in an area.
+
+        This helper consolidates the duplicated logic in get_area_illuminance,
+        get_area_temperature, and get_area_humidity.
+
+        Args:
+            area_id: The area ID to check
+            device_class: Device class to filter (e.g., "illuminance", "temperature", "humidity")
+            registry_attr: Optional area registry attribute to check first (e.g., "temperature_entity_id")
+            round_digits: Number of decimal places to round to (None = no rounding)
+
+        Returns:
+            Average sensor value, or None if no sensors found
+        """
+        # Priority 1: Check user-configured sensor from area registry
+        if registry_attr:
+            area = self._area_registry.async_get_area(area_id)
+            if area:
+                registry_entity_id = getattr(area, registry_attr, None)
+                if registry_entity_id:
+                    state = self._get_entity_state(registry_entity_id)
+                    if state:
+                        try:
+                            value = float(state.state)
+                            return round(value, round_digits) if round_digits is not None else value
+                        except (ValueError, TypeError):
+                            pass
+
+        # Priority 2: Average all sensors of this device_class in the area
+        area_entities_map = self._get_monitored_entities()
+        entity_ids = area_entities_map.get(area_id, [])
+
+        sensor_values = []
+
+        for entity_id in entity_ids:
+            state = self._get_entity_state(entity_id)
+            if not state:
                 continue
 
-            device_classes = config[domain]
-            entity_device_class = entity.original_device_class or entity.device_class
-            if device_classes and entity_device_class not in device_classes:
-                continue
+            domain = split_entity_id(entity_id)[0]
 
-            state = self._get_entity_state(entity.entity_id)
-            if is_state_valid(state) and state.state == "on":
-                _LOGGER.debug(f"Presence detected in {area_id}: {entity.entity_id} is 'on'")
-                return True
+            if domain == "sensor":
+                entity_device_class = self._get_device_class(state)
+                if entity_device_class == device_class:
+                    try:
+                        value = float(state.state)
+                        sensor_values.append(value)
+                    except (ValueError, TypeError):
+                        continue
 
-        return False
+        if sensor_values:
+            average = sum(sensor_values) / len(sensor_values)
+            return round(average, round_digits) if round_digits is not None else average
+
+        return None
+
+    # ========================================================================
+    # Sensor Aggregation Methods (use helper above)
+    # ========================================================================
 
     def get_area_illuminance(self, area_id: str) -> float | None:
         """
@@ -616,35 +688,7 @@ class AreaManager:
         Returns:
             Average lux value, or None if no illuminance sensors found
         """
-        # Get entities in this area
-        area_entities_map = self._get_monitored_entities()
-        entity_ids = area_entities_map.get(area_id, [])
-
-        lux_values = []
-
-        # Check illuminance sensors
-        for entity_id in entity_ids:
-            state = self._get_entity_state(entity_id)
-            if not state:
-                continue
-
-            domain = split_entity_id(entity_id)[0]
-
-            # Check sensor with illuminance device class
-            if domain == "sensor":
-                device_class = self._get_device_class(state)
-                if device_class == "illuminance":
-                    try:
-                        lux = float(state.state)
-                        lux_values.append(lux)
-                    except (ValueError, TypeError):
-                        continue
-
-        # Return average if we have values
-        if lux_values:
-            return sum(lux_values) / len(lux_values)
-
-        return None
+        return self._get_area_sensor_average(area_id, "illuminance")
 
     def get_sun_elevation(self) -> float | None:
         """
@@ -722,7 +766,7 @@ class AreaManager:
         )
 
         # Get AI-learned thresholds or use defaults
-        dark_threshold = 20.0  # Default fallback
+        dark_threshold = DEFAULT_DARK_THRESHOLD_LUX  # Default fallback
 
         if self._insights_manager and instance_id:
             # Try to get dark threshold from insights
@@ -739,9 +783,9 @@ class AreaManager:
         if illuminance is not None and sun_elevation is not None:
             _LOGGER.debug(
                 f"Area {area_id}: Using both illuminance AND sun_elevation "
-                f"(illuminance={illuminance} < {dark_threshold} OR sun_elevation={sun_elevation} < 3)"
+                f"(illuminance={illuminance} < {dark_threshold} OR sun_elevation={sun_elevation} < {DEFAULT_DARK_THRESHOLD_SUN_ELEVATION})"
             )
-            is_dark = illuminance < dark_threshold or sun_elevation < 3
+            is_dark = illuminance < dark_threshold or sun_elevation < DEFAULT_DARK_THRESHOLD_SUN_ELEVATION
         elif illuminance is not None:
             _LOGGER.debug(
                 f"Area {area_id}: Using ONLY illuminance "
@@ -751,9 +795,9 @@ class AreaManager:
         elif sun_elevation is not None:
             _LOGGER.debug(
                 f"Area {area_id}: Using ONLY sun_elevation "
-                f"(sun_elevation={sun_elevation} < 3)"
+                f"(sun_elevation={sun_elevation} < {DEFAULT_DARK_THRESHOLD_SUN_ELEVATION})"
             )
-            is_dark = sun_elevation < 3
+            is_dark = sun_elevation < DEFAULT_DARK_THRESHOLD_SUN_ELEVATION
 
         _LOGGER.debug(
             f"Environmental state for {area_id}: "
@@ -783,40 +827,9 @@ class AreaManager:
         Returns:
             Temperature value, or None if no temperature sensors found
         """
-        area = self._area_registry.async_get_area(area_id)
-        if area and area.temperature_entity_id:
-            state = self._get_entity_state(area.temperature_entity_id)
-            if state:
-                try:
-                    return round(float(state.state), 1)
-                except (ValueError, TypeError):
-                    pass
-
-        area_entities_map = self._get_monitored_entities()
-        entity_ids = area_entities_map.get(area_id, [])
-
-        temp_values = []
-
-        for entity_id in entity_ids:
-            state = self._get_entity_state(entity_id)
-            if not state:
-                continue
-
-            domain = split_entity_id(entity_id)[0]
-
-            if domain == "sensor":
-                device_class = self._get_device_class(state)
-                if device_class == "temperature":
-                    try:
-                        temp = float(state.state)
-                        temp_values.append(temp)
-                    except (ValueError, TypeError):
-                        continue
-
-        if temp_values:
-            return round(sum(temp_values) / len(temp_values), 1)
-
-        return None
+        return self._get_area_sensor_average(
+            area_id, "temperature", registry_attr="temperature_entity_id", round_digits=1
+        )
 
     def get_area_humidity(self, area_id: str) -> float | None:
         """
@@ -832,40 +845,9 @@ class AreaManager:
         Returns:
             Humidity value, or None if no humidity sensors found
         """
-        area = self._area_registry.async_get_area(area_id)
-        if area and area.humidity_entity_id:
-            state = self._get_entity_state(area.humidity_entity_id)
-            if state:
-                try:
-                    return round(float(state.state), 1)
-                except (ValueError, TypeError):
-                    pass
-
-        area_entities_map = self._get_monitored_entities()
-        entity_ids = area_entities_map.get(area_id, [])
-
-        humidity_values = []
-
-        for entity_id in entity_ids:
-            state = self._get_entity_state(entity_id)
-            if not state:
-                continue
-
-            domain = split_entity_id(entity_id)[0]
-
-            if domain == "sensor":
-                device_class = self._get_device_class(state)
-                if device_class == "humidity":
-                    try:
-                        humidity = float(state.state)
-                        humidity_values.append(humidity)
-                    except (ValueError, TypeError):
-                        continue
-
-        if humidity_values:
-            return round(sum(humidity_values) / len(humidity_values), 1)
-
-        return None
+        return self._get_area_sensor_average(
+            area_id, "humidity", registry_attr="humidity_entity_id", round_digits=1
+        )
 
     def get_area_entities(
         self,

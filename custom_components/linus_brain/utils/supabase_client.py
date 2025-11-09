@@ -66,6 +66,171 @@ class SupabaseClient:
             "Prefer": "return=minimal",
         }
 
+    # ========================================================================
+    # HTTP Helper Methods (reduce duplication)
+    # ========================================================================
+
+    async def _http_get(
+        self,
+        url: str,
+        params: dict[str, Any] | None = None,
+        timeout: int = 10,
+        operation: str = "request",
+    ) -> tuple[int, Any]:
+        """
+        Execute HTTP GET request with standard error handling.
+
+        Args:
+            url: Full URL to request
+            params: Query parameters
+            timeout: Request timeout in seconds
+            operation: Description of operation for logging
+
+        Returns:
+            Tuple of (status_code, response_data)
+            - response_data is parsed JSON on success
+            - response_data is error text on failure
+
+        Raises:
+            aiohttp.ClientError: On HTTP errors
+            Exception: On unexpected errors
+        """
+        try:
+            async with self.session.get(
+                url,
+                params=params,
+                headers=self.headers,
+                timeout=aiohttp.ClientTimeout(total=timeout),
+            ) as response:
+                status = response.status
+                if status == 200:
+                    data = await response.json()
+                    return (status, data)
+                else:
+                    text = await response.text()
+                    _LOGGER.error(
+                        f"Failed {operation} (status {status}): {text}"
+                    )
+                    return (status, text)
+
+        except aiohttp.ClientError as err:
+            _LOGGER.error(f"HTTP error during {operation}: {err}")
+            raise
+        except Exception as err:
+            _LOGGER.error(f"Unexpected error during {operation}: {err}")
+            raise
+
+    async def _http_post(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        params: dict[str, Any] | None = None,
+        timeout: int = 10,
+        operation: str = "request",
+    ) -> tuple[int, Any]:
+        """
+        Execute HTTP POST request with standard error handling.
+
+        Args:
+            url: Full URL to request
+            payload: JSON body to send
+            params: Query parameters
+            timeout: Request timeout in seconds
+            operation: Description of operation for logging
+
+        Returns:
+            Tuple of (status_code, response_data)
+
+        Raises:
+            aiohttp.ClientError: On HTTP errors
+            Exception: On unexpected errors
+        """
+        try:
+            async with self.session.post(
+                url,
+                json=payload,
+                params=params,
+                headers=self.headers,
+                timeout=aiohttp.ClientTimeout(total=timeout),
+            ) as response:
+                status = response.status
+                if status in (200, 201, 204):
+                    # For 204 No Content, return empty dict
+                    if status == 204:
+                        return (status, {})
+                    data = await response.json()
+                    return (status, data)
+                else:
+                    text = await response.text()
+                    _LOGGER.error(
+                        f"Failed {operation} (status {status}): {text}"
+                    )
+                    return (status, text)
+
+        except aiohttp.ClientError as err:
+            _LOGGER.error(f"HTTP error during {operation}: {err}")
+            raise
+        except Exception as err:
+            _LOGGER.error(f"Unexpected error during {operation}: {err}")
+            raise
+
+    async def _http_patch(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        params: dict[str, Any] | None = None,
+        timeout: int = 10,
+        operation: str = "request",
+    ) -> tuple[int, Any]:
+        """
+        Execute HTTP PATCH request with standard error handling.
+
+        Args:
+            url: Full URL to request
+            payload: JSON body to send
+            params: Query parameters
+            timeout: Request timeout in seconds
+            operation: Description of operation for logging
+
+        Returns:
+            Tuple of (status_code, response_data)
+
+        Raises:
+            aiohttp.ClientError: On HTTP errors
+            Exception: On unexpected errors
+        """
+        try:
+            async with self.session.patch(
+                url,
+                json=payload,
+                params=params,
+                headers=self.headers,
+                timeout=aiohttp.ClientTimeout(total=timeout),
+            ) as response:
+                status = response.status
+                if status in (200, 204):
+                    if status == 204:
+                        return (status, {})
+                    data = await response.json()
+                    return (status, data)
+                else:
+                    text = await response.text()
+                    _LOGGER.error(
+                        f"Failed {operation} (status {status}): {text}"
+                    )
+                    return (status, text)
+
+        except aiohttp.ClientError as err:
+            _LOGGER.error(f"HTTP error during {operation}: {err}")
+            raise
+        except Exception as err:
+            _LOGGER.error(f"Unexpected error during {operation}: {err}")
+            raise
+
+    # ========================================================================
+    # Public API Methods
+    # ========================================================================
+
     async def fetch_rules(self) -> list[dict[str, Any]]:
         """
         Fetch automation rules from Supabase.
@@ -96,32 +261,16 @@ class SupabaseClient:
             "limit": "100",
         }
 
-        try:
-            _LOGGER.debug("Fetching automation rules from Supabase")
+        _LOGGER.debug("Fetching automation rules from Supabase")
+        status, data = await self._http_get(
+            url, params=params, operation="fetch rules"
+        )
 
-            async with self.session.get(
-                url,
-                params=params,
-                headers=self.headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                if response.status == 200:
-                    rules = await response.json()
-                    _LOGGER.debug(f"Fetched {len(rules)} rules from Supabase")
-                    return rules
-                else:
-                    response_text = await response.text()
-                    _LOGGER.error(
-                        f"Failed to fetch rules (status {response.status}): {response_text}"
-                    )
-                    return []
-
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"HTTP error fetching rules from Supabase: {err}")
-            raise
-        except Exception as err:
-            _LOGGER.error(f"Unexpected error fetching rules from Supabase: {err}")
-            raise
+        if status == 200:
+            _LOGGER.debug(f"Fetched {len(data)} rules from Supabase")
+            return data
+        else:
+            return []
 
     async def test_connection(self) -> bool:
         """
@@ -176,41 +325,26 @@ class SupabaseClient:
             "select": "*",
         }
 
-        try:
-            _LOGGER.debug(
-                f"Looking up instance for HA installation: {ha_installation_id}"
-            )
+        _LOGGER.debug(
+            f"Looking up instance for HA installation: {ha_installation_id}"
+        )
 
-            async with self.session.get(
-                url,
-                params=params,
-                headers=self.headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if data:
-                        instance = data[0]
-                        _LOGGER.debug(f"Found instance: {instance['instance_id']}")
-                        return instance
-                    else:
-                        _LOGGER.debug(
-                            f"No instance found for HA installation: {ha_installation_id}"
-                        )
-                        return None
-                else:
-                    response_text = await response.text()
-                    _LOGGER.error(
-                        f"Failed to lookup instance (status {response.status}): {response_text}"
-                    )
-                    return None
+        status, data = await self._http_get(
+            url, params=params, operation="lookup instance"
+        )
 
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"HTTP error looking up instance: {err}")
-            raise
-        except Exception as err:
-            _LOGGER.error(f"Unexpected error looking up instance: {err}")
-            raise
+        if status == 200:
+            if data:
+                instance = data[0]
+                _LOGGER.debug(f"Found instance: {instance['instance_id']}")
+                return instance
+            else:
+                _LOGGER.debug(
+                    f"No instance found for HA installation: {ha_installation_id}"
+                )
+                return None
+        else:
+            return None
 
     async def create_new_instance(
         self, ha_installation_id: str, instance_name: str = "Home Assistant"
@@ -295,34 +429,19 @@ class SupabaseClient:
             "updated_at": "now()",
         }
 
-        try:
-            _LOGGER.debug(f"Updating last_seen for instance: {instance_id}")
+        _LOGGER.debug(f"Updating last_seen for instance: {instance_id}")
 
-            async with self.session.patch(
-                url,
-                params=params,
-                json=payload,
-                headers=self.headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                if response.status in (200, 204):
-                    _LOGGER.debug(
-                        f"Successfully updated last_seen for instance: {instance_id}"
-                    )
-                    return True
-                else:
-                    response_text = await response.text()
-                    _LOGGER.error(
-                        f"Failed to update instance (status {response.status}): {response_text}"
-                    )
-                    return False
+        status, _ = await self._http_patch(
+            url, payload, params=params, operation="update instance last_seen"
+        )
 
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"HTTP error updating instance: {err}")
-            raise
-        except Exception as err:
-            _LOGGER.error(f"Unexpected error updating instance: {err}")
-            raise
+        if status in (200, 204):
+            _LOGGER.debug(
+                f"Successfully updated last_seen for instance: {instance_id}"
+            )
+            return True
+        else:
+            return False
 
     async def send_light_action(self, data: dict[str, Any]) -> bool:
         """
@@ -359,35 +478,21 @@ class SupabaseClient:
         """
         url = f"{self.rest_url}/{LIGHT_ACTIONS_TABLE}"
 
-        try:
+        _LOGGER.debug(
+            f"Sending light action for {data.get('entity_id')} in {data.get('area_id', 'unknown')}"
+        )
+
+        status, _ = await self._http_post(
+            url, data, operation="send light action"
+        )
+
+        if status in (200, 201, 204):
             _LOGGER.debug(
-                f"Sending light action for {data.get('entity_id')} in {data.get('area_id', 'unknown')}"
+                f"Successfully sent light action for {data.get('entity_id')}"
             )
-
-            async with self.session.post(
-                url,
-                json=data,
-                headers=self.headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                if response.status in (200, 201, 204):
-                    _LOGGER.debug(
-                        f"Successfully sent light action for {data.get('entity_id')}"
-                    )
-                    return True
-                else:
-                    response_text = await response.text()
-                    _LOGGER.error(
-                        f"Failed to send light action (status {response.status}): {response_text}"
-                    )
-                    return False
-
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"HTTP error sending light action: {err}")
-            raise
-        except Exception as err:
-            _LOGGER.error(f"Unexpected error sending light action: {err}")
-            raise
+            return True
+        else:
+            return False
 
     def _transform_cloud_to_local(
         self, cloud_rows: list[dict[str, Any]]
@@ -878,138 +983,9 @@ class SupabaseClient:
             _LOGGER.error(f"Unexpected error fetching app: {err}")
             raise
 
-    async def fetch_area_assignments(
-        self, instance_id: str
-    ) -> dict[str, dict[str, Any]]:
-        """
-        Fetch area app assignments for an instance.
-
-        Args:
-            instance_id: The instance UUID
-
-        Returns:
-            Dictionary mapping area_id to assignment data:
-            {
-                "kitchen": {
-                    "area_id": "kitchen",
-                    "app_id": "automatic_lighting",
-                    "app_version": "2025-10-26T12:00:00Z",
-                    "config_overrides": {...},
-                    "global_conditions": [...],
-                    "enabled": true,
-                    "priority": 100,
-                    "assigned_at": "2025-10-26T12:00:00Z",
-                    "assigned_by": "system"
-                }
-            }
-
-        Raises:
-            Exception: If HTTP request fails
-        """
-        url = f"{self.rest_url}/active_area_apps"
-
-        params = {"select": "*", "order": "area_id"}
-
-        try:
-            _LOGGER.debug(f"Fetching assignments for instance: {instance_id}")
-
-            async with self.session.get(
-                url,
-                params=params,
-                headers=self.headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                if response.status == 200:
-                    assignments_list = await response.json()
-
-                    assignments_dict = {
-                        assign["area_id"]: assign for assign in assignments_list
-                    }
-
-                    _LOGGER.debug(f"Fetched {len(assignments_dict)} assignments")
-                    return assignments_dict
-                else:
-                    response_text = await response.text()
-                    _LOGGER.error(
-                        f"Failed to fetch assignments (status {response.status}): {response_text}"
-                    )
-                    return {}
-
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"HTTP error fetching assignments: {err}")
-            raise
-        except Exception as err:
-            _LOGGER.error(f"Unexpected error fetching assignments: {err}")
-            raise
-
-    async def assign_app_to_area(
-        self,
-        area_id: str,
-        app_id: str,
-        app_version: str | None = None,
-        config_overrides: dict[str, Any] | None = None,
-        global_conditions: list[dict[str, Any]] | None = None,
-        enabled: bool = True,
-        changed_by: str = "user",
-        change_reason: str | None = None,
-    ) -> bool:
-        """
-        Assign an app to an area (uses change_area_app function).
-
-        Args:
-            area_id: Area identifier
-            app_id: App identifier
-            app_version: Optional specific version (ISO timestamp)
-            config_overrides: Optional config overrides
-            global_conditions: Optional global conditions
-            enabled: Whether assignment is enabled
-            changed_by: Who made the change
-            change_reason: Optional reason for change
-
-        Returns:
-            True if successful
-
-        Raises:
-            Exception: If HTTP request fails
-        """
-        url = f"{self.rest_url}/rpc/change_area_app"
-
-        payload = {
-            "p_area_id": area_id,
-            "p_app_id": app_id,
-            "p_app_version": app_version,
-            "p_config_overrides": config_overrides or {},
-            "p_global_conditions": global_conditions or [],
-            "p_enabled": enabled,
-            "p_changed_by": changed_by,
-            "p_change_reason": change_reason,
-        }
-
-        try:
-            _LOGGER.info(f"Assigning app {app_id} to area {area_id}")
-
-            async with self.session.post(
-                url,
-                json=payload,
-                headers=self.headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                if response.status in (200, 201, 204):
-                    _LOGGER.info(f"Successfully assigned {app_id} to {area_id}")
-                    return True
-                else:
-                    response_text = await response.text()
-                    _LOGGER.error(
-                        f"Failed to assign app (status {response.status}): {response_text}"
-                    )
-                    return False
-
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"HTTP error assigning app: {err}")
-            raise
-        except Exception as err:
-            _LOGGER.error(f"Unexpected error assigning app: {err}")
-            raise
+    # NOTE: fetch_area_assignments() and assign_app_to_area() methods removed
+    # Assignments are now managed by Home Assistant switches, not Supabase tables
+    # See: /docs/APP_ASSIGNMENT_ARCHITECTURE.md
 
     async def fetch_area_insights(self, instance_id: str) -> list[dict[str, Any]]:
         """

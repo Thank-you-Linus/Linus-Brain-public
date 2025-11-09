@@ -221,16 +221,16 @@ class AppStorage:
         Sync data from cloud (Supabase).
 
         CLOUD-FIRST STRATEGY (Cloud is source of truth):
-        1. Try fetch activities, apps, assignments from cloud (timeout 10s)
+        1. Try fetch activities and apps from cloud (timeout 10s)
         2. If cloud succeeds (even if empty) → update local cache with cloud data
-        3. If cloud returns empty assignments → clear local assignments (intentional)
+        3. Assignments are NOT fetched from cloud (managed by local switches)
         4. Only load fallback if: cloud returns empty AND local becomes completely empty
         5. If cloud fails/timeout → keep existing local data (graceful degradation)
 
         CLIENT-SPECIFIC LOADING:
-        - Only download apps assigned to THIS client's areas
-        - Don't download entire app catalog
-        - Fetch activities referenced by those apps only
+        - Always load system activities (for timeout configurations)
+        - Always load automatic_lighting app (core app)
+        - Assignments managed by Home Assistant switches (not Supabase)
 
         Args:
             supabase_client: SupabaseClient instance
@@ -244,8 +244,6 @@ class AppStorage:
             _LOGGER.info("Attempting cloud sync (timeout 10s)")
 
             async with asyncio.timeout(CLOUD_SYNC_TIMEOUT):
-                assignments = await supabase_client.fetch_area_assignments(instance_id)
-
                 # ALWAYS fetch system activities (independent of assignments)
                 # This ensures we have latest timeout configurations from cloud
                 _LOGGER.debug("Fetching all system activities for timeout configs")
@@ -265,22 +263,9 @@ class AppStorage:
                 else:
                     _LOGGER.warning("automatic_lighting not found in cloud, will use fallback if needed")
 
-                # Also load any other apps that have assignments (for future compatibility)
-                if assignments:
-                    assigned_app_ids = set()
-                    for assignment in assignments.values():
-                        assigned_app_ids.add(assignment["app_id"])
-
-                    for app_id in assigned_app_ids:
-                        if app_id not in apps:  # Don't reload if already loaded
-                            app_data = await supabase_client.fetch_app_with_actions(
-                                app_id, version=None
-                            )
-
-                            if app_data:
-                                apps[app_id] = app_data
-                else:
-                    _LOGGER.info("No assignments in cloud (assignments managed by switches)")
+                # NOTE: We do NOT fetch assignments from cloud anymore
+                # Assignments are managed by local Home Assistant switches
+                # See: /docs/APP_ASSIGNMENT_ARCHITECTURE.md
 
                 sync_time = dt_util.utcnow().isoformat()
 
@@ -288,27 +273,20 @@ class AppStorage:
                     "version": STORAGE_VERSION,
                     "activities": activities,
                     "apps": apps,
-                    "assignments": assignments,
+                    "assignments": {},  # Empty - managed by switches
                     "synced_at": sync_time,
                     "is_fallback": False,
                 }
 
                 # CRITICAL: Ensure automatic_lighting always exists after sync
-                # If assignments exist but app is missing from cloud, inject fallback
-                if assignments and "automatic_lighting" not in apps:
-                    # Check if any assignment references automatic_lighting
-                    has_autolight_assignment = any(
-                        assignment.get("app_id") == "automatic_lighting"
-                        for assignment in assignments.values()
+                # If app is missing from cloud, inject fallback
+                if "automatic_lighting" not in apps:
+                    _LOGGER.warning(
+                        "automatic_lighting missing from cloud! "
+                        "Injecting fallback to prevent not_found errors."
                     )
-                    
-                    if has_autolight_assignment:
-                        _LOGGER.warning(
-                            "automatic_lighting assigned but missing from cloud! "
-                            "Injecting fallback to prevent not_found errors."
-                        )
-                        from ..const import DEFAULT_AUTOLIGHT_APP
-                        self._data["apps"]["automatic_lighting"] = DEFAULT_AUTOLIGHT_APP
+                    from ..const import DEFAULT_AUTOLIGHT_APP
+                    self._data["apps"]["automatic_lighting"] = DEFAULT_AUTOLIGHT_APP
 
                 # CRITICAL: Ensure system activities always exist after sync
                 # These are required for activity tracking to function

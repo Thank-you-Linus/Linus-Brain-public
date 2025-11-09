@@ -15,6 +15,10 @@ CONF_USE_SUN_ELEVATION = "use_sun_elevation"
 # Activity types
 ACTIVITY_EMPTY = "empty"
 
+# Environmental thresholds for darkness detection
+DEFAULT_DARK_THRESHOLD_LUX = 20.0  # Default lux threshold below which area is considered dark
+DEFAULT_DARK_THRESHOLD_SUN_ELEVATION = 3  # Default sun elevation (degrees) below which area is considered dark
+
 # Default rule template for light automation (fallback when no Supabase rules)
 DEFAULT_ACTIVITY_RULES = {
     "presence": {
