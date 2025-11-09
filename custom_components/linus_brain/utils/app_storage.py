@@ -253,20 +253,34 @@ class AppStorage:
                 
                 apps = {}
 
+                # ALWAYS load automatic_lighting from cloud if it exists
+                # Assignments are managed by switches, not by area_app_assignments table
+                _LOGGER.debug("Fetching automatic_lighting app from cloud")
+                autolight_app = await supabase_client.fetch_app_with_actions(
+                    "automatic_lighting", version=None
+                )
+                if autolight_app:
+                    apps["automatic_lighting"] = autolight_app
+                    _LOGGER.info("Loaded automatic_lighting from cloud")
+                else:
+                    _LOGGER.warning("automatic_lighting not found in cloud, will use fallback if needed")
+
+                # Also load any other apps that have assignments (for future compatibility)
                 if assignments:
                     assigned_app_ids = set()
                     for assignment in assignments.values():
                         assigned_app_ids.add(assignment["app_id"])
 
                     for app_id in assigned_app_ids:
-                        app_data = await supabase_client.fetch_app_with_actions(
-                            app_id, version=None
-                        )
+                        if app_id not in apps:  # Don't reload if already loaded
+                            app_data = await supabase_client.fetch_app_with_actions(
+                                app_id, version=None
+                            )
 
-                        if app_data:
-                            apps[app_id] = app_data
+                            if app_data:
+                                apps[app_id] = app_data
                 else:
-                    _LOGGER.info("No assignments in cloud (empty is valid state)")
+                    _LOGGER.info("No assignments in cloud (assignments managed by switches)")
 
                 sync_time = dt_util.utcnow().isoformat()
 
@@ -278,6 +292,41 @@ class AppStorage:
                     "synced_at": sync_time,
                     "is_fallback": False,
                 }
+
+                # CRITICAL: Ensure automatic_lighting always exists after sync
+                # If assignments exist but app is missing from cloud, inject fallback
+                if assignments and "automatic_lighting" not in apps:
+                    # Check if any assignment references automatic_lighting
+                    has_autolight_assignment = any(
+                        assignment.get("app_id") == "automatic_lighting"
+                        for assignment in assignments.values()
+                    )
+                    
+                    if has_autolight_assignment:
+                        _LOGGER.warning(
+                            "automatic_lighting assigned but missing from cloud! "
+                            "Injecting fallback to prevent not_found errors."
+                        )
+                        from ..const import DEFAULT_AUTOLIGHT_APP
+                        self._data["apps"]["automatic_lighting"] = DEFAULT_AUTOLIGHT_APP
+
+                # CRITICAL: Ensure system activities always exist after sync
+                # These are required for activity tracking to function
+                critical_activities = ["movement", "inactive", "empty"]
+                missing_activities = [
+                    act_id for act_id in critical_activities 
+                    if act_id not in activities
+                ]
+                
+                if missing_activities:
+                    _LOGGER.warning(
+                        f"System activities missing from cloud: {missing_activities}. "
+                        "Injecting fallbacks to ensure activity tracking works."
+                    )
+                    from ..const import DEFAULT_ACTIVITY_TYPES
+                    for act_id in missing_activities:
+                        if act_id in DEFAULT_ACTIVITY_TYPES:
+                            self._data["activities"][act_id] = DEFAULT_ACTIVITY_TYPES[act_id]
 
                 # Cloud sync succeeded - accept cloud data as-is (even if empty)
                 # Empty cloud data is valid and intentional (no assignments configured)
@@ -324,16 +373,53 @@ class AppStorage:
         return self._data.get("activities", {})
 
     def get_activity(self, activity_id: str) -> dict[str, Any] | None:
-        """Get specific activity by ID."""
-        return self._data.get("activities", {}).get(activity_id)
+        """
+        Get specific activity by ID.
+        
+        CRITICAL: System activities (movement, inactive, empty) must ALWAYS exist.
+        If any are missing, auto-inject from fallback.
+        """
+        activity = self._data.get("activities", {}).get(activity_id)
+        
+        # Defensive fallback: System activities are INDESTRUCTIBLE
+        critical_activities = ["movement", "inactive", "empty"]
+        if activity_id in critical_activities and not activity:
+            _LOGGER.error(
+                f"CRITICAL: System activity '{activity_id}' missing from storage! "
+                "Auto-injecting from fallback to ensure activity tracking works."
+            )
+            from ..const import DEFAULT_ACTIVITY_TYPES
+            fallback_activity = DEFAULT_ACTIVITY_TYPES.get(activity_id)
+            if fallback_activity:
+                self.set_activity(activity_id, fallback_activity)
+                return fallback_activity
+        
+        return activity
 
     def get_apps(self) -> dict[str, Any]:
         """Get all apps."""
         return self._data.get("apps", {})
 
     def get_app(self, app_id: str) -> dict[str, Any] | None:
-        """Get specific app by ID."""
-        return self._data.get("apps", {}).get(app_id)
+        """
+        Get specific app by ID.
+        
+        CRITICAL: automatic_lighting must ALWAYS exist as a system app.
+        If it's missing, auto-inject from fallback.
+        """
+        app = self._data.get("apps", {}).get(app_id)
+        
+        # Defensive fallback: automatic_lighting is INDESTRUCTIBLE
+        if app_id == "automatic_lighting" and not app:
+            _LOGGER.error(
+                "CRITICAL: automatic_lighting app missing from storage! "
+                "Auto-injecting from fallback to ensure automation works."
+            )
+            from ..const import DEFAULT_AUTOLIGHT_APP
+            self.set_app("automatic_lighting", DEFAULT_AUTOLIGHT_APP)
+            return DEFAULT_AUTOLIGHT_APP
+        
+        return app
 
     def get_assignments(self) -> dict[str, Any]:
         """Get all area assignments."""
