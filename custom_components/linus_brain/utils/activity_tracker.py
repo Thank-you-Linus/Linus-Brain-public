@@ -153,13 +153,20 @@ class ActivityTracker:
             area_id: The area ID
             timeout_seconds: Timeout duration in seconds
         """
+        # Cancel any existing timeout first
+        if area_id in self._timeout_tasks:
+            old_activity = self._area_states.get(area_id, {}).get("activity", "unknown")
+            _LOGGER.debug(
+                f"[TIMEOUT] {area_id}: Cancelling existing timeout for {old_activity}"
+            )
+        
         self._cancel_timeout(area_id)
 
         task = asyncio.create_task(self._timeout_handler(area_id, timeout_seconds))
         self._timeout_tasks[area_id] = task
         current_activity = self._area_states.get(area_id, {}).get("activity", "unknown")
-        _LOGGER.debug(
-            f"Scheduled timeout for {area_id} in {timeout_seconds}s (current: {current_activity})"
+        _LOGGER.info(
+            f"[TIMEOUT] {area_id}: Scheduled {timeout_seconds}s timeout for {current_activity}"
         )
 
     def _cancel_timeout(self, area_id: str) -> None:
@@ -176,8 +183,8 @@ class ActivityTracker:
                 current_activity = self._area_states.get(area_id, {}).get(
                     "activity", "unknown"
                 )
-                _LOGGER.debug(
-                    f"Cancelled timeout for {area_id} (current: {current_activity})"
+                _LOGGER.info(
+                    f"[TIMEOUT] {area_id}: Cancelled timeout for {current_activity}"
                 )
             del self._timeout_tasks[area_id]
 
@@ -209,52 +216,73 @@ class ActivityTracker:
             timeout_seconds: Timeout duration in seconds
         """
         try:
+            _LOGGER.debug(
+                f"[TIMEOUT] {area_id}: Waiting {timeout_seconds}s before executing timeout handler"
+            )
             await asyncio.sleep(timeout_seconds)
 
             if area_id not in self._area_states:
-                _LOGGER.warning(f"Timeout expired but no state for {area_id}")
+                _LOGGER.warning(f"[TIMEOUT] {area_id}: Timeout expired but no state found")
                 return
 
             current_activity = self._area_states[area_id].get("activity")
             if not current_activity or not isinstance(current_activity, str):
-                _LOGGER.warning(f"Invalid activity state for {area_id}")
+                _LOGGER.warning(f"[TIMEOUT] {area_id}: Invalid activity state on timeout")
                 return
 
             next_activity = self._get_next_activity(current_activity)
 
             if next_activity:
                 _LOGGER.info(
-                    f"Timeout expired for {area_id}: {current_activity} → {next_activity}"
+                    f"[TRANSITION] {area_id}: {current_activity} → {next_activity} (timeout expired)"
                 )
                 now = datetime.now().astimezone()
                 self._area_states[area_id]["activity"] = next_activity
                 self._area_states[area_id]["activity_start"] = now
                 self._area_states[area_id]["last_update"] = now
 
+                # Clean up timeout tracking
                 if area_id in self._conditions_false_since:
                     del self._conditions_false_since[area_id]
 
+                # Schedule next timeout if the target activity has one
                 next_activity_data = self._activities.get(next_activity, {})
                 next_timeout = next_activity_data.get("timeout_seconds", 0)
                 if next_timeout > 0:
+                    _LOGGER.debug(
+                        f"[TIMEOUT] {area_id}: {next_activity} has {next_timeout}s timeout, scheduling"
+                    )
                     self._schedule_timeout(area_id, next_timeout)
+                else:
+                    _LOGGER.debug(
+                        f"[TIMEOUT] {area_id}: {next_activity} has no timeout"
+                    )
 
+                # Notify coordinator about the state change
                 if self.coordinator:
                     await self.coordinator.async_send_area_update(area_id)
+                else:
+                    _LOGGER.warning(
+                        f"[TIMEOUT] {area_id}: No coordinator available for update notification"
+                    )
             else:
-                _LOGGER.info(f"Timeout expired for {area_id}, no transition defined")
+                _LOGGER.info(
+                    f"[TIMEOUT] {area_id}: {current_activity} timeout expired, no transition defined"
+                )
 
                 if self.coordinator:
                     await self.coordinator.async_send_area_update(area_id)
                 else:
                     _LOGGER.warning(
-                        f"No coordinator available to trigger update for {area_id}"
+                        f"[TIMEOUT] {area_id}: No coordinator available for update notification"
                     )
 
         except asyncio.CancelledError:
-            _LOGGER.debug(f"Timeout cancelled for {area_id}")
+            current_activity = self._area_states.get(area_id, {}).get("activity", "unknown")
+            _LOGGER.debug(f"[TIMEOUT] {area_id}: Timeout cancelled for {current_activity}")
+            raise  # Re-raise to properly handle cancellation
         except Exception as err:
-            _LOGGER.error(f"Error in timeout handler for {area_id}: {err}")
+            _LOGGER.error(f"[TIMEOUT] {area_id}: Error in timeout handler: {err}", exc_info=True)
 
     async def async_evaluate_activity(self, area_id: str) -> str:
         """
@@ -277,27 +305,6 @@ class ActivityTracker:
                 "No ConditionEvaluator provided, cannot evaluate activities"
             )
             return ACTIVITY_EMPTY
-
-        if area_id in self._area_states:
-            current_activity = self._area_states[area_id].get("activity")
-            if current_activity and current_activity != ACTIVITY_EMPTY:
-                activity_data = self._activities.get(current_activity, {})
-                timeout = activity_data.get("timeout_seconds", 0)
-                if timeout > 0 and area_id in self._conditions_false_since:
-                    false_since = self._conditions_false_since[area_id]
-                    elapsed = (
-                        datetime.now().astimezone() - false_since
-                    ).total_seconds()
-                    if elapsed >= timeout:
-                        _LOGGER.info(
-                            f"Area {area_id}: {current_activity} timed out after {elapsed:.1f}s (timeout: {timeout}s)"
-                        )
-                        now = datetime.now().astimezone()
-                        self._area_states[area_id]["activity"] = ACTIVITY_EMPTY
-                        self._area_states[area_id]["activity_start"] = None
-                        self._area_states[area_id]["last_update"] = now
-                        del self._conditions_false_since[area_id]
-                        return ACTIVITY_EMPTY
 
         _LOGGER.debug(
             f"Evaluating activities for area {area_id}: {list(self._activities.keys())}"
@@ -353,24 +360,26 @@ class ActivityTracker:
                             state["activity_start"] = now
                             state["activity"] = activity_id
                             state["last_update"] = now
-                            _LOGGER.debug(
-                                f"Area {area_id}: started {activity_id} (threshold: {duration_threshold}s)"
+                            _LOGGER.info(
+                                f"[DETECT] {area_id}: {activity_id} conditions met, starting threshold timer ({duration_threshold}s)"
                             )
                             return ACTIVITY_EMPTY
 
                         duration = (now - state["activity_start"]).total_seconds()
 
                         if duration >= duration_threshold:
-                            _LOGGER.debug(
-                                f"Area {area_id}: {activity_id} threshold met ({duration:.1f}s)"
+                            _LOGGER.info(
+                                f"[DETECT] {area_id}: {activity_id} threshold met ({duration:.1f}s/{duration_threshold}s)"
                             )
                             return activity_id
                         else:
                             _LOGGER.debug(
-                                f"Area {area_id}: {activity_id} in progress ({duration:.1f}s/{duration_threshold}s)"
+                                f"[DETECT] {area_id}: {activity_id} in progress ({duration:.1f}s/{duration_threshold}s)"
                             )
                             return ACTIVITY_EMPTY
                     else:
+                        # Activity detected with no threshold - immediate activation
+                        old_activity = None
                         if area_id not in self._area_states:
                             self._area_states[area_id] = {
                                 "activity": activity_id,
@@ -380,18 +389,27 @@ class ActivityTracker:
                         else:
                             now = datetime.now().astimezone()
                             state = self._area_states[area_id]
-                            if state.get("activity") != activity_id:
+                            old_activity = state.get("activity")
+                            if old_activity != activity_id:
                                 state["activity_start"] = now
+                                _LOGGER.info(
+                                    f"[TRANSITION] {area_id}: {old_activity} → {activity_id} (conditions matched)"
+                                )
                             state["activity"] = activity_id
                             state["last_update"] = now
 
+                        # Clear any pending timeouts since we're now in a new active state
                         if area_id in self._conditions_false_since:
+                            _LOGGER.debug(
+                                f"[DETECT] {area_id}: Clearing conditions_false_since for {activity_id}"
+                            )
                             del self._conditions_false_since[area_id]
                         self._cancel_timeout(area_id)
 
-                        _LOGGER.debug(
-                            f"Area {area_id}: {activity_id} detected (no threshold)"
-                        )
+                        if old_activity != activity_id:
+                            _LOGGER.info(
+                                f"[DETECT] {area_id}: {activity_id} detected and activated"
+                            )
                         return activity_id
 
             except Exception as err:
@@ -412,20 +430,26 @@ class ActivityTracker:
 
             if current_activity != ACTIVITY_EMPTY:
                 activity_data = self._activities.get(current_activity, {})
-                transition_to = activity_data.get("transition_to")
                 is_transition_state = activity_data.get("is_transition_state", False)
 
-                # Don't process timeout logic for transition states when conditions are false
-                # Transition states should only be entered via timeout, not direct evaluation
-                # IMPORTANT: We do NOT cancel existing timeouts - they should complete naturally
+                # Transition states are only entered via timeout from another activity
+                # When we're in a transition state, we MUST let it complete its timeout
+                # to transition to the next activity (e.g., inactive -> empty)
                 if is_transition_state:
                     _LOGGER.debug(
-                        f"Area {area_id}: {current_activity} is transition state, allowing existing timeout to complete"
+                        f"Area {area_id}: {current_activity} is transition state, maintaining state to allow timeout completion"
                     )
+                    # Clear the false_since marker since transition states don't depend on conditions
                     if area_id in self._conditions_false_since:
                         del self._conditions_false_since[area_id]
-                    # DO NOT cancel timeout - let it complete naturally to allow transition
-                elif area_id not in self._conditions_false_since:
+                    # DO NOT cancel timeout - let it complete naturally to reach next state
+                    return current_activity
+
+                # For non-transition states, handle timeout when conditions no longer match
+                transition_to = activity_data.get("transition_to")
+                
+                if area_id not in self._conditions_false_since:
+                    # First time conditions became false - start timeout tracking
                     self._conditions_false_since[area_id] = now
 
                     if transition_to:
@@ -434,45 +458,40 @@ class ActivityTracker:
 
                         if timeout > 0:
                             _LOGGER.info(
-                                f"Area {area_id}: {current_activity} conditions no longer match, will transition to {transition_to} after {timeout}s"
+                                f"Area {area_id}: {current_activity} conditions no longer match, "
+                                f"scheduling transition to {transition_to} in {timeout}s"
                             )
                             self._schedule_timeout(area_id, timeout)
                         else:
+                            # Immediate transition (timeout = 0)
                             _LOGGER.info(
-                                f"Area {area_id}: {current_activity} conditions no longer match, immediately transitioning to {transition_to}"
+                                f"Area {area_id}: {current_activity} → {transition_to} (immediate)"
                             )
                             state["activity"] = transition_to
                             state["activity_start"] = now
                             state["last_update"] = now
                             del self._conditions_false_since[area_id]
 
+                            # Check if the transition target also has a timeout
                             transition_data = self._activities.get(transition_to, {})
-                            transition_timeout = transition_data.get(
-                                "timeout_seconds", 0
-                            )
+                            transition_timeout = transition_data.get("timeout_seconds", 0)
                             if transition_timeout > 0:
+                                _LOGGER.debug(
+                                    f"Area {area_id}: {transition_to} has timeout {transition_timeout}s, scheduling"
+                                )
                                 self._schedule_timeout(area_id, transition_timeout)
 
                             if self.coordinator:
                                 await self.coordinator.async_send_area_update(area_id)
                     else:
+                        # No transition defined - schedule timeout to return to empty
                         _LOGGER.debug(
-                            f"Area {area_id}: {current_activity} conditions no longer match, timeout started"
+                            f"Area {area_id}: {current_activity} conditions no longer match, no transition defined"
                         )
                         timeout_val = activity_data.get("timeout_seconds", 0)
                         timeout = float(timeout_val) if timeout_val else 0
                         if timeout > 0:
                             self._schedule_timeout(area_id, timeout)
-            else:
-                if area_id in self._conditions_false_since:
-                    _LOGGER.debug(
-                        f"Area {area_id}: {current_activity} conditions match again, clearing conditions_false_since"
-                    )
-                    del self._conditions_false_since[area_id]
-                _LOGGER.debug(
-                    f"Area {area_id}: {current_activity} conditions match, cancelling timeout"
-                )
-                self._cancel_timeout(area_id)
 
         return self.get_activity(area_id)
 
