@@ -19,6 +19,7 @@ from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.core import Event, HomeAssistant, State, callback, split_entity_id
 
 from .state_validator import is_state_valid
+from .timeout_manager import TimeoutManager
 
 if TYPE_CHECKING:
     from .light_learning import LightLearning
@@ -59,7 +60,12 @@ class EventListener:
         self.light_learning = light_learning
         self._listeners: list[Callable[[], None]] = []
         self._last_update_times: dict[str, float] = {}
-        self._pending_updates: dict[str, asyncio.Task[None]] = {}
+        
+        # Use TimeoutManager for debouncing area updates
+        self._debounce_manager = TimeoutManager(
+            logger=_LOGGER,
+            logger_prefix="[DEBOUNCE]"
+        )
 
         self._debounce_interval = 5.0
 
@@ -103,18 +109,13 @@ class EventListener:
 
         return False
 
-    async def _schedule_deferred_update(self, area: str) -> None:
+    async def _deferred_area_update(self, area: str) -> None:
         """
-        Schedule a deferred update for an area after debounce interval.
+        Execute a deferred update for an area.
 
         Args:
             area: The area ID
         """
-        await asyncio.sleep(self._debounce_interval)
-
-        if area in self._pending_updates:
-            del self._pending_updates[area]
-
         _LOGGER.debug(f"Executing deferred update for area {area}")
         await self.coordinator.async_send_area_update(area)
 
@@ -122,7 +123,8 @@ class EventListener:
         """
         Check if an update for an area should be debounced.
 
-        If debouncing is needed, schedules a deferred update instead of dropping it.
+        If debouncing is needed, schedules a deferred update that will be automatically
+        cancelled and rescheduled if more events arrive.
 
         Special handling: Motion/presence sensors turning OFF are never debounced,
         as this is a critical event that triggers activity transitions.
@@ -156,6 +158,8 @@ class EventListener:
                     f"Motion/presence sensor {entity_id} turned OFF, bypassing debounce for immediate transition"
                 )
                 self._last_update_times[area] = time.time()
+                # Cancel any pending debounced update since we're processing immediately
+                self._debounce_manager.cancel(area)
                 return False
 
             if new_state.state == "on":
@@ -165,17 +169,23 @@ class EventListener:
                         f"Motion/presence sensor {entity_id} turned ON while area is inactive, bypassing debounce for immediate transition"
                     )
                     self._last_update_times[area] = time.time()
+                    # Cancel any pending debounced update since we're processing immediately
+                    self._debounce_manager.cancel(area)
                     return False
 
         current_time = time.time()
         last_update = self._last_update_times.get(area, 0)
 
         if current_time - last_update < self._debounce_interval:
-            if area not in self._pending_updates:
-                _LOGGER.debug(f"Scheduling deferred update for area {area}")
-                task = self.hass.async_create_task(self._schedule_deferred_update(area))
-                task.add_done_callback(self._handle_task_exception)
-                self._pending_updates[area] = task
+            # Schedule deferred update using TimeoutManager
+            # This automatically cancels and replaces any existing pending update
+            _LOGGER.debug(f"Scheduling deferred update for area {area}")
+            self._debounce_manager.schedule(
+                key=area,
+                delay=self._debounce_interval,
+                callback=self._deferred_area_update,
+                area=area
+            )
             return True
 
         self._last_update_times[area] = current_time
@@ -281,9 +291,9 @@ class EventListener:
         self._last_update_times.clear()
 
         # Cancel any pending deferred updates
-        for task in self._pending_updates.values():
-            task.cancel()
-        self._pending_updates.clear()
+        cancelled_count = self._debounce_manager.cancel_all()
+        if cancelled_count > 0:
+            _LOGGER.debug(f"Cancelled {cancelled_count} pending debounced updates")
 
         _LOGGER.info("Event listener stopped successfully")
 

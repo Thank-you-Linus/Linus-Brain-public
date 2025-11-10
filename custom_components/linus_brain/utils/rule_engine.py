@@ -586,8 +586,10 @@ class RuleEngine:
                 key = f"{area_id}_{entity_id}"
 
             if key in self._debounce_tasks and not self._debounce_tasks[key].done():
+                _LOGGER.debug(f"[DEBOUNCE] {key}: Cancelled previous rule evaluation task, rescheduling")
                 self._debounce_tasks[key].cancel()
 
+            _LOGGER.debug(f"[DEBOUNCE] {key}: Scheduled rule evaluation with {DEBOUNCE_SECONDS}s delay")
             self._debounce_tasks[key] = asyncio.create_task(
                 self._async_evaluate_rule_debounced(
                     area_id, entity_id, is_environmental=is_environmental
