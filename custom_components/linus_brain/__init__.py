@@ -21,7 +21,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import area_registry, entity_registry as er
 
-from .const import DOMAIN
+from .const import CONF_SUPABASE_KEY, CONF_SUPABASE_URL, DOMAIN
 from .coordinator import LinusBrainCoordinator
 from .services import async_setup_services, async_unload_services
 from .utils.event_listener import EventListener
@@ -297,8 +297,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info("Setting up Linus Brain integration")
 
     # Retrieve configuration from the config entry
-    supabase_url = entry.data.get("supabase_url")
-    supabase_key = entry.data.get("supabase_key")
+    supabase_url = entry.data.get(CONF_SUPABASE_URL)
+    supabase_key = entry.data.get(CONF_SUPABASE_KEY)
 
     if not supabase_url or not supabase_key:
         _LOGGER.error("Missing Supabase URL or API key in configuration")

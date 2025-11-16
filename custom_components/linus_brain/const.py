@@ -27,54 +27,6 @@ DEFAULT_DARK_THRESHOLD_LUX = 20.0  # Default lux threshold below which area is c
 DEFAULT_DARK_THRESHOLD_SUN_ELEVATION = 3  # Default sun elevation (degrees) below which area is considered dark
 DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL = 30  # Default interval (seconds) between environmental state checks (lux, temperature, etc.)
 
-# Default rule template for light automation (fallback when no Supabase rules)
-DEFAULT_ACTIVITY_RULES = {
-    "presence": {
-        "conditions": [
-            {
-                "condition": "activity",
-                "area_id": "current",
-                "state": "presence",
-                "description": "Presence detected in area",
-            },
-            {
-                "condition": "area_state",
-                "area_id": "current",
-                "attribute": "is_dark",
-                "description": "Area is dark (lux < 20 OR sun < 3°)",
-            },
-        ],
-        "actions": [
-            {
-                "service": "light.turn_on",
-                "domain": "light",
-                "area": "current",
-                "description": "Turn on lights",
-            }
-        ],
-        "description": "Turn on lights when presence detected AND area is dark",
-    },
-    "empty": {
-        "conditions": [
-            {
-                "condition": "activity",
-                "area_id": "current",
-                "state": "empty",
-                "description": "No presence detected in area",
-            }
-        ],
-        "actions": [
-            {
-                "service": "light.turn_off",
-                "domain": "light",
-                "area": "current",
-                "description": "Turn off lights",
-            }
-        ],
-        "description": "Turn off lights when no presence detected",
-    },
-}
-
 # Default activity types for dynamic activity detection system
 DEFAULT_ACTIVITY_TYPES = {
     "empty": {

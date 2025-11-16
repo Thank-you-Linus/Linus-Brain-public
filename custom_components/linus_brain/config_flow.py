@@ -22,6 +22,8 @@ from .const import (
     CONF_OCCUPIED_THRESHOLD,
     CONF_OCCUPIED_INACTIVE_TIMEOUT,
     CONF_ENVIRONMENTAL_CHECK_INTERVAL,
+    CONF_SUPABASE_KEY,
+    CONF_SUPABASE_URL,
     CONF_USE_SUN_ELEVATION,
     DEFAULT_DARK_THRESHOLD_LUX,
     DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL,
@@ -168,8 +170,8 @@ class LinusBrainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(
                     title="Linus Brain",
                     data={
-                        "supabase_url": url,
-                        "supabase_key": api_key,
+                        CONF_SUPABASE_URL: url,
+                        CONF_SUPABASE_KEY: api_key,
                     },
                     options={
                         CONF_USE_SUN_ELEVATION: user_input.get(CONF_USE_SUN_ELEVATION, True),
