@@ -4,6 +4,8 @@ Constants for Linus Brain integration.
 This module contains all constant values used throughout the integration.
 """
 
+from typing import Any
+
 # Integration domain
 DOMAIN = "linus_brain"
 
@@ -11,6 +13,11 @@ DOMAIN = "linus_brain"
 CONF_SUPABASE_URL = "supabase_url"
 CONF_SUPABASE_KEY = "supabase_key"
 CONF_USE_SUN_ELEVATION = "use_sun_elevation"
+CONF_DARK_LUX_THRESHOLD = "dark_lux_threshold"
+CONF_INACTIVE_TIMEOUT = "inactive_timeout"
+CONF_OCCUPIED_THRESHOLD = "occupied_threshold"
+CONF_OCCUPIED_INACTIVE_TIMEOUT = "occupied_inactive_timeout"
+CONF_ENVIRONMENTAL_CHECK_INTERVAL = "environmental_check_interval"
 
 # Activity types
 ACTIVITY_EMPTY = "empty"
@@ -18,6 +25,7 @@ ACTIVITY_EMPTY = "empty"
 # Environmental thresholds for darkness detection
 DEFAULT_DARK_THRESHOLD_LUX = 20.0  # Default lux threshold below which area is considered dark
 DEFAULT_DARK_THRESHOLD_SUN_ELEVATION = 3  # Default sun elevation (degrees) below which area is considered dark
+DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL = 30  # Default interval (seconds) between environmental state checks (lux, temperature, etc.)
 
 # Default rule template for light automation (fallback when no Supabase rules)
 DEFAULT_ACTIVITY_RULES = {
@@ -187,6 +195,14 @@ DEFAULT_AUTOLIGHT_APP = {
                     "description": "Turn on lights at full brightness",
                 }
             ],
+            "on_exit": [
+                {
+                    "service": "light.turn_off",
+                    "domain": "light",
+                    "area": "current",
+                    "description": "Turn off lights when conditions no longer met",
+                }
+            ],
             "logic": "and",
             "description": "Turn on lights at full brightness when movement detected AND area is dark",
         },
@@ -208,6 +224,14 @@ DEFAULT_AUTOLIGHT_APP = {
                     "filter_entities_by_state": "on",
                     "data": {"brightness_step_pct": -10},
                     "description": "Dim lights by 10% (only lights that are ON)",
+                }
+            ],
+            "on_exit": [
+                {
+                    "service": "light.turn_off",
+                    "domain": "light",
+                    "area": "current",
+                    "description": "Turn off lights when conditions no longer met",
                 }
             ],
             "logic": "and",
@@ -288,7 +312,7 @@ INSIGHT_SENSOR_CONFIG = {
 ENABLED_INSIGHT_SENSORS = ["dark_threshold_lux"]
 
 
-def get_insight_value(insight_data: dict, value_path: list[str] | None) -> any:
+def get_insight_value(insight_data: dict, value_path: list[str] | None):
     """
     Extract value from insight data using path.
     

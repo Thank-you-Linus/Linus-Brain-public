@@ -325,6 +325,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator.supabase_client, instance_id, area_ids
     )
 
+    # Apply user configuration overrides to activity timeouts
+    from .const import (
+        CONF_INACTIVE_TIMEOUT,
+        CONF_OCCUPIED_THRESHOLD,
+        CONF_OCCUPIED_INACTIVE_TIMEOUT,
+        CONF_ENVIRONMENTAL_CHECK_INTERVAL,
+        DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL,
+    )
+    inactive_timeout = entry.options.get(CONF_INACTIVE_TIMEOUT)
+    occupied_threshold = entry.options.get(CONF_OCCUPIED_THRESHOLD)
+    occupied_inactive_timeout = entry.options.get(CONF_OCCUPIED_INACTIVE_TIMEOUT)
+    environmental_check_interval = entry.options.get(CONF_ENVIRONMENTAL_CHECK_INTERVAL, DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL)
+    await coordinator.app_storage.apply_config_overrides_async(
+        inactive_timeout=inactive_timeout,
+        occupied_threshold=occupied_threshold,
+        occupied_inactive_timeout=occupied_inactive_timeout,
+        environmental_check_interval=environmental_check_interval,
+    )
+
     # Initialize insights manager and load insights from Supabase
     insights_manager = InsightsManager(coordinator.supabase_client)
     await insights_manager.async_load(instance_id)
@@ -359,27 +378,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(timeout_checker)
 
     async def async_refresh_remote_config(_now=None):
-        """Refresh remote configuration (activities, timeouts) from cloud."""
+        """
+        Refresh remote configuration from cloud.
+        
+        NOTE: Activities (movement, inactive, occupied) are now LOCAL only.
+        This function is kept for future expansion (e.g., refreshing apps from cloud).
+        """
         try:
-            _LOGGER.info("Refreshing remote configuration from cloud")
+            _LOGGER.debug("Remote config refresh triggered (activities are local only)")
             
-            # Refresh activities from Supabase
-            activities_updated = await coordinator.app_storage.async_refresh_activities(
-                coordinator.supabase_client
-            )
+            # Future: Could refresh apps from Supabase here if needed
+            # For now, activities are local and don't need cloud refresh
             
-            if activities_updated:
-                # Reload activities in ActivityTracker
-                tracker_updated = await coordinator.activity_tracker.async_reload_activities()
-                
-                if tracker_updated:
-                    _LOGGER.info("Remote configuration refreshed successfully")
-                    coordinator.async_update_listeners()
-                else:
-                    _LOGGER.debug("Remote configuration unchanged")
-            else:
-                _LOGGER.debug("No updates from cloud")
-                
         except Exception as err:
             _LOGGER.warning(f"Failed to refresh remote configuration: {err}")
     

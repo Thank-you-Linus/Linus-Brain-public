@@ -310,7 +310,16 @@ class ActivityTracker:
             f"Evaluating activities for area {area_id}: {list(self._activities.keys())}"
         )
 
-        for activity_id, activity_data in self._activities.items():
+        # Sort activities by duration_threshold_seconds (descending) to check longer thresholds first
+        # This ensures that activities like "occupied" (300s) are evaluated before "movement" (0s)
+        # when they share the same detection conditions
+        sorted_activities = sorted(
+            self._activities.items(),
+            key=lambda x: x[1].get("duration_threshold_seconds", 0),
+            reverse=True
+        )
+
+        for activity_id, activity_data in sorted_activities:
             if activity_id == ACTIVITY_EMPTY:
                 continue
 
@@ -351,32 +360,63 @@ class ActivityTracker:
                                 "activity": ACTIVITY_EMPTY,
                                 "activity_start": None,
                                 "last_update": None,
+                                "threshold_tracking": None,
+                                "threshold_start": None,
                             }
 
                         state = self._area_states[area_id]
                         now = datetime.now().astimezone()
+                        
+                        # If we're already in this activity state and conditions are still met,
+                        # don't reset the timer - just return the current activity
+                        current_activity = state.get("activity")
+                        if current_activity == activity_id:
+                            _LOGGER.debug(
+                                f"[DETECT] {area_id}: Already in {activity_id}, conditions still met"
+                            )
+                            return activity_id
 
-                        if state.get("activity") != activity_id:
-                            state["activity_start"] = now
-                            state["activity"] = activity_id
+                        # Check if we need to start or reset the threshold timer
+                        current_threshold_tracking = state.get("threshold_tracking")
+                        if current_threshold_tracking != activity_id:
+                            state["threshold_start"] = now
+                            state["threshold_tracking"] = activity_id
                             state["last_update"] = now
                             _LOGGER.info(
                                 f"[DETECT] {area_id}: {activity_id} conditions met, starting threshold timer ({duration_threshold}s)"
                             )
-                            return ACTIVITY_EMPTY
-
-                        duration = (now - state["activity_start"]).total_seconds()
-
-                        if duration >= duration_threshold:
-                            _LOGGER.info(
-                                f"[DETECT] {area_id}: {activity_id} threshold met ({duration:.1f}s/{duration_threshold}s)"
-                            )
-                            return activity_id
+                            # Don't return yet - continue checking lower-threshold activities
                         else:
-                            _LOGGER.debug(
-                                f"[DETECT] {area_id}: {activity_id} in progress ({duration:.1f}s/{duration_threshold}s)"
-                            )
-                            return ACTIVITY_EMPTY
+                            # Already tracking this activity, check if threshold is met
+                            threshold_start = state.get("threshold_start")
+                            if threshold_start:
+                                duration = (now - threshold_start).total_seconds()
+
+                                if duration >= duration_threshold:
+                                    _LOGGER.info(
+                                        f"[DETECT] {area_id}: {activity_id} threshold met ({duration:.1f}s/{duration_threshold}s)"
+                                    )
+                                    # Clear threshold tracking
+                                    state["threshold_tracking"] = None
+                                    state["threshold_start"] = None
+                                    # Update activity state
+                                    old_activity = state.get("activity")
+                                    state["activity"] = activity_id
+                                    state["activity_start"] = state.get("threshold_start", now)
+                                    if old_activity != activity_id:
+                                        _LOGGER.info(
+                                            f"[TRANSITION] {area_id}: {old_activity} → {activity_id} (threshold met)"
+                                        )
+                                    # Clear any pending timeouts since we're now in a new active state
+                                    if area_id in self._conditions_false_since:
+                                        del self._conditions_false_since[area_id]
+                                    self._cancel_timeout(area_id)
+                                    return activity_id
+                                else:
+                                    _LOGGER.debug(
+                                        f"[DETECT] {area_id}: {activity_id} in progress ({duration:.1f}s/{duration_threshold}s)"
+                                    )
+                                    # Continue to check for lower-threshold fallback activities
                     else:
                         # Activity detected with no threshold - immediate activation
                         old_activity = None
@@ -417,6 +457,29 @@ class ActivityTracker:
                     f"Failed to evaluate activity {activity_id} for area {area_id}: {err}"
                 )
                 continue
+
+        # Check if we need to cancel any threshold tracking that's no longer valid
+        if area_id in self._area_states:
+            state = self._area_states[area_id]
+            threshold_tracking = state.get("threshold_tracking")
+            if threshold_tracking:
+                # Check if the threshold activity we were tracking still matches
+                threshold_activity = self._activities.get(threshold_tracking, {})
+                conditions = threshold_activity.get("detection_conditions", [])
+                try:
+                    is_match = await self.condition_evaluator.evaluate_conditions(
+                        conditions, area_id, logic="and"
+                    )
+                    if not is_match:
+                        _LOGGER.info(
+                            f"[DETECT] {area_id}: {threshold_tracking} conditions no longer met, cancelling threshold timer"
+                        )
+                        state["threshold_tracking"] = None
+                        state["threshold_start"] = None
+                except Exception as err:
+                    _LOGGER.error(
+                        f"Failed to re-evaluate threshold activity {threshold_tracking} for area {area_id}: {err}"
+                    )
 
         if area_id in self._area_states:
             now = datetime.now().astimezone()

@@ -28,7 +28,7 @@ from .entity_resolver import EntityResolver
 _LOGGER = logging.getLogger(__name__)
 
 COOLDOWN_SECONDS = 30
-COOLDOWN_ENVIRONMENTAL_SECONDS = 300  # 5 minutes for environmental transitions
+DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL = 30  # Default interval (seconds) between environmental state checks
 DEBOUNCE_SECONDS = 2
 
 
@@ -72,7 +72,7 @@ class RuleEngine:
         self.app_storage = app_storage if app_storage else AppStorage(hass)
         self.entity_resolver = EntityResolver(hass)
         self.condition_evaluator = ConditionEvaluator(
-            hass, self.entity_resolver, activity_tracker
+            hass, self.entity_resolver, activity_tracker, area_manager
         )
         self.action_executor = ActionExecutor(hass, self.entity_resolver)
 
@@ -85,6 +85,20 @@ class RuleEngine:
         # Environmental state tracking for transition detection
         # Format: {area_id: {"is_dark": bool}}
         self._previous_env_state: dict[str, dict[str, bool]] = {}
+        
+        # Lux-based action tracking for cooldown (prevents rapid flickering)
+        # Tracks separate cooldowns for enter (lights ON) and exit (lights OFF) actions
+        # Format: {area_id: {"enter": datetime, "exit": datetime}}
+        self._last_environmental_action: dict[str, dict[str, datetime]] = {}
+        
+        # Exit action timeout tracking
+        # Tracks pending exit action timeouts for environmental transitions
+        # Format: {area_id: asyncio.Task}
+        self._exit_timeout_tasks: dict[str, asyncio.Task] = {}
+        
+        # Exit timeout metadata for calculating remaining time
+        # Format: {area_id: {"start_time": datetime, "duration": float}}
+        self._exit_timeout_metadata: dict[str, dict[str, Any]] = {}
 
         self._stats = {
             "total_triggers": 0,
@@ -328,6 +342,34 @@ class RuleEngine:
 
         return False
 
+    def _has_lux_condition(self, conditions: list[dict[str, Any]]) -> bool:
+        """
+        Check if conditions list contains any lux-based area_state condition.
+
+        Recursively searches through nested and/or conditions for is_dark checks.
+
+        Args:
+            conditions: List of condition dictionaries
+
+        Returns:
+            True if any is_dark area_state condition found
+        """
+        for condition in conditions:
+            condition_type = condition.get("condition")
+
+            if condition_type == "area_state":
+                # Check if this is a lux-based condition (is_dark)
+                state_attr = condition.get("state") or condition.get("attribute")
+                if state_attr == "is_dark":
+                    return True
+
+            if condition_type in ["and", "or"]:
+                nested_conditions = condition.get("conditions", [])
+                if self._has_lux_condition(nested_conditions):
+                    return True
+
+        return False
+
     def _get_current_environmental_state(self, area_id: str) -> dict[str, bool]:
         """
         Get current environmental state for an area.
@@ -357,6 +399,7 @@ class RuleEngine:
 
         Compares current state to previous state and returns transition type:
         - "became_dark": is_dark changed from False to True
+        - "became_bright": is_dark changed from True to False
 
         Args:
             area_id: Area ID
@@ -374,6 +417,10 @@ class RuleEngine:
         # Check for darkness transition
         if not previous_state.get("is_dark") and current_state.get("is_dark"):
             return "became_dark"
+        
+        # Check for brightness transition
+        if previous_state.get("is_dark") and not current_state.get("is_dark"):
+            return "became_bright"
 
         return None
 
@@ -646,7 +693,12 @@ class RuleEngine:
             )
             return
 
-        current_activity = await self.activity_tracker.async_evaluate_activity(area_id)
+        # For environmental transitions, preserve current activity state
+        # For activity transitions (presence sensors), recalculate from sensors
+        if is_environmental:
+            current_activity = self.activity_tracker.get_activity(area_id)
+        else:
+            current_activity = await self.activity_tracker.async_evaluate_activity(area_id)
 
         assignment = self._assignments[area_id]
         app_id = assignment.get("app_id")
@@ -684,14 +736,6 @@ class RuleEngine:
             )
             return
 
-        if not self._check_cooldown(area_id, current_activity, is_environmental):
-            self._stats["cooldown_blocks"] += 1
-            trigger_type = "environmental" if is_environmental else "activity"
-            _LOGGER.debug(
-                f"Rule {area_id}:{current_activity} ({trigger_type}) in cooldown, skipping"
-            )
-            return
-
         action_config = activity_actions[current_activity]
         conditions = action_config.get("conditions", [])
         actions = action_config.get("actions", [])
@@ -710,10 +754,39 @@ class RuleEngine:
                 conditions, area_id, logic
             )
 
+            # Check if this rule uses lux-based conditions (is_dark)
+            uses_lux_condition = self._has_lux_condition(conditions)
+
             if conditions_met:
+                # Check cooldown for "enter" actions
+                # For environmental triggers, use configurable environmental_check_interval
+                # For activity triggers, use fixed COOLDOWN_SECONDS
+                if is_environmental:
+                    if not self._check_environmental_cooldown(area_id, "enter"):
+                        self._stats["cooldown_blocks"] += 1
+                        _LOGGER.debug(
+                            f"Rule {area_id}:{current_activity} (environmental) enter actions in cooldown, skipping"
+                        )
+                        return
+                else:
+                    if not self._check_cooldown(
+                        area_id, current_activity, is_environmental=False, action_type="enter"
+                    ):
+                        self._stats["cooldown_blocks"] += 1
+                        _LOGGER.debug(
+                            f"Rule {area_id}:{current_activity} (activity) enter actions in cooldown, skipping"
+                        )
+                        return
+                
                 _LOGGER.info(
                     f"Conditions met for {area_id} (activity: {current_activity}), executing actions"
                 )
+                
+                # Cancel any pending exit action timeout when conditions become met
+                # This handles the case where environment transitions back (e.g., bright→dark)
+                # before the exit timeout expires
+                if is_environmental:
+                    self._cancel_exit_action_timeout(area_id)
 
                 success = await self.action_executor.execute_actions(
                     actions,
@@ -724,9 +797,16 @@ class RuleEngine:
 
                 if success:
                     self._stats["successful_executions"] += 1
-                    self._update_last_triggered(
-                        area_id, current_activity, is_environmental=is_environmental
-                    )
+                    
+                    # Update cooldown tracking based on trigger type
+                    if is_environmental:
+                        # For environmental triggers, update environmental cooldown
+                        self._update_environmental_cooldown(area_id, "enter")
+                    else:
+                        # For activity triggers, update last_triggered
+                        self._update_last_triggered(
+                            area_id, current_activity, is_environmental=False, action_type="enter"
+                        )
 
                     self._last_actions[area_id] = {
                         "activity": current_activity,
@@ -753,6 +833,70 @@ class RuleEngine:
                 _LOGGER.debug(
                     f"Conditions not met for {area_id} (activity: {current_activity})"
                 )
+                
+                # Check if we should schedule exit actions with timeout
+                # Exit actions run when:
+                # 1. Environmental transition occurred (e.g., became_bright)
+                # 2. Conditions are no longer met
+                # 3. on_exit actions are defined
+                if is_environmental:
+                    on_exit = action_config.get("on_exit", [])
+                    if on_exit:
+                        # Check environmental cooldown for "exit" actions
+                        if not self._check_environmental_cooldown(area_id, "exit"):
+                            self._stats["cooldown_blocks"] += 1
+                            _LOGGER.debug(
+                                f"Rule {area_id}:{current_activity} (environmental) exit actions in cooldown, skipping"
+                            )
+                            return
+                        
+                        # Get timeout duration from current activity
+                        timeout_seconds = 0
+                        if self.activity_tracker and hasattr(self.activity_tracker, '_activities'):
+                            activity_data = self.activity_tracker._activities.get(current_activity, {})
+                            timeout_seconds = activity_data.get("timeout_seconds", 0)
+                            # Ensure timeout_seconds is a number, not a Mock
+                            if not isinstance(timeout_seconds, (int, float)):
+                                timeout_seconds = 0
+                        
+                        if timeout_seconds > 0:
+                            _LOGGER.info(
+                                f"Environmental transition with conditions not met for {area_id} "
+                                f"(activity: {current_activity}), scheduling exit actions with {timeout_seconds}s timeout"
+                            )
+                            self._schedule_exit_action_timeout(
+                                area_id,
+                                on_exit,
+                                timeout_seconds,
+                                current_activity,
+                                previous_activity,
+                            )
+                        else:
+                            # No timeout configured, execute immediately (legacy behavior)
+                            _LOGGER.info(
+                                f"Environmental transition with conditions not met for {area_id} "
+                                f"(activity: {current_activity}), executing exit actions immediately (no timeout)"
+                            )
+                            
+                            success = await self.action_executor.execute_actions(
+                                on_exit,
+                                area_id,
+                                current_activity=current_activity,
+                                previous_activity=previous_activity,
+                            )
+                            
+                            if success:
+                                self._stats["successful_executions"] += 1
+                                # Update environmental cooldown for exit actions
+                                self._update_environmental_cooldown(area_id, "exit")
+                                
+                                self._last_actions[area_id] = {
+                                    "activity": current_activity,
+                                    "timestamp": dt_util.utcnow().isoformat(),
+                                    "actions": on_exit,
+                                    "action_type": "on_exit",
+                                }
+                                self._update_switch_last_action(area_id)
 
         except Exception as err:
             _LOGGER.error(
@@ -765,23 +909,26 @@ class RuleEngine:
         area_id: str,
         activity_type: str | None = None,
         is_environmental: bool = False,
+        action_type: str = "enter",
     ) -> bool:
         """
         Check if rule is in cooldown period.
 
-        Environmental triggers use a longer cooldown (5 minutes) than activity triggers (30 seconds).
+        Environmental triggers use separate cooldowns for enter (normal actions) and exit (on_exit actions).
+        This allows quick transitions between turning lights on and off without triggering rapid oscillations.
 
         Args:
             area_id: Area ID
             activity_type: Optional activity type for activity-based rules
             is_environmental: True if checking environmental trigger cooldown
+            action_type: Type of action - "enter" for normal actions, "exit" for on_exit actions
 
         Returns:
             True if not in cooldown, False if in cooldown
         """
-        # Use separate cooldown key for environmental triggers
+        # Use separate cooldown keys for environmental enter/exit actions
         if is_environmental:
-            cooldown_key = f"{area_id}_env"
+            cooldown_key = f"{area_id}_env_{action_type}"
         else:
             cooldown_key = f"{area_id}_{activity_type}" if activity_type else area_id
 
@@ -790,19 +937,223 @@ class RuleEngine:
 
         last_trigger = self._last_triggered[cooldown_key]
         
-        # Use different cooldown duration for environmental triggers
-        cooldown_duration = (
-            COOLDOWN_ENVIRONMENTAL_SECONDS if is_environmental else COOLDOWN_SECONDS
-        )
-        cooldown_until = last_trigger + timedelta(seconds=cooldown_duration)
+        # Activity-based triggers use fixed cooldown
+        cooldown_until = last_trigger + timedelta(seconds=COOLDOWN_SECONDS)
 
         return dt_util.utcnow() > cooldown_until
+
+    def _check_environmental_cooldown(self, area_id: str, action_type: str = "enter") -> bool:
+        """
+        Check if environmental-based action is in cooldown period.
+
+        Prevents rapid light flickering when environmental values (lux, temperature, etc.) 
+        fluctuate near thresholds. Uses configurable environmental_check_interval from app_storage.
+        Tracks separate cooldowns for enter (lights ON) and exit (lights OFF) actions.
+
+        Args:
+            area_id: Area ID
+            action_type: Type of action - "enter" for lights ON, "exit" for lights OFF
+
+        Returns:
+            True if not in cooldown, False if in cooldown
+        """
+        if area_id not in self._last_environmental_action:
+            return True
+        
+        if action_type not in self._last_environmental_action[area_id]:
+            return True
+
+        # Get cooldown value from app_storage (default 30 seconds)
+        cooldown_seconds = DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL
+        if self.app_storage and hasattr(self.app_storage, "_data"):
+            try:
+                stored_cooldown = self.app_storage._data.get("environmental_check_interval")
+                if stored_cooldown is not None and isinstance(stored_cooldown, (int, float)):
+                    cooldown_seconds = int(stored_cooldown)
+            except Exception:
+                # Fall back to default if retrieval fails
+                pass
+
+        last_environmental_action = self._last_environmental_action[area_id][action_type]
+        cooldown_until = last_environmental_action + timedelta(seconds=cooldown_seconds)
+
+        return dt_util.utcnow() > cooldown_until
+
+    def _update_environmental_cooldown(self, area_id: str, action_type: str = "enter") -> None:
+        """
+        Update last environmental-based action timestamp for an area.
+
+        Args:
+            area_id: Area ID
+            action_type: Type of action - "enter" for lights ON, "exit" for lights OFF
+        """
+        if area_id not in self._last_environmental_action:
+            self._last_environmental_action[area_id] = {}
+        
+        self._last_environmental_action[area_id][action_type] = dt_util.utcnow()
+
+    def _cancel_exit_action_timeout(self, area_id: str) -> None:
+        """
+        Cancel any pending exit action timeout for an area.
+        
+        Args:
+            area_id: The area ID
+        """
+        if area_id in self._exit_timeout_tasks:
+            task = self._exit_timeout_tasks[area_id]
+            if not task.done():
+                task.cancel()
+                _LOGGER.info(
+                    f"[EXIT_TIMEOUT] {area_id}: Cancelled pending exit action timeout"
+                )
+            del self._exit_timeout_tasks[area_id]
+        
+        # Clean up metadata as well
+        if area_id in self._exit_timeout_metadata:
+            del self._exit_timeout_metadata[area_id]
+
+    def _schedule_exit_action_timeout(
+        self, 
+        area_id: str, 
+        on_exit_actions: list, 
+        timeout_seconds: float,
+        current_activity: str,
+        previous_activity: str | None = None,
+    ) -> None:
+        """
+        Schedule exit actions to execute after a timeout period.
+        
+        This allows environmental transitions (e.g., dark→bright) to delay
+        turning off lights, similar to activity timeouts.
+        
+        Args:
+            area_id: The area ID
+            on_exit_actions: List of exit actions to execute
+            timeout_seconds: Timeout duration in seconds
+            current_activity: Current activity state
+            previous_activity: Previous activity state
+        """
+        # Cancel any existing exit timeout first
+        self._cancel_exit_action_timeout(area_id)
+        
+        # Store metadata for calculating remaining time
+        self._exit_timeout_metadata[area_id] = {
+            "start_time": dt_util.utcnow(),
+            "duration": timeout_seconds,
+        }
+        
+        task = asyncio.create_task(
+            self._exit_action_timeout_handler(
+                area_id, 
+                on_exit_actions, 
+                timeout_seconds, 
+                current_activity, 
+                previous_activity
+            )
+        )
+        self._exit_timeout_tasks[area_id] = task
+        _LOGGER.info(
+            f"[EXIT_TIMEOUT] {area_id}: Scheduled {timeout_seconds}s timeout for exit actions"
+        )
+
+    async def _exit_action_timeout_handler(
+        self,
+        area_id: str,
+        on_exit_actions: list,
+        timeout_seconds: float,
+        current_activity: str,
+        previous_activity: str | None = None,
+    ) -> None:
+        """
+        Handle the execution of exit actions after timeout expires.
+        
+        Args:
+            area_id: The area ID
+            on_exit_actions: List of exit actions to execute
+            timeout_seconds: Timeout duration in seconds
+            current_activity: Current activity state
+            previous_activity: Previous activity state
+        """
+        try:
+            _LOGGER.debug(
+                f"[EXIT_TIMEOUT] {area_id}: Waiting {timeout_seconds}s before executing exit actions"
+            )
+            await asyncio.sleep(timeout_seconds)
+            
+            _LOGGER.info(
+                f"[EXIT_TIMEOUT] {area_id}: Timeout expired, executing exit actions"
+            )
+            
+            success = await self.action_executor.execute_actions(
+                on_exit_actions,
+                area_id,
+                current_activity=current_activity,
+                previous_activity=previous_activity,
+            )
+            
+            if success:
+                self._stats["successful_executions"] += 1
+                # Update environmental cooldown for exit actions
+                self._update_environmental_cooldown(area_id, "exit")
+                
+                self._last_actions[area_id] = {
+                    "activity": current_activity,
+                    "timestamp": dt_util.utcnow().isoformat(),
+                    "actions": on_exit_actions,
+                    "action_type": "on_exit",
+                }
+                self._update_switch_last_action(area_id)
+            
+            # Clean up task tracking and metadata
+            if area_id in self._exit_timeout_tasks:
+                del self._exit_timeout_tasks[area_id]
+            if area_id in self._exit_timeout_metadata:
+                del self._exit_timeout_metadata[area_id]
+                
+        except asyncio.CancelledError:
+            _LOGGER.debug(
+                f"[EXIT_TIMEOUT] {area_id}: Exit action timeout was cancelled"
+            )
+            raise
+        except Exception as err:
+            _LOGGER.error(
+                f"[EXIT_TIMEOUT] {area_id}: Error executing exit actions: {err}"
+            )
+            self._stats["failed_executions"] += 1
+            # Clean up on error
+            if area_id in self._exit_timeout_tasks:
+                del self._exit_timeout_tasks[area_id]
+            if area_id in self._exit_timeout_metadata:
+                del self._exit_timeout_metadata[area_id]
+
+    def get_exit_timeout_remaining(self, area_id: str) -> float | None:
+        """
+        Get time remaining before exit actions execute.
+        
+        Args:
+            area_id: The area ID
+            
+        Returns:
+            Seconds remaining before exit timeout expires, or None if no timeout active
+        """
+        if area_id not in self._exit_timeout_metadata:
+            return None
+        
+        metadata = self._exit_timeout_metadata[area_id]
+        start_time = metadata["start_time"]
+        duration = metadata["duration"]
+        
+        elapsed = (dt_util.utcnow() - start_time).total_seconds()
+        remaining = duration - elapsed
+        
+        return max(0, remaining) if remaining > 0 else None
 
     def _update_last_triggered(
         self,
         area_id: str,
         activity_type: str | None = None,
         is_environmental: bool = False,
+        action_type: str = "enter",
     ) -> None:
         """
         Update last triggered timestamp for an area/activity.
@@ -811,10 +1162,11 @@ class RuleEngine:
             area_id: Area ID
             activity_type: Optional activity type for activity-based rules
             is_environmental: True if updating environmental trigger timestamp
+            action_type: Type of action - "enter" for normal actions, "exit" for on_exit actions
         """
-        # Use separate cooldown key for environmental triggers
+        # Use separate cooldown keys for environmental enter/exit actions
         if is_environmental:
-            cooldown_key = f"{area_id}_env"
+            cooldown_key = f"{area_id}_env_{action_type}"
         else:
             cooldown_key = f"{area_id}_{activity_type}" if activity_type else area_id
         self._last_triggered[cooldown_key] = dt_util.utcnow()

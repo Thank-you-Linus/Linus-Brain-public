@@ -40,6 +40,7 @@ class ConditionEvaluator:
         hass: HomeAssistant,
         entity_resolver: EntityResolver,
         activity_tracker=None,
+        area_manager=None,
     ) -> None:
         """
         Initialize the condition evaluator.
@@ -48,10 +49,12 @@ class ConditionEvaluator:
             hass: Home Assistant instance
             entity_resolver: Entity resolver for generic selectors
             activity_tracker: Optional ActivityTracker instance for activity conditions
+            area_manager: Optional AreaManager instance for environmental conditions
         """
         self.hass = hass
         self.entity_resolver = entity_resolver
         self.activity_tracker = activity_tracker
+        self.area_manager = area_manager
 
     async def evaluate_conditions(
         self,
@@ -548,10 +551,14 @@ class ConditionEvaluator:
             )
             return False
 
-        from .area_manager import AreaManager
-
         try:
-            area_manager = AreaManager(self.hass)
+            # Use existing area_manager if available, otherwise create new one
+            if self.area_manager:
+                area_manager = self.area_manager
+            else:
+                from .area_manager import AreaManager
+                area_manager = AreaManager(self.hass)
+            
             area_state = area_manager.get_area_environmental_state(area_id)
 
             if state_attr not in area_state:

@@ -150,6 +150,96 @@ class AppStorage:
             _LOGGER.error(f"Failed to load from cache: {err}")
             return self._data
 
+    async def apply_config_overrides_async(
+        self, 
+        inactive_timeout: int | None = None,
+        occupied_threshold: int | None = None,
+        occupied_inactive_timeout: int | None = None,
+        environmental_check_interval: int | None = None,
+    ) -> None:
+        """
+        Apply user configuration to activity timeouts (async version with save).
+        
+        PHILOSOPHY: Activity timeouts are LOCAL configuration
+        - Config UI values ALWAYS override defaults (local-first for timeouts)
+        - Cloud is used for apps/assignments, but NOT for activity timeouts
+        - This ensures users can customize timeouts per HA instance
+        
+        Args:
+            inactive_timeout: Timeout in seconds for 'inactive' activity (from movement)
+            occupied_threshold: Duration threshold in seconds for 'occupied' activity
+            occupied_inactive_timeout: Timeout in seconds for 'inactive' from 'occupied'
+            environmental_check_interval: Interval in seconds between environmental state checks
+        """
+        self.apply_config_overrides(
+            inactive_timeout, 
+            occupied_threshold,
+            occupied_inactive_timeout,
+            environmental_check_interval,
+        )
+        await self.async_save()
+
+    def apply_config_overrides(
+        self, 
+        inactive_timeout: int | None = None,
+        occupied_threshold: int | None = None,
+        occupied_inactive_timeout: int | None = None,
+        environmental_check_interval: int | None = None,
+    ) -> None:
+        """
+        Apply user configuration to activity timeouts (sync version without save).
+        
+        PHILOSOPHY: Activity timeouts are LOCAL configuration
+        - Config UI values ALWAYS override defaults (local-first for timeouts)
+        - Cloud is used for apps/assignments, but NOT for activity timeouts
+        - This ensures users can customize timeouts per HA instance
+        
+        Args:
+            inactive_timeout: Timeout in seconds for 'inactive' activity (from movement)
+            occupied_threshold: Duration threshold in seconds for 'occupied' activity
+            occupied_inactive_timeout: Timeout in seconds for 'inactive' from 'occupied'
+            environmental_check_interval: Interval in seconds between environmental state checks
+        """
+        activities = self._data.get("activities", {})
+        
+        # Apply inactive timeout override (from movement)
+        if inactive_timeout is not None and "inactive" in activities:
+            old_timeout = activities["inactive"].get("timeout_seconds", 60)
+            activities["inactive"]["timeout_seconds"] = inactive_timeout
+            _LOGGER.info(
+                f"Applied config override: inactive timeout (from movement) {old_timeout}s -> {inactive_timeout}s"
+            )
+        
+        # Apply occupied threshold override
+        if occupied_threshold is not None and "occupied" in activities:
+            old_threshold = activities["occupied"].get("duration_threshold_seconds", 300)
+            activities["occupied"]["duration_threshold_seconds"] = occupied_threshold
+            # Also update timeout_seconds to match threshold for occupied
+            old_timeout = activities["occupied"].get("timeout_seconds", 300)
+            activities["occupied"]["timeout_seconds"] = occupied_threshold
+            _LOGGER.info(
+                f"Applied config override: occupied threshold {old_threshold}s -> {occupied_threshold}s"
+            )
+        
+        # Apply occupied inactive timeout override (separate from movement inactive timeout)
+        # This is the timeout from occupied -> inactive (should be longer)
+        if occupied_inactive_timeout is not None and "occupied" in activities:
+            old_timeout = activities["occupied"].get("timeout_seconds", 300)
+            activities["occupied"]["timeout_seconds"] = occupied_inactive_timeout
+            _LOGGER.info(
+                f"Applied config override: occupied timeout {old_timeout}s -> {occupied_inactive_timeout}s"
+            )
+        
+        # Store environmental check interval in storage for rule engine to use
+        if environmental_check_interval is not None:
+            old_interval = self._data.get("environmental_check_interval", 30)
+            self._data["environmental_check_interval"] = environmental_check_interval
+            _LOGGER.info(
+                f"Applied config override: environmental check interval {old_interval}s -> {environmental_check_interval}s"
+            )
+
+
+
     def _save_file(self) -> None:
         """Synchronous file save operation with fsync for durability."""
         import os
@@ -209,7 +299,7 @@ class AppStorage:
         }
 
         _LOGGER.warning(
-            "Using hardcoded fallback: 3 activities, 1 app (automatic_lighting), 0 assignments"
+            "Using hardcoded fallback: 4 activities, 1 app (automatic_lighting), 0 assignments"
         )
 
         return self._data
@@ -220,17 +310,16 @@ class AppStorage:
         """
         Sync data from cloud (Supabase).
 
-        CLOUD-FIRST STRATEGY (Cloud is source of truth):
-        1. Try fetch activities and apps from cloud (timeout 10s)
-        2. If cloud succeeds (even if empty) → update local cache with cloud data
-        3. Assignments are NOT fetched from cloud (managed by local switches)
-        4. Only load fallback if: cloud returns empty AND local becomes completely empty
-        5. If cloud fails/timeout → keep existing local data (graceful degradation)
+        HYBRID STRATEGY:
+        - Activities are LOCAL (const.py + config UI overrides)
+        - Apps are synced from CLOUD (automatic_lighting, etc.)
+        - Assignments are LOCAL (managed by HA switches)
 
-        CLIENT-SPECIFIC LOADING:
-        - Always load system activities (for timeout configurations)
-        - Always load automatic_lighting app (core app)
-        - Assignments managed by Home Assistant switches (not Supabase)
+        RATIONALE:
+        - Activity timeouts (movement, inactive, occupied) are instance-specific
+        - Users configure these via Config UI per HA installation
+        - Apps (automation logic) are centralized and can be cloud-managed
+        - Assignments (which areas use which apps) are local preferences
 
         Args:
             supabase_client: SupabaseClient instance
@@ -244,10 +333,11 @@ class AppStorage:
             _LOGGER.info("Attempting cloud sync (timeout 10s)")
 
             async with asyncio.timeout(CLOUD_SYNC_TIMEOUT):
-                # ALWAYS fetch system activities (independent of assignments)
-                # This ensures we have latest timeout configurations from cloud
-                _LOGGER.debug("Fetching all system activities for timeout configs")
-                activities = await supabase_client.fetch_activity_types(activity_ids=None)
+                # Activities are ALWAYS loaded from local const.py (not from cloud)
+                # Config UI overrides will be applied after sync
+                _LOGGER.debug("Using local activity definitions (not fetching from cloud)")
+                from ..const import DEFAULT_ACTIVITY_TYPES
+                activities = DEFAULT_ACTIVITY_TYPES.copy()
                 
                 apps = {}
 
@@ -261,7 +351,9 @@ class AppStorage:
                     apps["automatic_lighting"] = autolight_app
                     _LOGGER.info("Loaded automatic_lighting from cloud")
                 else:
-                    _LOGGER.warning("automatic_lighting not found in cloud, will use fallback if needed")
+                    _LOGGER.warning("automatic_lighting not found in cloud, will use fallback")
+                    from ..const import DEFAULT_AUTOLIGHT_APP
+                    apps["automatic_lighting"] = DEFAULT_AUTOLIGHT_APP
 
                 # NOTE: We do NOT fetch assignments from cloud anymore
                 # Assignments are managed by local Home Assistant switches
@@ -275,47 +367,18 @@ class AppStorage:
                     "apps": apps,
                     "assignments": {},  # Empty - managed by switches
                     "synced_at": sync_time,
-                    "is_fallback": False,
+                    "is_fallback": False,  # Not fallback, cloud sync succeeded
                 }
 
-                # CRITICAL: Ensure automatic_lighting always exists after sync
-                # If app is missing from cloud, inject fallback
-                if "automatic_lighting" not in apps:
-                    _LOGGER.warning(
-                        "automatic_lighting missing from cloud! "
-                        "Injecting fallback to prevent not_found errors."
-                    )
-                    from ..const import DEFAULT_AUTOLIGHT_APP
-                    self._data["apps"]["automatic_lighting"] = DEFAULT_AUTOLIGHT_APP
-
-                # CRITICAL: Ensure system activities always exist after sync
-                # These are required for activity tracking to function
-                critical_activities = ["movement", "inactive", "empty"]
-                missing_activities = [
-                    act_id for act_id in critical_activities 
-                    if act_id not in activities
-                ]
-                
-                if missing_activities:
-                    _LOGGER.warning(
-                        f"System activities missing from cloud: {missing_activities}. "
-                        "Injecting fallbacks to ensure activity tracking works."
-                    )
-                    from ..const import DEFAULT_ACTIVITY_TYPES
-                    for act_id in missing_activities:
-                        if act_id in DEFAULT_ACTIVITY_TYPES:
-                            self._data["activities"][act_id] = DEFAULT_ACTIVITY_TYPES[act_id]
-
-                # Cloud sync succeeded - accept cloud data as-is (even if empty)
-                # Empty cloud data is valid and intentional (no assignments configured)
-                # Note: We don't load fallback here because cloud is source of truth
+                # Cloud sync succeeded - apps loaded from cloud
+                # Activities loaded from local const.py (will be overridden by config UI)
 
                 await self.async_save()
 
                 _LOGGER.info(
-                    f"Cloud sync successful: {len(self._data.get('activities', {}))} activities, "
-                    f"{len(self._data.get('apps', {}))} apps, "
-                    f"{len(self._data.get('assignments', {}))} assignments"
+                    f"Cloud sync successful: {len(self._data.get('activities', {}))} activities (local), "
+                    f"{len(self._data.get('apps', {}))} apps (cloud), "
+                    f"{len(self._data.get('assignments', {}))} assignments (local)"
                 )
 
                 return True
@@ -481,44 +544,29 @@ class AppStorage:
         self, supabase_client, instance_id: str | None = None
     ) -> bool:
         """
-        Refresh ONLY activity types from cloud (for timeout updates).
+        Refresh activity configurations from local storage.
 
-        This is a lightweight refresh that only updates activity definitions
-        without touching apps or assignments. Useful for periodic config updates.
+        NOTE: Activities are now LOCAL only (not fetched from cloud).
+        This method reloads activities from const.py and applies config UI overrides.
+        Use this after config changes to update activity timeouts.
 
         Args:
-            supabase_client: SupabaseClient instance
-            instance_id: Optional instance ID (not used for activities, they're global)
+            supabase_client: Not used (kept for backward compatibility)
+            instance_id: Not used (kept for backward compatibility)
 
         Returns:
-            True if refresh succeeded, False otherwise
+            True (always succeeds with local data)
         """
-        try:
-            _LOGGER.debug("Refreshing activity configurations from cloud")
-
-            async with asyncio.timeout(CLOUD_SYNC_TIMEOUT):
-                activities = await supabase_client.fetch_activity_types(
-                    activity_ids=None
-                )
-
-                if activities:
-                    self._data["activities"] = activities
-                    await self.async_save()
-                    _LOGGER.info(
-                        f"Refreshed {len(activities)} activity configurations from cloud"
-                    )
-                    return True
-                else:
-                    _LOGGER.debug("No activities returned from cloud")
-                    return False
-
-        except asyncio.TimeoutError:
-            _LOGGER.warning("Activity refresh timeout (10s)")
-            return False
-
-        except Exception as err:
-            _LOGGER.warning(f"Activity refresh failed: {err}")
-            return False
+        _LOGGER.debug("Refreshing activity configurations from local const.py")
+        
+        from ..const import DEFAULT_ACTIVITY_TYPES
+        self._data["activities"] = DEFAULT_ACTIVITY_TYPES.copy()
+        
+        await self.async_save()
+        _LOGGER.info(
+            f"Refreshed {len(self._data['activities'])} activity configurations from local storage"
+        )
+        return True
 
     async def async_initialize(
         self, supabase_client, instance_id: str, area_ids: list[str]

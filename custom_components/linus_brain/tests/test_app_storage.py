@@ -166,21 +166,14 @@ class TestAppStorageCloudSync:
 
     @pytest.mark.asyncio
     async def test_async_sync_from_cloud_success(self, app_storage, mock_supabase):
-        """Test successful cloud sync with system activity injection."""
-        mock_supabase.fetch_area_assignments.return_value = {
-            "kitchen": {"app_id": "autolight", "area_id": "kitchen"}
-        }
+        """Test successful cloud sync - activities are LOCAL, apps from cloud."""
         mock_supabase.fetch_app_with_actions.return_value = {
-            "id": "autolight",
-            "name": "AutoLight",
+            "id": "automatic_lighting",
+            "name": "Automatic Lighting",
             "activity_actions": {
-                "presence": {"conditions": [], "actions": []},
-                "occupation": {"conditions": [], "actions": []},
+                "movement": {"conditions": [], "actions": []},
+                "inactive": {"conditions": [], "actions": []},
             },
-        }
-        mock_supabase.fetch_activity_types.return_value = {
-            "presence": {"name": "Presence"},
-            "occupation": {"name": "Occupation"},
         }
 
         result = await app_storage.async_sync_from_cloud(
@@ -188,57 +181,59 @@ class TestAppStorageCloudSync:
         )
 
         assert result is True
-        # System activities (movement, inactive, empty) are always injected
-        assert len(app_storage._data["activities"]) == 5  # 2 from cloud + 3 system
+        # All activities come from local const.py (4 system activities)
+        assert len(app_storage._data["activities"]) == 4  # movement, inactive, empty, occupied
         assert len(app_storage._data["apps"]) == 1
-        assert len(app_storage._data["assignments"]) == 1
+        assert len(app_storage._data["assignments"]) == 0  # Assignments managed by switches
         assert app_storage._data["is_fallback"] is False
         
-        # Verify system activities exist
+        # Verify system activities exist (loaded from local)
         assert "movement" in app_storage._data["activities"]
         assert "inactive" in app_storage._data["activities"]
         assert "empty" in app_storage._data["activities"]
+        assert "occupied" in app_storage._data["activities"]
 
     @pytest.mark.asyncio
     async def test_async_sync_no_assignments_with_local_data(
         self, app_storage, mock_supabase
     ):
-        """Test cloud sync with empty assignments clears local data (cloud is source of truth)."""
-        app_storage._data["activities"] = {"presence": {}}
+        """Test cloud sync - activities always local, assignments always empty."""
+        app_storage._data["activities"] = {"movement": {}}
         app_storage._data["apps"] = {"autolight": {}}
         app_storage._data["assignments"] = {"kitchen": {"app_id": "autolight"}}
 
-        mock_supabase.fetch_area_assignments.return_value = {}
+        mock_supabase.fetch_app_with_actions.return_value = None
 
         result = await app_storage.async_sync_from_cloud(
             mock_supabase, "test-instance", ["kitchen"]
         )
 
         assert result is True
-        assert app_storage._data["assignments"] == {}
-        # Cloud sync succeeded with empty data - accept as-is (no fallback loaded)
+        assert app_storage._data["assignments"] == {}  # Always empty (managed by switches)
         assert app_storage.is_fallback_data() is False
-        # System activities are always injected (movement, inactive, empty)
-        assert len(app_storage._data["activities"]) == 3
-        assert len(app_storage._data["apps"]) == 0
+        # Activities are loaded from local const.py (4 activities)
+        assert len(app_storage._data["activities"]) == 4
+        # automatic_lighting injected as fallback when not in cloud
+        assert len(app_storage._data["apps"]) == 1
+        assert "automatic_lighting" in app_storage._data["apps"]
 
     @pytest.mark.asyncio
     async def test_async_sync_no_assignments_no_local_data(
         self, app_storage, mock_supabase
     ):
-        """Test cloud sync with no assignments and no local data accepts empty state."""
-        mock_supabase.fetch_area_assignments.return_value = {}
+        """Test cloud sync with no local data - activities from local const.py."""
+        mock_supabase.fetch_app_with_actions.return_value = None
 
         result = await app_storage.async_sync_from_cloud(
             mock_supabase, "test-instance", ["kitchen"]
         )
 
         assert result is True
-        # Cloud sync succeeded with empty data - accept as-is (no fallback loaded)
         assert app_storage.is_fallback_data() is False
-        # System activities are always injected (movement, inactive, empty)
-        assert len(app_storage._data["activities"]) == 3
-        assert len(app_storage._data["apps"]) == 0
+        # Activities loaded from local const.py (4 system activities)
+        assert len(app_storage._data["activities"]) == 4
+        # automatic_lighting injected as fallback
+        assert len(app_storage._data["apps"]) == 1
         assert len(app_storage._data["assignments"]) == 0
 
     @pytest.mark.asyncio
@@ -251,7 +246,7 @@ class TestAppStorageCloudSync:
             await asyncio.sleep(15)
             return {}
 
-        mock_supabase.fetch_area_assignments.side_effect = slow_fetch
+        mock_supabase.fetch_app_with_actions.side_effect = slow_fetch
 
         result = await app_storage.async_sync_from_cloud(
             mock_supabase, "test-instance", ["kitchen"]
@@ -265,7 +260,7 @@ class TestAppStorageCloudSync:
         self, app_storage, mock_supabase
     ):
         """Test that exceptions load fallback when storage is empty."""
-        mock_supabase.fetch_area_assignments.side_effect = Exception("Network error")
+        mock_supabase.fetch_app_with_actions.side_effect = Exception("Network error")
 
         result = await app_storage.async_sync_from_cloud(
             mock_supabase, "test-instance", ["kitchen"]
@@ -380,14 +375,15 @@ class TestAppStorageInitialize:
         self, app_storage, mock_supabase
     ):
         """Test initialization falls back when cloud fails."""
-        mock_supabase.fetch_area_assignments.side_effect = Exception("Network error")
+        # Mock the actual method that's called during cloud sync
+        mock_supabase.fetch_app_with_actions.side_effect = Exception("Network error")
 
         data = await app_storage.async_initialize(
             mock_supabase, "test-instance", ["kitchen"]
         )
 
         assert data["is_fallback"] is True
-        assert len(data["activities"]) == 4
+        assert len(data["activities"]) == 4  # Fallback loads from const.py (4 activities: movement, inactive, occupied, empty)
         assert "automatic_lighting" in data["apps"]
 
     @pytest.mark.asyncio
@@ -419,10 +415,11 @@ class TestAppStorageInitialize:
         # Cloud sync clears assignments but system activities are injected
         assert data["is_fallback"] is False  # Cloud sync succeeded
         assert data["assignments"] == {}
-        # System activities (movement, inactive, empty) always present
-        assert len(data["activities"]) == 3
+        # System activities (movement, inactive, occupied, empty) always present
+        assert len(data["activities"]) == 4
         assert "movement" in data["activities"]
         assert "inactive" in data["activities"]
+        assert "occupied" in data["activities"]
         assert "empty" in data["activities"]
 
     @pytest.mark.asyncio
@@ -449,16 +446,18 @@ class TestAppStorageInitialize:
             sync_time is not None
         ), "Sync time should be set when cloud sync succeeds"
 
-        # Verify system activities are injected (movement, inactive, empty)
+        # Verify system activities are injected (movement, inactive, occupied, empty)
         activities = app_storage.get_activities()
-        assert len(activities) == 3  # System activities always injected
+        assert len(activities) == 4  # System activities always injected
         assert "movement" in activities
         assert "inactive" in activities
+        assert "occupied" in activities
         assert "empty" in activities
         
-        # Verify no apps or assignments (cloud is source of truth)
+        # Verify automatic_lighting was injected as fallback when cloud had none
         apps = app_storage.get_apps()
-        assert len(apps) == 0
+        assert len(apps) == 1
+        assert "automatic_lighting" in apps
         assignments = app_storage.get_assignments()
         assert len(assignments) == 0
 
@@ -543,11 +542,8 @@ class TestAppStorageDefensiveFallbacks:
     async def test_cloud_sync_missing_automatic_lighting_injects_fallback(
         self, app_storage, mock_supabase
     ):
-        """Test that cloud sync injects automatic_lighting if assignment exists but app missing."""
-        # Mock cloud returning assignment but no app
-        mock_supabase.fetch_area_assignments.return_value = {
-            "kitchen": {"app_id": "automatic_lighting", "area_id": "kitchen"}
-        }
+        """Test that cloud sync injects automatic_lighting fallback when not in cloud."""
+        # Mock cloud returning no app (automatic_lighting missing)
         mock_supabase.fetch_app_with_actions.return_value = None  # App not found in cloud
         mock_supabase.fetch_activity_types.return_value = {
             "movement": {"activity_id": "movement"},
@@ -561,15 +557,14 @@ class TestAppStorageDefensiveFallbacks:
 
         assert result is True
         
-        # Verify automatic_lighting was injected
+        # Verify automatic_lighting was injected as fallback
         app = app_storage.get_app("automatic_lighting")
         assert app is not None
         assert app["app_id"] == "automatic_lighting"
         
-        # Verify assignment still exists
+        # Verify assignments are empty (managed locally by switches, not from cloud)
         assignment = app_storage.get_assignment("kitchen")
-        assert assignment is not None
-        assert assignment["app_id"] == "automatic_lighting"
+        assert assignment is None  # Assignments not fetched from cloud anymore
 
     @pytest.mark.asyncio
     async def test_cloud_sync_missing_system_activities_injects_fallback(

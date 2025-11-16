@@ -765,15 +765,25 @@ class AreaManager:
             f"use_sun_elevation={use_sun_elevation}"
         )
 
-        # Get AI-learned thresholds or use defaults
-        dark_threshold = DEFAULT_DARK_THRESHOLD_LUX  # Default fallback
+        # Determine dark threshold with priority: AI Insight > User Config > Default Constant
+        # 1. Start with hardcoded default
+        dark_threshold = DEFAULT_DARK_THRESHOLD_LUX  # 20.0 lux
+        
+        # 2. Override with user-configured value if available (local default)
+        if self._config_entry:
+            from ..const import CONF_DARK_LUX_THRESHOLD
+            
+            dark_threshold = self._config_entry.options.get(
+                CONF_DARK_LUX_THRESHOLD, DEFAULT_DARK_THRESHOLD_LUX
+            )
 
+        # 3. Override with AI-learned threshold if available (highest priority)
         if self._insights_manager and instance_id:
-            # Try to get dark threshold from insights
             dark_insight = self._insights_manager.get_insight(
                 instance_id, area_id, "dark_threshold_lux"
             )
             if dark_insight and "value" in dark_insight:
+                # AI insight wins - this is the learned optimal value
                 dark_threshold = float(
                     dark_insight["value"].get("threshold", dark_threshold)
                 )

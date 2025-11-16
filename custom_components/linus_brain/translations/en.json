@@ -6,7 +6,19 @@
         "description": "Enter your Supabase credentials to connect your Home Assistant to the Linus Brain AI learning system.",
         "data": {
           "url": "Supabase URL",
-          "api_key": "Supabase API Key"
+          "api_key": "Supabase API Key",
+          "use_sun_elevation": "Use Sun Elevation",
+          "dark_lux_threshold": "Dark Lux Threshold",
+          "inactive_timeout": "Inactive Timeout",
+          "occupied_threshold": "Occupied Threshold"
+        },
+        "data_description": {
+          "url": "Your Supabase project URL",
+          "api_key": "Your Supabase anon or service role API key",
+          "use_sun_elevation": "Use sun elevation in addition to illuminance for darkness detection (recommended)",
+          "dark_lux_threshold": "Lux threshold below which an area is considered dark (0-1000 lux, default: 20)",
+          "inactive_timeout": "Time in seconds before an area transitions from movement to inactive (1-3600s, default: 60)",
+          "occupied_threshold": "Time in seconds before an area transitions from movement to occupied (1-7200s, default: 300)"
         }
       }
     },
@@ -23,7 +35,23 @@
     "step": {
       "init": {
         "title": "Linus Brain Options",
-        "description": "Configure advanced options for Linus Brain (coming soon)."
+        "description": "Configure advanced options for Linus Brain. These serve as local fallbacks when cloud values are unavailable.",
+        "data": {
+          "use_sun_elevation": "Use Sun Elevation",
+          "dark_lux_threshold": "Dark Lux Threshold",
+          "inactive_timeout": "Inactive Timeout",
+          "occupied_threshold": "Occupied Threshold",
+          "occupied_inactive_timeout": "Occupied Inactive Timeout",
+          "environmental_check_interval": "Environmental Check Interval"
+        },
+        "data_description": {
+          "use_sun_elevation": "Use sun elevation in addition to illuminance for darkness detection (recommended)",
+          "dark_lux_threshold": "Lux threshold below which an area is considered dark (0-1000 lux, default: 20). Acts as fallback for areas without AI insights.",
+          "inactive_timeout": "Time in seconds before an area transitions from movement to inactive (1-3600s, default: 60). Cloud values override this.",
+          "occupied_threshold": "Time in seconds before an area transitions from movement to occupied (1-7200s, default: 300). Cloud values override this.",
+          "occupied_inactive_timeout": "Time in seconds before an area transitions from occupied to inactive (1-7200s, default: 300). Allows longer timeouts for prolonged occupation.",
+          "environmental_check_interval": "Interval in seconds between environmental state checks (lux, temperature, humidity, etc.) to prevent rapid lighting changes when values fluctuate (5-600s, default: 30)."
+        }
       }
     }
   },

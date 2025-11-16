@@ -85,13 +85,19 @@ async def async_setup_entry(
 
     if area_manager and activity_tracker:
         eligible_areas = area_manager.get_activity_tracking_areas()
+        _LOGGER.info(
+            f"Creating area context sensors for {len(eligible_areas)} areas "
+            f"(rule_engine={'available' if rule_engine else 'not available'})"
+        )
         for area_id, area_name in eligible_areas.items():
+            _LOGGER.debug(f"Creating area context sensor for {area_name}")
             sensors.append(
                 LinusAreaContextSensor(
                     coordinator,
                     area_manager,
                     activity_tracker,
                     insights_manager,
+                    rule_engine,
                     area_id,
                     area_name,
                     entry,
@@ -306,6 +312,7 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
         area_manager: Any,
         activity_tracker: Any,
         insights_manager: Any,
+        rule_engine: Any,
         area_id: str,
         area_name: str,
         entry: ConfigEntry,
@@ -316,6 +323,7 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
         self._area_manager = area_manager
         self._activity_tracker = activity_tracker
         self._insights_manager = insights_manager
+        self._rule_engine = rule_engine
         self._area_id = area_id
         self._area_name = area_name
         self._attr_unique_id = f"{DOMAIN}_activity_{area_id}"
@@ -360,8 +368,19 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
         )
 
         seconds_until_timeout = None
-        if time_until_state_loss is not None:
+        timeout_type = None
+        
+        # Check exit action timeout first (higher priority)
+        if self._rule_engine:
+            exit_timeout_remaining = self._rule_engine.get_exit_timeout_remaining(self._area_id)
+            if exit_timeout_remaining is not None:
+                seconds_until_timeout = round(exit_timeout_remaining, 1)
+                timeout_type = "exit_action"
+        
+        # Fall back to activity timeout if no exit timeout
+        if seconds_until_timeout is None and time_until_state_loss is not None:
             seconds_until_timeout = round(time_until_state_loss, 1)
+            timeout_type = "activity"
 
         # Get insights for this area
         insights = {}
@@ -376,6 +395,7 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
         self._attr_extra_state_attributes = {
             "activity_level": activity_level,
             "seconds_until_timeout": seconds_until_timeout,
+            "timeout_type": timeout_type,
             "active_presence_entities": active_presence_entities,
             "illuminance": area_state.get("illuminance"),
             "temperature": area_state.get("temperature"),

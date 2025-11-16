@@ -29,6 +29,7 @@ def mock_app_storage():
             "detection_conditions": [],
             "duration_threshold_seconds": 0,
             "timeout_seconds": 0,
+            "transition_to": None,
             "is_system": True,
         },
         "movement": {
@@ -45,6 +46,7 @@ def mock_app_storage():
             ],
             "duration_threshold_seconds": 0,
             "timeout_seconds": 2,
+            "transition_to": "empty",
             "is_system": True,
         },
     }

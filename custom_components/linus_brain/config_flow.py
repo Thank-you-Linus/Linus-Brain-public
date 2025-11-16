@@ -16,7 +16,17 @@ from homeassistant.const import CONF_API_KEY, CONF_URL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import CONF_USE_SUN_ELEVATION, DOMAIN
+from .const import (
+    CONF_DARK_LUX_THRESHOLD,
+    CONF_INACTIVE_TIMEOUT,
+    CONF_OCCUPIED_THRESHOLD,
+    CONF_OCCUPIED_INACTIVE_TIMEOUT,
+    CONF_ENVIRONMENTAL_CHECK_INTERVAL,
+    CONF_USE_SUN_ELEVATION,
+    DEFAULT_DARK_THRESHOLD_LUX,
+    DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,6 +35,36 @@ CONFIG_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_URL, description="Supabase URL"): str,
         vol.Required(CONF_API_KEY, description="Supabase API Key"): str,
+        vol.Optional(
+            CONF_USE_SUN_ELEVATION,
+            default=True,
+            description="Use sun elevation for darkness detection"
+        ): bool,
+        vol.Optional(
+            CONF_DARK_LUX_THRESHOLD,
+            default=DEFAULT_DARK_THRESHOLD_LUX,
+            description="Lux threshold below which area is considered dark"
+        ): vol.All(vol.Coerce(float), vol.Range(min=0, max=1000)),
+        vol.Optional(
+            CONF_INACTIVE_TIMEOUT,
+            default=60,
+            description="Timeout in seconds before area becomes inactive (from movement)"
+        ): vol.All(vol.Coerce(int), vol.Range(min=1, max=3600)),
+        vol.Optional(
+            CONF_OCCUPIED_THRESHOLD,
+            default=300,
+            description="Duration in seconds before area is considered occupied"
+        ): vol.All(vol.Coerce(int), vol.Range(min=1, max=7200)),
+        vol.Optional(
+            CONF_OCCUPIED_INACTIVE_TIMEOUT,
+            default=300,
+            description="Timeout in seconds before area becomes inactive (from occupied)"
+        ): vol.All(vol.Coerce(int), vol.Range(min=1, max=7200)),
+        vol.Optional(
+            CONF_ENVIRONMENTAL_CHECK_INTERVAL,
+            default=DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL,
+            description="Interval in seconds between environmental state checks (lux, temperature, etc.)"
+        ): vol.All(vol.Coerce(int), vol.Range(min=5, max=600)),
     }
 )
 
@@ -131,6 +171,14 @@ class LinusBrainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "supabase_url": url,
                         "supabase_key": api_key,
                     },
+                    options={
+                        CONF_USE_SUN_ELEVATION: user_input.get(CONF_USE_SUN_ELEVATION, True),
+                        CONF_DARK_LUX_THRESHOLD: user_input.get(CONF_DARK_LUX_THRESHOLD, DEFAULT_DARK_THRESHOLD_LUX),
+                        CONF_INACTIVE_TIMEOUT: user_input.get(CONF_INACTIVE_TIMEOUT, 60),
+                        CONF_OCCUPIED_THRESHOLD: user_input.get(CONF_OCCUPIED_THRESHOLD, 300),
+                        CONF_OCCUPIED_INACTIVE_TIMEOUT: user_input.get(CONF_OCCUPIED_INACTIVE_TIMEOUT, 300),
+                        CONF_ENVIRONMENTAL_CHECK_INTERVAL: user_input.get(CONF_ENVIRONMENTAL_CHECK_INTERVAL, DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL),
+                    },
                 )
 
             except Exception as err:
@@ -143,7 +191,11 @@ class LinusBrainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=CONFIG_SCHEMA,
             errors=errors,
             description_placeholders={
-                "docs_url": "https://github.com/Thank-you-Linus/Linus-Brain"
+                "docs_url": "https://github.com/Thank-you-Linus/Linus-Brain",
+                "use_sun_elevation_info": (
+                    "Utilisez l'élévation du soleil en plus de la luminosité pour détecter l'obscurité. "
+                    "Recommandé pour la plupart des installations."
+                ),
             },
         )
 
@@ -186,8 +238,13 @@ class LinusBrainOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        # Get current option value (default to True)
+        # Get current option values
         current_use_sun = self.config_entry.options.get(CONF_USE_SUN_ELEVATION, True)
+        current_dark_lux = self.config_entry.options.get(CONF_DARK_LUX_THRESHOLD, DEFAULT_DARK_THRESHOLD_LUX)
+        current_inactive_timeout = self.config_entry.options.get(CONF_INACTIVE_TIMEOUT, 60)
+        current_occupied_threshold = self.config_entry.options.get(CONF_OCCUPIED_THRESHOLD, 300)
+        current_occupied_inactive_timeout = self.config_entry.options.get(CONF_OCCUPIED_INACTIVE_TIMEOUT, 300)
+        current_environmental_check_interval = self.config_entry.options.get(CONF_ENVIRONMENTAL_CHECK_INTERVAL, DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL)
 
         # Show options form
         return self.async_show_form(
@@ -198,6 +255,26 @@ class LinusBrainOptionsFlow(config_entries.OptionsFlow):
                         CONF_USE_SUN_ELEVATION,
                         default=current_use_sun,
                     ): bool,
+                    vol.Optional(
+                        CONF_DARK_LUX_THRESHOLD,
+                        default=current_dark_lux,
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0, max=1000)),
+                    vol.Optional(
+                        CONF_INACTIVE_TIMEOUT,
+                        default=current_inactive_timeout,
+                    ): vol.All(vol.Coerce(int), vol.Range(min=1, max=3600)),
+                    vol.Optional(
+                        CONF_OCCUPIED_THRESHOLD,
+                        default=current_occupied_threshold,
+                    ): vol.All(vol.Coerce(int), vol.Range(min=1, max=7200)),
+                    vol.Optional(
+                        CONF_OCCUPIED_INACTIVE_TIMEOUT,
+                        default=current_occupied_inactive_timeout,
+                    ): vol.All(vol.Coerce(int), vol.Range(min=1, max=7200)),
+                    vol.Optional(
+                        CONF_ENVIRONMENTAL_CHECK_INTERVAL,
+                        default=current_environmental_check_interval,
+                    ): vol.All(vol.Coerce(int), vol.Range(min=5, max=600)),
                 }
             ),
             description_placeholders={
@@ -206,6 +283,29 @@ class LinusBrainOptionsFlow(config_entries.OptionsFlow):
                     "and sun elevation (dark if lux < 20 OR sun < 3°). "
                     "When disabled, ONLY illuminance is used (dark if lux < 20). "
                     "Disable this to test illuminance-based automation during nighttime."
-                )
+                ),
+                "dark_lux_threshold_desc": (
+                    "Local default lux level below which an area is considered dark. "
+                    "This serves as a fallback before AI-learned insights. "
+                    "Cloud/AI values have priority. Default: 20 lux. Range: 0-1000 lux."
+                ),
+                "inactive_timeout_desc": (
+                    "Timeout in seconds after 'movement' stops before area becomes 'inactive'. "
+                    "Default: 60 seconds. Range: 1-3600 seconds."
+                ),
+                "occupied_threshold_desc": (
+                    "Duration in seconds of continuous movement before area transitions from 'movement' to 'occupied'. "
+                    "Default: 300 seconds (5 min). Range: 1-7200 seconds."
+                ),
+                "occupied_inactive_timeout_desc": (
+                    "Timeout in seconds after 'occupied' stops before area becomes 'inactive'. "
+                    "Should typically be longer than movement timeout to avoid rapid transitions. "
+                    "Default: 300 seconds (5 min). Range: 1-7200 seconds."
+                ),
+                "environmental_check_interval_desc": (
+                    "Interval in seconds between environmental state checks (lux, temperature, humidity, etc.). "
+                    "Prevents rapid lighting changes when environmental values fluctuate near thresholds. "
+                    "Default: 30 seconds. Range: 5-600 seconds."
+                ),
             },
         )

@@ -963,6 +963,7 @@ class SupabaseClient:
                     "activity_id": action["activity_id"],
                     "conditions": action.get("conditions", []),
                     "actions": action["actions"],
+                    "on_exit": action.get("on_exit"),
                     "logic": action.get("logic", "and"),
                     "description": action.get("description"),
                 }
