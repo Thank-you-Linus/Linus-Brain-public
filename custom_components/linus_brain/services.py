@@ -96,7 +96,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """
         Handle the sync_now service call.
 
-        Forces an immediate sync of all area states to Supabase.
+        Forces an immediate sync of:
+        1. Activities and apps from Supabase (app_storage)
+        2. All area states to Supabase (coordinator)
         """
         _LOGGER.info("Service sync_now called")
 
@@ -104,8 +106,25 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
             coordinator = entry_data.get("coordinator")
             if coordinator:
+                # First, sync activities/apps from cloud
+                from homeassistant.helpers.area_registry import async_get as async_get_area_registry
+                area_registry = async_get_area_registry(hass)
+                area_ids = [area.id for area in area_registry.async_list_areas()]
+                instance_id = await coordinator.get_or_create_instance_id()
+                
+                _LOGGER.info(f"Syncing activities and apps from cloud for entry {entry_id}")
+                sync_success = await coordinator.app_storage.async_sync_from_cloud(
+                    coordinator.supabase_client, instance_id, area_ids
+                )
+                
+                if sync_success:
+                    _LOGGER.info(f"Activities/apps sync successful for entry {entry_id}")
+                else:
+                    _LOGGER.warning(f"Activities/apps sync failed for entry {entry_id}")
+                
+                # Then refresh coordinator (updates sensors and sends area states)
                 await coordinator.async_refresh()
-                _LOGGER.info(f"Forced sync for entry {entry_id}")
+                _LOGGER.info(f"Forced coordinator refresh for entry {entry_id}")
 
     async def handle_fetch_rules(call: ServiceCall) -> None:
         """
