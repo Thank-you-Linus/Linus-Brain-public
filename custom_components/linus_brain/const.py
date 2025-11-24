@@ -57,7 +57,7 @@ DEFAULT_ACTIVITY_TYPES = {
     "movement": {
         "activity_id": "movement",
         "activity_name": "Movement Detected",
-        "description": "Short-term presence in area (motion detected)",
+        "description": "Short-term presence in area (motion, occupancy, or presence detected)",
         "detection_conditions": [
             {
                 "condition": "or",
@@ -66,6 +66,18 @@ DEFAULT_ACTIVITY_TYPES = {
                         "condition": "state",
                         "domain": "binary_sensor",
                         "device_class": "motion",
+                        "state": "on",
+                    },
+                    {
+                        "condition": "state",
+                        "domain": "binary_sensor",
+                        "device_class": "occupancy",
+                        "state": "on",
+                    },
+                    {
+                        "condition": "state",
+                        "domain": "binary_sensor",
+                        "device_class": "presence",
                         "state": "on",
                     },
                     {
@@ -85,7 +97,7 @@ DEFAULT_ACTIVITY_TYPES = {
     "occupied": {
         "activity_id": "occupied",
         "activity_name": "Occupied",
-        "description": "Long-term presence in area (person staying or media playing)",
+        "description": "Long-term presence in area (person staying, occupancy/presence detected, or media playing)",
         "detection_conditions": [
             {
                 "condition": "or",
@@ -94,6 +106,18 @@ DEFAULT_ACTIVITY_TYPES = {
                         "condition": "state",
                         "domain": "binary_sensor",
                         "device_class": "motion",
+                        "state": "on",
+                    },
+                    {
+                        "condition": "state",
+                        "domain": "binary_sensor",
+                        "device_class": "occupancy",
+                        "state": "on",
+                    },
+                    {
+                        "condition": "state",
+                        "domain": "binary_sensor",
+                        "device_class": "presence",
                         "state": "on",
                     },
                     {
