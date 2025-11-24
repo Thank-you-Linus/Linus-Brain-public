@@ -136,6 +136,11 @@ debug_reset_metrics:
   description: Reset feature flag metrics and debug history.
   fields: {}
 
+debug_activities:
+  name: Debug Activities
+  description: Show currently loaded activity definitions and their detection conditions.
+  fields: {}
+
 reset_app_preferences:
   name: Reset App Preferences
   description: Reset area-specific app preferences (config_overrides) to default values. This removes all customizations and reverts to the app's default behavior.

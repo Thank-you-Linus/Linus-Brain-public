@@ -31,6 +31,7 @@ SERVICE_DEBUG_SYSTEM_OVERVIEW = "debug_system_overview"
 SERVICE_DEBUG_VALIDATE_AREA = "debug_validate_area"
 SERVICE_DEBUG_EXPORT_DATA = "debug_export_data"
 SERVICE_DEBUG_RESET_METRICS = "debug_reset_metrics"
+SERVICE_DEBUG_ACTIVITIES = "debug_activities"
 
 # Service schemas
 SERVICE_SEND_AREA_UPDATE_SCHEMA = vol.Schema(
@@ -394,6 +395,60 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 except Exception as err:
                     _LOGGER.error(f"Failed to reset metrics: {err}")
 
+    async def handle_debug_activities(call: ServiceCall) -> None:
+        """
+        Handle debug_activities service call.
+
+        Shows currently loaded activity definitions and their detection conditions.
+        """
+        _LOGGER.info("Service debug_activities called")
+
+        for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
+            coordinator = entry_data.get("coordinator")
+            app_storage = entry_data.get("app_storage")
+
+            if not coordinator or not app_storage:
+                continue
+
+            try:
+                activities = app_storage.get_activities()
+
+                _LOGGER.info("="*60)
+                _LOGGER.info("CURRENTLY LOADED ACTIVITIES")
+                _LOGGER.info("="*60)
+
+                for activity_id, activity_data in activities.items():
+                    _LOGGER.info(f"\n🔹 Activity: {activity_id}")
+                    _LOGGER.info(f"   Name: {activity_data.get('activity_name', 'N/A')}")
+                    _LOGGER.info(f"   Description: {activity_data.get('description', 'N/A')}")
+                    
+                    # Show detection conditions
+                    conditions = activity_data.get('detection_conditions', [])
+                    if conditions:
+                        _LOGGER.info(f"   Detection conditions:")
+                        import json
+                        _LOGGER.info(json.dumps(conditions, indent=6))
+                    else:
+                        _LOGGER.info(f"   Detection conditions: (none)")
+                    
+                    # Show device classes being monitored
+                    device_classes = []
+                    for cond_group in conditions:
+                        for cond in cond_group.get('conditions', []):
+                            if cond.get('domain') == 'binary_sensor':
+                                dc = cond.get('device_class')
+                                if dc:
+                                    device_classes.append(dc)
+                    
+                    if device_classes:
+                        _LOGGER.info(f"   Binary sensor device classes: {device_classes}")
+
+                _LOGGER.info("="*60)
+                _LOGGER.info(f"Total activities loaded: {len(activities)}")
+
+            except Exception as err:
+                _LOGGER.error(f"Failed to debug activities: {err}", exc_info=True)
+
     async def handle_reset_app_preferences(call: ServiceCall) -> None:
         """
         Handle reset_app_preferences service call.
@@ -541,6 +596,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     hass.services.async_register(
         DOMAIN,
+        SERVICE_DEBUG_ACTIVITIES,
+        handle_debug_activities,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_RESET_APP_PREFERENCES,
         handle_reset_app_preferences,
         schema=SERVICE_RESET_APP_PREFERENCES_SCHEMA,
@@ -567,6 +628,7 @@ async def async_unload_services(hass: HomeAssistant) -> None:
     hass.services.async_remove(DOMAIN, SERVICE_DEBUG_VALIDATE_AREA)
     hass.services.async_remove(DOMAIN, SERVICE_DEBUG_EXPORT_DATA)
     hass.services.async_remove(DOMAIN, SERVICE_DEBUG_RESET_METRICS)
+    hass.services.async_remove(DOMAIN, SERVICE_DEBUG_ACTIVITIES)
     hass.services.async_remove(DOMAIN, SERVICE_RESET_APP_PREFERENCES)
 
     _LOGGER.info("Linus Brain services unregistered")

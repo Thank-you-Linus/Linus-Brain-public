@@ -4,23 +4,25 @@ App Storage Manager for Linus Brain
 3-tier offline-first storage architecture with cloud-first sync:
 
 STORAGE LAYERS:
-1. Hardcoded fallback (const.py) - Ultimate fallback for first install
-2. Local cache (.storage JSON) - Fast offline access
-3. Cloud sync (Supabase) - Source of truth for configuration
+1. Cloud (Supabase) - Source of truth for configuration
+2. Local cache (.storage JSON) - Fast offline access, graceful degradation
+3. Hardcoded fallback (const.py) - ONLY used to populate cache, never used directly
 
 CLOUD-FIRST SYNC PHILOSOPHY:
-- Cloud is the source of truth for all configuration
-- Empty cloud data is VALID (intentional no-assignment state)
-- Sync always updates local with cloud state (even if empty)
-- Only use fallback when cloud AND local are both empty
-- On error/timeout: preserve existing local data (graceful degradation)
+- Cloud is the ALWAYS the source of truth when available
+- PRIORITY 1: Fetch from cloud (Supabase)
+- PRIORITY 2: If cloud fails/empty, use existing cache (.storage)
+- PRIORITY 3: If no cloud AND no cache, populate cache with const.py
+- const.py is NEVER used directly, only to initialize cache
 
 SYNC SCENARIOS:
-1. Cloud has data → Download and save locally
-2. Cloud empty, local has data → Clear local (cloud wins)
-3. Cloud empty, local empty → Accept empty state (no fallback loaded here)
-4. Cloud timeout/error + has local → Keep existing local data
-5. Cloud timeout/error + empty local → Load fallback
+1. Cloud has activities → Download and save to cache (cloud wins)
+2. Cloud empty + cache exists → Keep cache (graceful degradation)
+3. Cloud empty + no cache → Populate cache with const.py
+4. Cloud timeout/error + cache exists → Keep cache (graceful degradation)
+5. Cloud timeout/error + no cache → Populate cache with const.py
+
+KEY PRINCIPLE: const.py is ONLY for populating .storage, never for direct use
 
 AUTO-CREATION BEHAVIOR:
 - app_storage does NOT auto-create apps/activities
@@ -310,16 +312,16 @@ class AppStorage:
         """
         Sync data from cloud (Supabase).
 
-        HYBRID STRATEGY:
-        - Activities are LOCAL (const.py + config UI overrides)
-        - Apps are synced from CLOUD (automatic_lighting, etc.)
+        NEW CLOUD-FIRST STRATEGY:
+        - Activities are synced FROM cloud (with const.py fallback if cloud empty)
+        - Apps are synced FROM cloud (with const.py fallback if cloud empty)
         - Assignments are LOCAL (managed by HA switches)
 
         RATIONALE:
-        - Activity timeouts (movement, inactive, occupied) are instance-specific
-        - Users configure these via Config UI per HA installation
-        - Apps (automation logic) are centralized and can be cloud-managed
+        - Activities can be customized in Supabase (detection conditions, timeouts)
+        - Apps (automation logic) are centralized and cloud-managed
         - Assignments (which areas use which apps) are local preferences
+        - Config UI overrides can still be applied locally for instance-specific tuning
 
         Args:
             supabase_client: SupabaseClient instance
@@ -333,33 +335,87 @@ class AppStorage:
             _LOGGER.info("Attempting cloud sync (timeout 10s)")
 
             async with asyncio.timeout(CLOUD_SYNC_TIMEOUT):
-                # Activities are ALWAYS loaded from local const.py (not from cloud)
-                # Config UI overrides will be applied after sync
-                _LOGGER.debug(
-                    "Using local activity definitions (not fetching from cloud)"
-                )
-                from ..const import DEFAULT_ACTIVITY_TYPES
-
-                activities = DEFAULT_ACTIVITY_TYPES.copy()
+                # PRIORITY 1: Try to fetch activities from cloud
+                _LOGGER.debug("Fetching activity definitions from cloud")
+                
+                activities = None
+                activities_source = None
+                
+                try:
+                    cloud_activities = await supabase_client.fetch_activity_types()
+                    
+                    if cloud_activities:
+                        activities = cloud_activities
+                        activities_source = "cloud"
+                        _LOGGER.info(f"Loaded {len(activities)} activities from cloud")
+                    else:
+                        # Cloud returned empty - check if we have cached data
+                        cached_activities = self._data.get("activities", {})
+                        if cached_activities:
+                            # PRIORITY 2: Use existing cache if cloud is empty
+                            activities = cached_activities
+                            activities_source = "cache (cloud empty)"
+                            _LOGGER.warning("Cloud has no activities, preserving existing cache")
+                        else:
+                            # PRIORITY 3: No cloud, no cache - populate cache with const.py
+                            _LOGGER.warning("Cloud empty and no cache, populating from const.py")
+                            from ..const import DEFAULT_ACTIVITY_TYPES
+                            activities = DEFAULT_ACTIVITY_TYPES.copy()
+                            activities_source = "const.py (populated cache)"
+                
+                except Exception as err:
+                    # Cloud fetch failed - check if we have cached data
+                    cached_activities = self._data.get("activities", {})
+                    if cached_activities:
+                        # PRIORITY 2: Use existing cache if cloud fails
+                        activities = cached_activities
+                        activities_source = "cache (cloud error)"
+                        _LOGGER.warning(f"Failed to fetch from cloud: {err}, preserving existing cache")
+                    else:
+                        # PRIORITY 3: No cloud, no cache - populate cache with const.py
+                        _LOGGER.warning(f"Failed to fetch from cloud: {err} and no cache, populating from const.py")
+                        from ..const import DEFAULT_ACTIVITY_TYPES
+                        activities = DEFAULT_ACTIVITY_TYPES.copy()
+                        activities_source = "const.py (populated cache)"
 
                 apps = {}
+                apps_source = None
 
-                # ALWAYS load automatic_lighting from cloud if it exists
-                # Assignments are managed by switches, not by area_app_assignments table
+                # Same logic for apps
                 _LOGGER.debug("Fetching automatic_lighting app from cloud")
-                autolight_app = await supabase_client.fetch_app_with_actions(
-                    "automatic_lighting", version=None
-                )
-                if autolight_app:
-                    apps["automatic_lighting"] = autolight_app
-                    _LOGGER.info("Loaded automatic_lighting from cloud")
-                else:
-                    _LOGGER.warning(
-                        "automatic_lighting not found in cloud, will use fallback"
+                try:
+                    autolight_app = await supabase_client.fetch_app_with_actions(
+                        "automatic_lighting", version=None
                     )
-                    from ..const import DEFAULT_AUTOLIGHT_APP
-
-                    apps["automatic_lighting"] = DEFAULT_AUTOLIGHT_APP
+                    if autolight_app:
+                        apps["automatic_lighting"] = autolight_app
+                        apps_source = "cloud"
+                        _LOGGER.info("Loaded automatic_lighting from cloud")
+                    else:
+                        # Cloud empty - check cache
+                        cached_apps = self._data.get("apps", {})
+                        if cached_apps.get("automatic_lighting"):
+                            apps = cached_apps
+                            apps_source = "cache (cloud empty)"
+                            _LOGGER.warning("Cloud has no apps, preserving existing cache")
+                        else:
+                            from ..const import DEFAULT_AUTOLIGHT_APP
+                            apps["automatic_lighting"] = DEFAULT_AUTOLIGHT_APP
+                            apps_source = "const.py (populated cache)"
+                            _LOGGER.warning("Cloud empty and no cached app, populating from const.py")
+                
+                except Exception as err:
+                    # Cloud failed - check cache
+                    cached_apps = self._data.get("apps", {})
+                    if cached_apps.get("automatic_lighting"):
+                        apps = cached_apps
+                        apps_source = "cache (cloud error)"
+                        _LOGGER.warning(f"Failed to fetch app: {err}, preserving existing cache")
+                    else:
+                        from ..const import DEFAULT_AUTOLIGHT_APP
+                        apps["automatic_lighting"] = DEFAULT_AUTOLIGHT_APP
+                        apps_source = "const.py (populated cache)"
+                        _LOGGER.warning(f"Failed to fetch app: {err} and no cache, populating from const.py")
 
                 # NOTE: We do NOT fetch assignments from cloud anymore
                 # Assignments are managed by local Home Assistant switches
@@ -373,18 +429,15 @@ class AppStorage:
                     "apps": apps,
                     "assignments": {},  # Empty - managed by switches
                     "synced_at": sync_time,
-                    "is_fallback": False,  # Not fallback, cloud sync succeeded
+                    "is_fallback": activities_source.startswith("const") or apps_source.startswith("const"),
                 }
 
-                # Cloud sync succeeded - apps loaded from cloud
-                # Activities loaded from local const.py (will be overridden by config UI)
-
+                # Cloud sync completed (may use cache or const.py as fallback)
                 await self.async_save()
 
                 _LOGGER.info(
-                    f"Cloud sync successful: {len(self._data.get('activities', {}))} activities (local), "
-                    f"{len(self._data.get('apps', {}))} apps (cloud), "
-                    f"{len(self._data.get('assignments', {}))} assignments (local)"
+                    f"Sync completed: {len(self._data.get('activities', {}))} activities ({activities_source}), "
+                    f"{len(self._data.get('apps', {}))} apps ({apps_source})"
                 )
 
                 return True
