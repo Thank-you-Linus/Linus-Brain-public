@@ -14,8 +14,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import template
 from homeassistant.util import dt as dt_util
 
-from .state_validator import is_state_valid
 from .entity_resolver import EntityResolver
+from .state_validator import is_state_valid
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ class ConditionEvaluator:
         self.entity_resolver = entity_resolver
         self.activity_tracker = activity_tracker
         self.area_manager = area_manager
-        
+
         # Cache for presence detection config (performance optimization)
         self._presence_config_cache: dict[str, bool] | None = None
         self._cache_timestamp: datetime | None = None
@@ -64,10 +64,10 @@ class ConditionEvaluator:
     def _get_presence_config_cached(self) -> dict[str, bool]:
         """
         Get presence detection config with caching for performance.
-        
+
         Cache is valid for 60 seconds to avoid repeated config lookups
         during bulk condition evaluations.
-        
+
         Returns:
             Dictionary mapping detection types to enabled state
         """
@@ -78,16 +78,16 @@ class ConditionEvaluator:
             "occupancy": True,
             "media_playing": True,
         }
-        
+
         now = datetime.now()
-        
+
         # Check if cache is valid
         cache_expired = (
-            self._presence_config_cache is None or 
-            self._cache_timestamp is None or 
-            (now - self._cache_timestamp).total_seconds() > self._cache_ttl_seconds
+            self._presence_config_cache is None
+            or self._cache_timestamp is None
+            or (now - self._cache_timestamp).total_seconds() > self._cache_ttl_seconds
         )
-        
+
         if cache_expired:
             # Cache miss - fetch fresh config
             if self.area_manager:
@@ -104,7 +104,7 @@ class ConditionEvaluator:
                 self._presence_config_cache = default_config
                 self._cache_timestamp = now
                 return default_config
-        
+
         # Cache hit - return cached value
         # At this point cache is guaranteed to be set, but return default as fallback
         return self._presence_config_cache or default_config
@@ -217,7 +217,11 @@ class ConditionEvaluator:
             # Check if this presence-related condition should be evaluated
             if not self._should_evaluate_presence_condition(condition):
                 # Track skipped condition type for logging
-                condition_type = condition.get("device_class") or condition.get("domain") or "unknown"
+                condition_type = (
+                    condition.get("device_class")
+                    or condition.get("domain")
+                    or "unknown"
+                )
                 skipped_conditions.append(condition_type)
                 continue
 
@@ -345,9 +349,7 @@ class ConditionEvaluator:
 
             try:
                 result = await self._evaluate_single_condition(nested_condition)
-                _LOGGER.debug(
-                    f"AND condition {i+1}/{len(nested_conditions)}: {result}"
-                )
+                _LOGGER.debug(f"AND condition {i+1}/{len(nested_conditions)}: {result}")
 
                 # Short-circuit: if any condition is False, return False immediately
                 if not result:
@@ -361,9 +363,7 @@ class ConditionEvaluator:
 
         # If no conditions were evaluated (all skipped), treat as False
         if evaluated_count == 0:
-            _LOGGER.debug(
-                "All AND conditions skipped due to presence detection config"
-            )
+            _LOGGER.debug("All AND conditions skipped due to presence detection config")
             return False
 
         _LOGGER.debug("All AND conditions passed")
@@ -424,9 +424,7 @@ class ConditionEvaluator:
 
         # If all conditions were skipped, treat as False
         if skipped_count == len(nested_conditions):
-            _LOGGER.debug(
-                "All OR conditions skipped due to presence detection config"
-            )
+            _LOGGER.debug("All OR conditions skipped due to presence detection config")
             return False
 
         _LOGGER.debug(f"All OR conditions failed: {results}")
@@ -454,7 +452,9 @@ class ConditionEvaluator:
 
         state = self.hass.states.get(entity_id)
         if not is_state_valid(state):
-            _LOGGER.debug(f"Entity {entity_id} has invalid state: {state.state if state else 'None'}")
+            _LOGGER.debug(
+                f"Entity {entity_id} has invalid state: {state.state if state else 'None'}"
+            )
             return False
 
         for_duration = condition.get("for")
@@ -490,7 +490,9 @@ class ConditionEvaluator:
 
         state = self.hass.states.get(entity_id)
         if not is_state_valid(state):
-            _LOGGER.debug(f"Entity {entity_id} has invalid state: {state.state if state else 'None'}")
+            _LOGGER.debug(
+                f"Entity {entity_id} has invalid state: {state.state if state else 'None'}"
+            )
             return False
 
         try:
@@ -742,8 +744,9 @@ class ConditionEvaluator:
                 area_manager = self.area_manager
             else:
                 from .area_manager import AreaManager
+
                 area_manager = AreaManager(self.hass)
-            
+
             area_state = area_manager.get_area_environmental_state(area_id)
 
             if state_attr not in area_state:

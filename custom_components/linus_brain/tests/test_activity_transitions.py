@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ..const import ACTIVITY_EMPTY
 from ..utils.activity_tracker import ActivityTracker
 
 _LOGGER = logging.getLogger(__name__)
@@ -105,9 +104,7 @@ class TestActivityTransitions:
         # Start with motion detected
         mock_condition_evaluator.evaluate_conditions = AsyncMock(return_value=True)
 
-        tracker = ActivityTracker(
-            mock_hass, mock_app_storage, mock_condition_evaluator
-        )
+        tracker = ActivityTracker(mock_hass, mock_app_storage, mock_condition_evaluator)
         tracker.coordinator = mock_coordinator
         await tracker.async_initialize()
 
@@ -148,9 +145,7 @@ class TestActivityTransitions:
         mock_condition_evaluator = MagicMock()
         mock_condition_evaluator.evaluate_conditions = AsyncMock(return_value=True)
 
-        tracker = ActivityTracker(
-            mock_hass, mock_app_storage, mock_condition_evaluator
-        )
+        tracker = ActivityTracker(mock_hass, mock_app_storage, mock_condition_evaluator)
         tracker.coordinator = mock_coordinator
         await tracker.async_initialize()
 
@@ -182,9 +177,7 @@ class TestActivityTransitions:
         mock_condition_evaluator = MagicMock()
         mock_condition_evaluator.evaluate_conditions = AsyncMock(return_value=True)
 
-        tracker = ActivityTracker(
-            mock_hass, mock_app_storage, mock_condition_evaluator
-        )
+        tracker = ActivityTracker(mock_hass, mock_app_storage, mock_condition_evaluator)
         tracker.coordinator = mock_coordinator
         await tracker.async_initialize()
 
@@ -215,9 +208,7 @@ class TestActivityTransitions:
         mock_condition_evaluator = MagicMock()
         mock_condition_evaluator.evaluate_conditions = AsyncMock(return_value=True)
 
-        tracker = ActivityTracker(
-            mock_hass, mock_app_storage, mock_condition_evaluator
-        )
+        tracker = ActivityTracker(mock_hass, mock_app_storage, mock_condition_evaluator)
         tracker.coordinator = mock_coordinator
         await tracker.async_initialize()
 
@@ -248,9 +239,7 @@ class TestActivityTransitions:
         mock_condition_evaluator = MagicMock()
         mock_condition_evaluator.evaluate_conditions = AsyncMock(return_value=True)
 
-        tracker = ActivityTracker(
-            mock_hass, mock_app_storage, mock_condition_evaluator
-        )
+        tracker = ActivityTracker(mock_hass, mock_app_storage, mock_condition_evaluator)
         tracker.coordinator = mock_coordinator
         await tracker.async_initialize()
 

@@ -128,7 +128,7 @@ class FeatureFlagManager:
         # Check feature definition has required fields
         feature_def = self._feature_definitions[feature_id]
         required_fields = ["name", "description", "default_enabled"]
-        
+
         for field in required_fields:
             if field not in feature_def:
                 warnings.append(f"Feature '{feature_id}' missing field '{field}'")
@@ -198,6 +198,7 @@ class FeatureFlagManager:
 
         if format_type == "json":
             import json
+
             return json.dumps(overview, indent=2)
 
         elif format_type == "txt":

@@ -22,8 +22,12 @@ CONF_PRESENCE_DETECTION_CONFIG = "presence_detection_config"
 ACTIVITY_EMPTY = "empty"
 
 # Environmental thresholds for darkness detection
-DEFAULT_DARK_THRESHOLD_LUX = 20.0  # Default lux threshold below which area is considered dark
-DEFAULT_DARK_THRESHOLD_SUN_ELEVATION = 3  # Default sun elevation (degrees) below which area is considered dark
+DEFAULT_DARK_THRESHOLD_LUX = (
+    20.0  # Default lux threshold below which area is considered dark
+)
+DEFAULT_DARK_THRESHOLD_SUN_ELEVATION = (
+    3  # Default sun elevation (degrees) below which area is considered dark
+)
 DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL = 30  # Default interval (seconds) between environmental state checks (lux, temperature, etc.)
 
 # Default activity types for dynamic activity detection system
@@ -211,13 +215,21 @@ DEFAULT_AUTOLIGHT_APP = {
 MONITORED_DOMAINS = {
     "binary_sensor": ["motion", "occupancy", "presence"],  # Presence detection
     "media_player": [],  # Media player presence detection (all media players)
-    "sensor": ["humidity", "illuminance", "temperature"],  # Environmental sensors for insights
+    "sensor": [
+        "humidity",
+        "illuminance",
+        "temperature",
+    ],  # Environmental sensors for insights
 }
 
 # Presence detection domains for activity tracking
 # Only includes domains/device_classes used for presence/movement detection
 PRESENCE_DETECTION_DOMAINS = {
-    "binary_sensor": ["motion", "occupancy", "presence"],  # Motion, occupancy, and presence sensors
+    "binary_sensor": [
+        "motion",
+        "occupancy",
+        "presence",
+    ],  # Motion, occupancy, and presence sensors
     "media_player": [],  # Media players (playing state indicates presence)
 }
 
@@ -303,14 +315,14 @@ ENABLED_INSIGHT_SENSORS = ["dark_threshold_lux"]
 def get_insight_value(insight_data: dict, value_path: list[str] | None):
     """
     Extract value from insight data using path.
-    
+
     Args:
         insight_data: Full insight dict with "value" key
         value_path: Path through nested dicts (e.g., ["threshold"])
-    
+
     Returns:
         Extracted value or None
-    
+
     Example:
         >>> insight = {"value": {"threshold": 20}, "confidence": 0.85}
         >>> get_insight_value(insight, ["threshold"])
@@ -318,7 +330,7 @@ def get_insight_value(insight_data: dict, value_path: list[str] | None):
     """
     if value_path is None:
         return insight_data.get("value")
-    
+
     current = insight_data.get("value", {})
     for key in value_path:
         if isinstance(current, dict):
@@ -333,15 +345,15 @@ def get_insight_value(insight_data: dict, value_path: list[str] | None):
 def _load_manifest_data() -> dict[str, str]:
     """
     Load manifest data from manifest.json file.
-    
+
     This function is called once at module import time, before any async code runs.
-    
+
     Returns:
         Dictionary with manifest fields like version, documentation_url, etc.
     """
     import json
     from pathlib import Path
-    
+
     manifest_path = Path(__file__).parent / "manifest.json"
     try:
         with open(manifest_path) as f:
@@ -364,7 +376,7 @@ _MANIFEST_DATA = _load_manifest_data()
 def _get_manifest_data() -> dict[str, str]:
     """
     Get manifest data (loaded at import time).
-    
+
     Returns:
         Dictionary with manifest fields like version, documentation_url, etc.
     """
@@ -374,21 +386,21 @@ def _get_manifest_data() -> dict[str, str]:
 def get_area_device_info(entry_id: str, area_id: str, area_name: str) -> dict:
     """
     Get device_info for an area-specific Linus Brain device.
-    
+
     Creates a device per area that groups all Linus Brain entities for that area:
     - Area context sensor
     - Feature switches (automatic_lighting, etc.)
-    
+
     Args:
         entry_id: Config entry ID
         area_id: Home Assistant area ID
         area_name: Human-readable area name
-        
+
     Returns:
         Device info dictionary for device registry
     """
     manifest = _get_manifest_data()
-    
+
     return {
         "identifiers": {(DOMAIN, f"{entry_id}_{area_id}")},
         "name": f"Linus Brain - {area_name}",
@@ -405,22 +417,22 @@ def get_area_device_info(entry_id: str, area_id: str, area_name: str) -> dict:
 def get_integration_device_info(entry_id: str) -> dict:
     """
     Get device_info for the main Linus Brain integration device.
-    
+
     This is the parent device that shows integration-wide sensors:
     - Last sync time
     - Cloud health
     - Total areas monitored
-    
+
     Args:
         entry_id: Config entry ID
-        
+
     Returns:
         Device info dictionary for device registry
     """
     from homeassistant.helpers.device_registry import DeviceEntryType
-    
+
     manifest = _get_manifest_data()
-    
+
     return {
         "identifiers": {(DOMAIN, entry_id)},
         "name": "Linus Brain",

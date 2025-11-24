@@ -10,26 +10,26 @@ EDGE CASES COVERED:
 1. Rule engine missing during switch toggle
    - Switch gracefully handles missing rule_engine in hass.data
    - No crash, switch state still updates correctly
-   
+
 2. Missing hass.data structure (startup race condition)
    - Switch handles incomplete hass.data during initialization
    - Normal startup sequence ensures rule_engine is available before switches load
    - Initialization order: coordinator → rule_engine → platforms (switches)
-   
+
 3. Rapid toggling
    - Multiple ON/OFF toggles create appropriate evaluation tasks
    - OFF toggles don't trigger evaluation (only disable future automation)
    - Each ON toggle creates a background task without blocking switch response
-   
+
 4. Background task execution
    - Rule evaluation runs asynchronously to avoid blocking UI
    - Switch response is immediate (doesn't wait for rule evaluation)
    - Evaluation tasks complete independently
-   
+
 5. Multiple areas
    - Each switch triggers evaluation for its specific area only
    - Different feature switches work independently
-   
+
 6. Cleanup behavior on switch OFF
    - Turning OFF doesn't trigger rule evaluation
    - Turning OFF doesn't change current device states (non-destructive)
@@ -39,19 +39,20 @@ DESIGN DECISIONS:
 -----------------
 - Switch OFF is non-destructive: lights stay on if they were on
   Rationale: User may want to disable automation without disrupting environment
-  
+
 - Evaluation happens in background task (hass.async_create_task)
   Rationale: Switch UI must respond instantly, evaluation can take time
-  
+
 - No retry mechanism for missing rule engine
   Rationale: If rule engine is missing, it's a system issue that will be
   resolved on next toggle or by periodic evaluations
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from homeassistant.core import HomeAssistant
+
+import pytest
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
 
 from ..const import DOMAIN
 from ..switch import LinusBrainFeatureSwitch
@@ -110,9 +111,7 @@ async def test_switch_turn_on_without_rule_engine_doesnt_crash(
     entry.entry_id = "test_entry"
 
     # Setup hass.data WITHOUT rule engine
-    hass.data[DOMAIN] = {
-        entry.entry_id: {}
-    }
+    hass.data[DOMAIN] = {entry.entry_id: {}}
 
     # Create feature switch
     feature_def = {"name": "Automatic Lighting", "default_enabled": False}
@@ -151,6 +150,7 @@ async def test_switch_turn_on_evaluation_runs_in_background(
         evaluation_started = True
         # Simulate slow evaluation
         import asyncio
+
         await asyncio.sleep(0.1)
         evaluation_completed = True
 
@@ -184,6 +184,7 @@ async def test_switch_turn_on_evaluation_runs_in_background(
     # (depends on task scheduling, but switch response shouldn't block)
     # Wait a bit to let background task complete
     import asyncio
+
     await asyncio.sleep(0.2)
 
     # Now evaluation should be completed
@@ -285,11 +286,11 @@ async def test_switch_turn_on_evaluation_with_different_features(
 
     # Create switches for different areas
     feature_def = {"name": "Automatic Lighting", "default_enabled": False}
-    
+
     switch_living_room = LinusBrainFeatureSwitch(
         hass, entry, "living_room", "automatic_lighting", feature_def
     )
-    
+
     switch_bedroom = LinusBrainFeatureSwitch(
         hass, entry, "bedroom", "automatic_lighting", feature_def
     )
@@ -297,7 +298,7 @@ async def test_switch_turn_on_evaluation_with_different_features(
     # Initialize switches
     with patch.object(switch_living_room, "async_get_last_state", return_value=None):
         await switch_living_room.async_added_to_hass()
-    
+
     with patch.object(switch_bedroom, "async_get_last_state", return_value=None):
         await switch_bedroom.async_added_to_hass()
 
@@ -367,6 +368,7 @@ async def test_switch_rapid_toggling_creates_multiple_evaluation_tasks(
 
     # Wait for background tasks
     import asyncio
+
     await asyncio.sleep(0.1)
 
     # Should have 2 evaluations (from the two ON calls)

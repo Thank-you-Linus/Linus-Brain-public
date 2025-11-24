@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from homeassistant.util import dt as dt_util
 
-from ..utils.rule_engine import RuleEngine, DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL
+from ..utils.rule_engine import DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL, RuleEngine
 
 
 @pytest.fixture
@@ -85,10 +85,10 @@ def mock_app_storage_with_cooldown():
         }
     )
     storage.get_app = MagicMock(return_value=autolight_app)
-    
+
     # Mock _data with configurable environmental_check_interval
     storage._data = {"environmental_check_interval": 30}
-    
+
     return storage
 
 
@@ -109,7 +109,9 @@ def mock_area_manager():
 
 
 @pytest.fixture
-def rule_engine(mock_hass, mock_activity_tracker, mock_app_storage_with_cooldown, mock_area_manager):
+def rule_engine(
+    mock_hass, mock_activity_tracker, mock_app_storage_with_cooldown, mock_area_manager
+):
     """Create RuleEngine instance."""
     return RuleEngine(
         mock_hass,
@@ -136,7 +138,7 @@ class TestEnvironmentalCooldownBasics:
                 "attribute": "is_dark",
             }
         ]
-        
+
         assert rule_engine._has_lux_condition(conditions) is True
 
     def test_has_lux_condition_detects_is_dark_with_state_key(self, rule_engine):
@@ -148,7 +150,7 @@ class TestEnvironmentalCooldownBasics:
                 "state": "is_dark",
             }
         ]
-        
+
         assert rule_engine._has_lux_condition(conditions) is True
 
     def test_has_lux_condition_nested_and(self, rule_engine):
@@ -162,7 +164,7 @@ class TestEnvironmentalCooldownBasics:
                 ],
             }
         ]
-        
+
         assert rule_engine._has_lux_condition(conditions) is True
 
     def test_has_lux_condition_no_lux(self, rule_engine):
@@ -171,7 +173,7 @@ class TestEnvironmentalCooldownBasics:
             {"condition": "state", "entity_id": "light.test", "state": "off"},
             {"condition": "time", "after": "22:00"},
         ]
-        
+
         assert rule_engine._has_lux_condition(conditions) is False
 
     def test_check_environmental_cooldown_no_previous_action(self, rule_engine):
@@ -185,7 +187,7 @@ class TestEnvironmentalCooldownBasics:
         rule_engine._last_environmental_action["salon"] = {
             "enter": dt_util.utcnow() - timedelta(seconds=10)
         }
-        
+
         # Should be in cooldown (30 second default)
         assert rule_engine._check_environmental_cooldown("salon", "enter") is False
 
@@ -195,7 +197,7 @@ class TestEnvironmentalCooldownBasics:
         rule_engine._last_environmental_action["salon"] = {
             "enter": dt_util.utcnow() - timedelta(seconds=40)
         }
-        
+
         # Should be out of cooldown (30 second default)
         assert rule_engine._check_environmental_cooldown("salon", "enter") is True
 
@@ -203,11 +205,14 @@ class TestEnvironmentalCooldownBasics:
         """Test updating lux cooldown timestamp."""
         # Update cooldown
         rule_engine._update_environmental_cooldown("salon", "enter")
-        
+
         # Verify timestamp was set
         assert "salon" in rule_engine._last_environmental_action
         assert "enter" in rule_engine._last_environmental_action["salon"]
-        assert isinstance(rule_engine._last_environmental_action["salon"]["enter"], type(dt_util.utcnow()))
+        assert isinstance(
+            rule_engine._last_environmental_action["salon"]["enter"],
+            type(dt_util.utcnow()),
+        )
 
 
 class TestEnvironmentalCooldownSeparateEnterExit:
@@ -219,10 +224,10 @@ class TestEnvironmentalCooldownSeparateEnterExit:
         rule_engine._last_environmental_action["salon"] = {
             "enter": dt_util.utcnow() - timedelta(seconds=10)
         }
-        
+
         # Enter should be in cooldown
         assert rule_engine._check_environmental_cooldown("salon", "enter") is False
-        
+
         # Exit should NOT be in cooldown (no exit action yet)
         assert rule_engine._check_environmental_cooldown("salon", "exit") is True
 
@@ -232,10 +237,10 @@ class TestEnvironmentalCooldownSeparateEnterExit:
         rule_engine._last_environmental_action["salon"] = {
             "exit": dt_util.utcnow() - timedelta(seconds=10)
         }
-        
+
         # Exit should be in cooldown
         assert rule_engine._check_environmental_cooldown("salon", "exit") is False
-        
+
         # Enter should NOT be in cooldown
         assert rule_engine._check_environmental_cooldown("salon", "enter") is True
 
@@ -246,7 +251,7 @@ class TestEnvironmentalCooldownSeparateEnterExit:
             "enter": now - timedelta(seconds=10),
             "exit": now - timedelta(seconds=5),
         }
-        
+
         # Both should be in cooldown
         assert rule_engine._check_environmental_cooldown("salon", "enter") is False
         assert rule_engine._check_environmental_cooldown("salon", "exit") is False
@@ -259,12 +264,12 @@ class TestEnvironmentalCooldownConfiguration:
         """Test that default 30s cooldown is used when no config."""
         # Remove config
         rule_engine.app_storage._data = {}
-        
+
         # Set action 20 seconds ago
         rule_engine._last_environmental_action["salon"] = {
             "enter": dt_util.utcnow() - timedelta(seconds=20)
         }
-        
+
         # Should still be in cooldown with default 30s
         assert rule_engine._check_environmental_cooldown("salon", "enter") is False
 
@@ -272,20 +277,20 @@ class TestEnvironmentalCooldownConfiguration:
         """Test that custom cooldown value is used from config."""
         # Set custom cooldown to 60 seconds
         rule_engine.app_storage._data["environmental_check_interval"] = 60
-        
+
         # Set action 40 seconds ago
         rule_engine._last_environmental_action["salon"] = {
             "enter": dt_util.utcnow() - timedelta(seconds=40)
         }
-        
+
         # Should still be in cooldown with custom 60s
         assert rule_engine._check_environmental_cooldown("salon", "enter") is False
-        
+
         # Set action 70 seconds ago
         rule_engine._last_environmental_action["salon"] = {
             "enter": dt_util.utcnow() - timedelta(seconds=70)
         }
-        
+
         # Should be out of cooldown now
         assert rule_engine._check_environmental_cooldown("salon", "enter") is True
 
@@ -299,81 +304,83 @@ class TestEnvironmentalCooldownIntegration:
     ):
         """Test that rapid environmental fluctuations near threshold are prevented."""
         # Setup
-        mock_activity_tracker.async_evaluate_activity = AsyncMock(return_value="movement")
+        mock_activity_tracker.async_evaluate_activity = AsyncMock(
+            return_value="movement"
+        )
         mock_activity_tracker.get_activity = MagicMock(return_value="movement")
-        
+
         # Mock switch state to be "on"
         mock_switch_state = MagicMock()
         mock_switch_state.state = "on"
         mock_hass.states.get = MagicMock(return_value=mock_switch_state)
-        
+
         # Mock condition evaluator: True when dark, False when bright
         async def mock_conditions(conditions, area_id, logic):
             env_state = mock_area_manager.get_area_environmental_state(area_id)
             return env_state.get("is_dark", False)
-        
+
         rule_engine.condition_evaluator.evaluate_conditions = AsyncMock(
             side_effect=mock_conditions
         )
         rule_engine.action_executor.execute_actions = AsyncMock(return_value=True)
-        
+
         # Initial: bright
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": False}
         )
-        
+
         await rule_engine.async_initialize()
-        
+
         # First: 19 lux (dark) - lights should turn ON
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": True}
         )
-        
+
         event = MagicMock()
         event.data = {"entity_id": "sensor.salon_illuminance"}
-        
+
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         # Verify lights turned on
         assert rule_engine.action_executor.execute_actions.call_count == 1
-        
+
         # Reset mock
         rule_engine.action_executor.execute_actions.reset_mock()
-        
+
         # Second: 21 lux (bright) - lights should turn OFF (exit action, different cooldown)
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": False}
         )
-        
+
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         # Verify lights turned off (exit cooldown is separate)
         assert rule_engine.action_executor.execute_actions.call_count == 1
-        
+
         # Reset mock
         rule_engine.action_executor.execute_actions.reset_mock()
-        
+
         # Third: 19 lux (dark again) - should be BLOCKED by enter environmental cooldown
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": True}
         )
-        
+
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         # Verify lights did NOT turn on (blocked by environmental cooldown)
         rule_engine.action_executor.execute_actions.assert_not_called()
-        
+
         # Fourth: 21 lux (bright again) - should be BLOCKED by exit environmental cooldown
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": False}
         )
-        
+
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         # Verify lights did NOT turn off (blocked by exit environmental cooldown)
         rule_engine.action_executor.execute_actions.assert_not_called()
 
@@ -383,63 +390,67 @@ class TestEnvironmentalCooldownIntegration:
     ):
         """Test that after environmental cooldown expires, same action can execute."""
         # Setup
-        mock_activity_tracker.async_evaluate_activity = AsyncMock(return_value="movement")
+        mock_activity_tracker.async_evaluate_activity = AsyncMock(
+            return_value="movement"
+        )
         mock_activity_tracker.get_activity = MagicMock(return_value="movement")
-        
+
         mock_switch_state = MagicMock()
         mock_switch_state.state = "on"
         mock_hass.states.get = MagicMock(return_value=mock_switch_state)
-        
+
         async def mock_conditions(conditions, area_id, logic):
             env_state = mock_area_manager.get_area_environmental_state(area_id)
             return env_state.get("is_dark", False)
-        
+
         rule_engine.condition_evaluator.evaluate_conditions = AsyncMock(
             side_effect=mock_conditions
         )
         rule_engine.action_executor.execute_actions = AsyncMock(return_value=True)
-        
+
         # Initial: bright
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": False}
         )
-        
+
         await rule_engine.async_initialize()
-        
+
         # First: dark - lights turn ON
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": True}
         )
-        
+
         event = MagicMock()
         event.data = {"entity_id": "sensor.salon_illuminance"}
-        
+
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         # Verify first ON
         assert rule_engine.action_executor.execute_actions.call_count == 1
-        
+
         # Simulate cooldown expiration (40 seconds for both cooldowns)
-        rule_engine._last_triggered["salon_env_enter"] = dt_util.utcnow() - timedelta(seconds=400)
+        rule_engine._last_triggered["salon_env_enter"] = dt_util.utcnow() - timedelta(
+            seconds=400
+        )
         rule_engine._last_environmental_action["salon"] = {
             "enter": dt_util.utcnow() - timedelta(seconds=40),
             "exit": dt_util.utcnow() - timedelta(seconds=40),
         }
-        
+
         # Reset mock
         rule_engine.action_executor.execute_actions.reset_mock()
-        
+
         # Reset previous env state to bright
         rule_engine._previous_env_state["salon"]["is_dark"] = False
-        
+
         # Second: dark again (after cooldown) - should succeed
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": True}
         )
-        
+
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         # Verify second ON succeeded (cooldown expired)
         assert rule_engine.action_executor.execute_actions.call_count == 1

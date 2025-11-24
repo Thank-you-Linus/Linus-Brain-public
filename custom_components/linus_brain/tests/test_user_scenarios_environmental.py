@@ -19,8 +19,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from homeassistant.util import dt as dt_util
 
-from ..utils.activity_tracker import ActivityTracker
-from ..utils.app_storage import AppStorage
 from ..utils.rule_engine import RuleEngine
 
 
@@ -49,7 +47,7 @@ def mock_activity_tracker():
 def mock_area_manager():
     """Mock AreaManager with environmental sensors."""
     manager = MagicMock()
-    
+
     # Return binary motion sensor when requested
     def get_area_entities(area_id, domain=None, device_class=None):
         if domain == "sensor" and device_class == "illuminance":
@@ -57,7 +55,7 @@ def mock_area_manager():
         if domain == "binary_sensor" and device_class == "motion":
             return ["binary_sensor.living_room_motion"]
         return []
-    
+
     manager.get_area_entities = MagicMock(side_effect=get_area_entities)
     manager.get_area_environmental_state = MagicMock(
         return_value={"is_dark": False, "illuminance": 500}
@@ -69,7 +67,7 @@ def mock_area_manager():
 def mock_app_storage():
     """Mock AppStorage with automatic lighting app with on_exit actions."""
     storage = MagicMock()
-    
+
     autolight_app = {
         "app_id": "automatic_lighting",
         "app_name": "Automatic Lighting",
@@ -112,7 +110,7 @@ def mock_app_storage():
             },
         },
     }
-    
+
     storage.get_assignments = MagicMock(
         return_value={
             "living_room": {
@@ -151,7 +149,7 @@ def rule_engine(mock_hass, mock_activity_tracker, mock_app_storage, mock_area_ma
 class TestUserScenarioCloudyDay:
     """
     Scénario: Journée nuageuse avec variations rapides de luminosité.
-    
+
     L'utilisateur est dans son salon. Des nuages passent devant le soleil,
     créant des variations rapides de luminosité. Le système doit:
     - Allumer les lumières quand il fait sombre
@@ -168,55 +166,55 @@ class TestUserScenarioCloudyDay:
         mock_switch_state = MagicMock()
         mock_switch_state.state = "on"
         mock_hass.states.get = MagicMock(return_value=mock_switch_state)
-        
+
         # Mock condition evaluator
         async def mock_conditions(conditions, area_id, logic):
             env_state = mock_area_manager.get_area_environmental_state(area_id)
             return env_state.get("is_dark", False)
-        
+
         rule_engine.condition_evaluator.evaluate_conditions = AsyncMock(
             side_effect=mock_conditions
         )
         rule_engine.action_executor.execute_actions = AsyncMock(return_value=True)
-        
+
         # État initial: Clair (500 lux)
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": False, "illuminance": 500}
         )
-        
+
         await rule_engine.async_initialize()
-        
+
         event = MagicMock()
         event.data = {"entity_id": "sensor.living_room_illuminance"}
-        
+
         # T+0s: Un nuage passe → sombre (5 lux) → lumières ON
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": True, "illuminance": 5}
         )
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         assert rule_engine.action_executor.execute_actions.call_count == 1
         assert "living_room_env_enter" in rule_engine._last_triggered
         enter_time = rule_engine._last_triggered["living_room_env_enter"]
-        
+
         # Reset counter
         rule_engine.action_executor.execute_actions.reset_mock()
-        
+
         # T+10s: Le nuage part → clair (500 lux) → lumières OFF
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": False, "illuminance": 500}
         )
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         assert rule_engine.action_executor.execute_actions.call_count == 1
         assert "living_room_env_exit" in rule_engine._last_triggered
         exit_time = rule_engine._last_triggered["living_room_env_exit"]
-        
+
         # Reset counter
         rule_engine.action_executor.execute_actions.reset_mock()
-        
+
         # T+20s: Un autre nuage passe → sombre (5 lux)
         # ❌ BLOQUÉ par cooldown enter (< 5 minutes depuis T+0s)
         mock_area_manager.get_area_environmental_state = MagicMock(
@@ -224,10 +222,10 @@ class TestUserScenarioCloudyDay:
         )
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         # Les lumières ne doivent PAS se rallumer (cooldown enter actif)
         rule_engine.action_executor.execute_actions.assert_not_called()
-        
+
         # T+30s: Le nuage part → clair (500 lux)
         # ❌ BLOQUÉ par cooldown exit (< 5 minutes depuis T+10s)
         mock_area_manager.get_area_environmental_state = MagicMock(
@@ -235,10 +233,10 @@ class TestUserScenarioCloudyDay:
         )
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         # Les lumières ne doivent PAS s'éteindre à nouveau (cooldown exit actif)
         rule_engine.action_executor.execute_actions.assert_not_called()
-        
+
         # Vérifier que les timestamps de cooldown n'ont pas changé
         assert rule_engine._last_triggered["living_room_env_enter"] == enter_time
         assert rule_engine._last_triggered["living_room_env_exit"] == exit_time
@@ -247,7 +245,7 @@ class TestUserScenarioCloudyDay:
 class TestUserScenarioTwilight:
     """
     Scénario: Transition crépusculaire graduelle.
-    
+
     L'utilisateur est dans son salon pendant le crépuscule. La luminosité
     diminue progressivement. Le système doit allumer les lumières au bon
     moment et ne pas osciller.
@@ -262,46 +260,46 @@ class TestUserScenarioTwilight:
         mock_switch_state = MagicMock()
         mock_switch_state.state = "on"
         mock_hass.states.get = MagicMock(return_value=mock_switch_state)
-        
+
         async def mock_conditions(conditions, area_id, logic):
             env_state = mock_area_manager.get_area_environmental_state(area_id)
             return env_state.get("is_dark", False)
-        
+
         rule_engine.condition_evaluator.evaluate_conditions = AsyncMock(
             side_effect=mock_conditions
         )
         rule_engine.action_executor.execute_actions = AsyncMock(return_value=True)
-        
+
         # 18h00: Encore clair (150 lux)
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": False, "illuminance": 150}
         )
-        
+
         await rule_engine.async_initialize()
-        
+
         event = MagicMock()
         event.data = {"entity_id": "sensor.living_room_illuminance"}
-        
+
         # 18h15: Diminution progressive (80 lux) - encore au-dessus du seuil
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": False, "illuminance": 80}
         )
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         # Pas d'action (pas encore assez sombre)
         rule_engine.action_executor.execute_actions.assert_not_called()
-        
+
         # 18h30: Passage du seuil (5 lux) → lumières ON
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": True, "illuminance": 5}
         )
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         assert rule_engine.action_executor.execute_actions.call_count == 1
         assert "living_room_env_enter" in rule_engine._last_triggered
-        
+
         # 18h35: Continue à diminuer (2 lux) - toujours sombre
         rule_engine.action_executor.execute_actions.reset_mock()
         mock_area_manager.get_area_environmental_state = MagicMock(
@@ -309,7 +307,7 @@ class TestUserScenarioTwilight:
         )
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         # Pas d'action (pas de transition, toujours sombre)
         rule_engine.action_executor.execute_actions.assert_not_called()
 
@@ -317,7 +315,7 @@ class TestUserScenarioTwilight:
 class TestUserScenarioDailyUsage:
     """
     Scénario: Utilisation quotidienne normale (matin → soir).
-    
+
     Simule une journée complète avec transitions naturelles:
     - Matin: Lumières s'éteignent quand il fait jour
     - Journée: Lumières restent éteintes
@@ -333,37 +331,37 @@ class TestUserScenarioDailyUsage:
         mock_switch_state = MagicMock()
         mock_switch_state.state = "on"
         mock_hass.states.get = MagicMock(return_value=mock_switch_state)
-        
+
         async def mock_conditions(conditions, area_id, logic):
             env_state = mock_area_manager.get_area_environmental_state(area_id)
             return env_state.get("is_dark", False)
-        
+
         rule_engine.condition_evaluator.evaluate_conditions = AsyncMock(
             side_effect=mock_conditions
         )
         rule_engine.action_executor.execute_actions = AsyncMock(return_value=True)
-        
+
         # 07h00: Nuit → lumières devraient être allumées (simulé par état initial)
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": True, "illuminance": 2}
         )
-        
+
         await rule_engine.async_initialize()
-        
+
         event = MagicMock()
         event.data = {"entity_id": "sensor.living_room_illuminance"}
-        
+
         # 08h00: Lever du soleil → clair (300 lux) → lumières OFF
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": False, "illuminance": 300}
         )
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         assert rule_engine.action_executor.execute_actions.call_count == 1
         assert "living_room_env_exit" in rule_engine._last_triggered
-        morning_off_time = rule_engine._last_triggered["living_room_env_exit"]
-        
+        rule_engine._last_triggered["living_room_env_exit"]
+
         # 12h00: Plein jour (1000 lux) - pas de changement
         rule_engine.action_executor.execute_actions.reset_mock()
         mock_area_manager.get_area_environmental_state = MagicMock(
@@ -371,20 +369,22 @@ class TestUserScenarioDailyUsage:
         )
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         # Pas d'action (toujours clair, pas de transition)
         rule_engine.action_executor.execute_actions.assert_not_called()
-        
+
         # 19h00: Coucher du soleil → sombre (5 lux) → lumières ON
         # Le cooldown exit de 08h00 est expiré (> 5 minutes)
-        rule_engine._last_triggered["living_room_env_exit"] = dt_util.utcnow() - timedelta(hours=11)
-        
+        rule_engine._last_triggered["living_room_env_exit"] = (
+            dt_util.utcnow() - timedelta(hours=11)
+        )
+
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": True, "illuminance": 5}
         )
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         assert rule_engine.action_executor.execute_actions.call_count == 1
         assert "living_room_env_enter" in rule_engine._last_triggered
 
@@ -392,7 +392,7 @@ class TestUserScenarioDailyUsage:
 class TestUserScenarioSunnyDayWithClouds:
     """
     Scénario: Journée ensoleillée avec nuages passagers.
-    
+
     L'utilisateur est dans son salon par une belle journée. Quelques nuages
     passent mais ne sont pas assez opaques pour déclencher l'éclairage.
     Le système doit rester stable.
@@ -407,56 +407,56 @@ class TestUserScenarioSunnyDayWithClouds:
         mock_switch_state = MagicMock()
         mock_switch_state.state = "on"
         mock_hass.states.get = MagicMock(return_value=mock_switch_state)
-        
+
         async def mock_conditions(conditions, area_id, logic):
             env_state = mock_area_manager.get_area_environmental_state(area_id)
             return env_state.get("is_dark", False)
-        
+
         rule_engine.condition_evaluator.evaluate_conditions = AsyncMock(
             side_effect=mock_conditions
         )
         rule_engine.action_executor.execute_actions = AsyncMock(return_value=True)
-        
+
         # 10h00: Grand soleil (800 lux)
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": False, "illuminance": 800}
         )
-        
+
         await rule_engine.async_initialize()
-        
+
         event = MagicMock()
         event.data = {"entity_id": "sensor.living_room_illuminance"}
-        
+
         # 10h15: Nuage léger passe (200 lux) - toujours au-dessus du seuil
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": False, "illuminance": 200}
         )
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         # Pas d'action (toujours assez clair)
         rule_engine.action_executor.execute_actions.assert_not_called()
-        
+
         # 10h20: Retour au soleil (800 lux)
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": False, "illuminance": 800}
         )
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         # Toujours pas d'action
         rule_engine.action_executor.execute_actions.assert_not_called()
-        
+
         # 10h30: Nuage plus épais (80 lux) - toujours au-dessus du seuil
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": False, "illuminance": 80}
         )
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         # Toujours pas d'action (seuil de 50 lux pas atteint)
         rule_engine.action_executor.execute_actions.assert_not_called()
-        
+
         # Vérifier qu'aucun cooldown n'a été créé
         assert "living_room_env_enter" not in rule_engine._last_triggered
         assert "living_room_env_exit" not in rule_engine._last_triggered
@@ -465,7 +465,7 @@ class TestUserScenarioSunnyDayWithClouds:
 class TestUserScenarioRoomTransition:
     """
     Scénario: L'utilisateur se déplace entre les pièces.
-    
+
     L'utilisateur passe d'une pièce à l'autre. Le système doit gérer
     les transitions d'activité (empty) correctement et ne pas interférer
     avec les cooldowns environnementaux.
@@ -480,24 +480,24 @@ class TestUserScenarioRoomTransition:
         mock_switch_state = MagicMock()
         mock_switch_state.state = "on"
         mock_hass.states.get = MagicMock(return_value=mock_switch_state)
-        
+
         async def mock_conditions(conditions, area_id, logic):
             env_state = mock_area_manager.get_area_environmental_state(area_id)
             return env_state.get("is_dark", False)
-        
+
         rule_engine.condition_evaluator.evaluate_conditions = AsyncMock(
             side_effect=mock_conditions
         )
         rule_engine.action_executor.execute_actions = AsyncMock(return_value=True)
-        
+
         # État initial: Clair (jour), présence détectée
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": False, "illuminance": 300}
         )
         mock_activity_tracker.get_activity = MagicMock(return_value="movement")
-        
+
         await rule_engine.async_initialize()
-        
+
         # Transition environnementale: devient sombre → lumières ON
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": True, "illuminance": 5}
@@ -506,26 +506,26 @@ class TestUserScenarioRoomTransition:
         event.data = {"entity_id": "sensor.living_room_illuminance"}
         rule_engine._async_state_change_handler(event)
         await asyncio.sleep(2.5)
-        
+
         assert rule_engine.action_executor.execute_actions.call_count == 1
         assert "living_room_env_enter" in rule_engine._last_triggered
-        
+
         # Reset
         rule_engine.action_executor.execute_actions.reset_mock()
-        
+
         # L'utilisateur quitte la pièce → activité devient "empty"
         mock_activity_tracker.get_activity = MagicMock(return_value="empty")
         mock_activity_tracker.async_evaluate_activity = AsyncMock(return_value="empty")
-        
+
         # Simuler changement d'activité via presence entity
         presence_event = MagicMock()
         presence_event.data = {"entity_id": "binary_sensor.living_room_motion"}
         rule_engine._async_state_change_handler(presence_event)
         await asyncio.sleep(2.5)
-        
+
         # Les lumières doivent s'éteindre (action empty, pas de cooldown activity)
         assert rule_engine.action_executor.execute_actions.call_count == 1
-        
+
         # Le cooldown environnemental ne doit PAS être affecté
         assert "living_room_env_enter" in rule_engine._last_triggered
         # Le cooldown d'activité est différent du cooldown environnemental
@@ -536,7 +536,7 @@ class TestUserScenarioRoomTransition:
 class TestUserScenarioPerformance:
     """
     Scénario: Test de performance et réactivité.
-    
+
     Valide que le système reste réactif même avec des changements
     environnementaux fréquents.
     """
@@ -550,46 +550,46 @@ class TestUserScenarioPerformance:
         mock_switch_state = MagicMock()
         mock_switch_state.state = "on"
         mock_hass.states.get = MagicMock(return_value=mock_switch_state)
-        
+
         async def mock_conditions(conditions, area_id, logic):
             env_state = mock_area_manager.get_area_environmental_state(area_id)
             return env_state.get("is_dark", False)
-        
+
         rule_engine.condition_evaluator.evaluate_conditions = AsyncMock(
             side_effect=mock_conditions
         )
         rule_engine.action_executor.execute_actions = AsyncMock(return_value=True)
-        
+
         # État initial
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": False, "illuminance": 500}
         )
-        
+
         await rule_engine.async_initialize()
-        
+
         event = MagicMock()
         event.data = {"entity_id": "sensor.living_room_illuminance"}
-        
+
         # Simuler 10 changements rapides de luminosité
         for i in range(10):
             lux = 500 if i % 2 == 0 else 5
             is_dark = lux < 50
-            
+
             mock_area_manager.get_area_environmental_state = MagicMock(
                 return_value={"is_dark": is_dark, "illuminance": lux}
             )
-            
+
             rule_engine._async_state_change_handler(event)
             await asyncio.sleep(0.1)  # Très rapide
-        
+
         # Attendre que tous les debounces se terminent
         await asyncio.sleep(3)
-        
+
         # Le système doit avoir traité les événements sans crasher
         # Seules les vraies transitions doivent déclencher des actions
         # (les cooldowns doivent avoir empêché l'oscillation)
         assert rule_engine.action_executor.execute_actions.call_count <= 2
-        
+
         # Vérifier que le système est toujours fonctionnel
         # Le fait que des actions ont été exécutées prouve que le système fonctionne
         assert len(rule_engine._listeners.get("living_room", [])) > 0

@@ -151,7 +151,7 @@ class AppStorage:
             return self._data
 
     async def apply_config_overrides_async(
-        self, 
+        self,
         inactive_timeout: int | None = None,
         occupied_threshold: int | None = None,
         occupied_inactive_timeout: int | None = None,
@@ -159,12 +159,12 @@ class AppStorage:
     ) -> None:
         """
         Apply user configuration to activity timeouts (async version with save).
-        
+
         PHILOSOPHY: Activity timeouts are LOCAL configuration
         - Config UI values ALWAYS override defaults (local-first for timeouts)
         - Cloud is used for apps/assignments, but NOT for activity timeouts
         - This ensures users can customize timeouts per HA instance
-        
+
         Args:
             inactive_timeout: Timeout in seconds for 'inactive' activity (from movement)
             occupied_threshold: Duration threshold in seconds for 'occupied' activity
@@ -172,7 +172,7 @@ class AppStorage:
             environmental_check_interval: Interval in seconds between environmental state checks
         """
         self.apply_config_overrides(
-            inactive_timeout, 
+            inactive_timeout,
             occupied_threshold,
             occupied_inactive_timeout,
             environmental_check_interval,
@@ -180,7 +180,7 @@ class AppStorage:
         await self.async_save()
 
     def apply_config_overrides(
-        self, 
+        self,
         inactive_timeout: int | None = None,
         occupied_threshold: int | None = None,
         occupied_inactive_timeout: int | None = None,
@@ -188,12 +188,12 @@ class AppStorage:
     ) -> None:
         """
         Apply user configuration to activity timeouts (sync version without save).
-        
+
         PHILOSOPHY: Activity timeouts are LOCAL configuration
         - Config UI values ALWAYS override defaults (local-first for timeouts)
         - Cloud is used for apps/assignments, but NOT for activity timeouts
         - This ensures users can customize timeouts per HA instance
-        
+
         Args:
             inactive_timeout: Timeout in seconds for 'inactive' activity (from movement)
             occupied_threshold: Duration threshold in seconds for 'occupied' activity
@@ -201,7 +201,7 @@ class AppStorage:
             environmental_check_interval: Interval in seconds between environmental state checks
         """
         activities = self._data.get("activities", {})
-        
+
         # Apply inactive timeout override (from movement)
         if inactive_timeout is not None and "inactive" in activities:
             old_timeout = activities["inactive"].get("timeout_seconds", 60)
@@ -209,10 +209,12 @@ class AppStorage:
             _LOGGER.info(
                 f"Applied config override: inactive timeout (from movement) {old_timeout}s -> {inactive_timeout}s"
             )
-        
+
         # Apply occupied threshold override
         if occupied_threshold is not None and "occupied" in activities:
-            old_threshold = activities["occupied"].get("duration_threshold_seconds", 300)
+            old_threshold = activities["occupied"].get(
+                "duration_threshold_seconds", 300
+            )
             activities["occupied"]["duration_threshold_seconds"] = occupied_threshold
             # Also update timeout_seconds to match threshold for occupied
             old_timeout = activities["occupied"].get("timeout_seconds", 300)
@@ -220,7 +222,7 @@ class AppStorage:
             _LOGGER.info(
                 f"Applied config override: occupied threshold {old_threshold}s -> {occupied_threshold}s"
             )
-        
+
         # Apply occupied inactive timeout override (separate from movement inactive timeout)
         # This is the timeout from occupied -> inactive (should be longer)
         if occupied_inactive_timeout is not None and "occupied" in activities:
@@ -229,7 +231,7 @@ class AppStorage:
             _LOGGER.info(
                 f"Applied config override: occupied timeout {old_timeout}s -> {occupied_inactive_timeout}s"
             )
-        
+
         # Store environmental check interval in storage for rule engine to use
         if environmental_check_interval is not None:
             old_interval = self._data.get("environmental_check_interval", 30)
@@ -238,12 +240,10 @@ class AppStorage:
                 f"Applied config override: environmental check interval {old_interval}s -> {environmental_check_interval}s"
             )
 
-
-
     def _save_file(self) -> None:
         """Synchronous file save operation with fsync for durability."""
         import os
-        
+
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         with open(self.storage_file, "w") as f:
             json.dump(self._data, f, indent=2, default=str)
@@ -335,10 +335,13 @@ class AppStorage:
             async with asyncio.timeout(CLOUD_SYNC_TIMEOUT):
                 # Activities are ALWAYS loaded from local const.py (not from cloud)
                 # Config UI overrides will be applied after sync
-                _LOGGER.debug("Using local activity definitions (not fetching from cloud)")
+                _LOGGER.debug(
+                    "Using local activity definitions (not fetching from cloud)"
+                )
                 from ..const import DEFAULT_ACTIVITY_TYPES
+
                 activities = DEFAULT_ACTIVITY_TYPES.copy()
-                
+
                 apps = {}
 
                 # ALWAYS load automatic_lighting from cloud if it exists
@@ -351,8 +354,11 @@ class AppStorage:
                     apps["automatic_lighting"] = autolight_app
                     _LOGGER.info("Loaded automatic_lighting from cloud")
                 else:
-                    _LOGGER.warning("automatic_lighting not found in cloud, will use fallback")
+                    _LOGGER.warning(
+                        "automatic_lighting not found in cloud, will use fallback"
+                    )
                     from ..const import DEFAULT_AUTOLIGHT_APP
+
                     apps["automatic_lighting"] = DEFAULT_AUTOLIGHT_APP
 
                 # NOTE: We do NOT fetch assignments from cloud anymore
@@ -416,12 +422,12 @@ class AppStorage:
     def get_activity(self, activity_id: str) -> dict[str, Any] | None:
         """
         Get specific activity by ID.
-        
+
         CRITICAL: System activities (movement, inactive, empty) must ALWAYS exist.
         If any are missing, auto-inject from fallback.
         """
         activity = self._data.get("activities", {}).get(activity_id)
-        
+
         # Defensive fallback: System activities are INDESTRUCTIBLE
         critical_activities = ["movement", "inactive", "empty"]
         if activity_id in critical_activities and not activity:
@@ -430,11 +436,12 @@ class AppStorage:
                 "Auto-injecting from fallback to ensure activity tracking works."
             )
             from ..const import DEFAULT_ACTIVITY_TYPES
+
             fallback_activity = DEFAULT_ACTIVITY_TYPES.get(activity_id)
             if fallback_activity:
                 self.set_activity(activity_id, fallback_activity)
                 return fallback_activity
-        
+
         return activity
 
     def get_apps(self) -> dict[str, Any]:
@@ -444,12 +451,12 @@ class AppStorage:
     def get_app(self, app_id: str) -> dict[str, Any] | None:
         """
         Get specific app by ID.
-        
+
         CRITICAL: automatic_lighting must ALWAYS exist as a system app.
         If it's missing, auto-inject from fallback.
         """
         app = self._data.get("apps", {}).get(app_id)
-        
+
         # Defensive fallback: automatic_lighting is INDESTRUCTIBLE
         if app_id == "automatic_lighting" and not app:
             _LOGGER.error(
@@ -457,9 +464,10 @@ class AppStorage:
                 "Auto-injecting from fallback to ensure automation works."
             )
             from ..const import DEFAULT_AUTOLIGHT_APP
+
             self.set_app("automatic_lighting", DEFAULT_AUTOLIGHT_APP)
             return DEFAULT_AUTOLIGHT_APP
-        
+
         return app
 
     def get_assignments(self) -> dict[str, Any]:
@@ -558,10 +566,11 @@ class AppStorage:
             True (always succeeds with local data)
         """
         _LOGGER.debug("Refreshing activity configurations from local const.py")
-        
+
         from ..const import DEFAULT_ACTIVITY_TYPES
+
         self._data["activities"] = DEFAULT_ACTIVITY_TYPES.copy()
-        
+
         await self.async_save()
         _LOGGER.info(
             f"Refreshed {len(self._data['activities'])} activity configurations from local storage"

@@ -43,11 +43,15 @@ class TestEventListenerDebounce:
         state.attributes = {"device_class": "occupancy"}
 
         # First call should not debounce (no last update time)
-        should_debounce = listener._should_debounce("living_room", "binary_sensor.test", state)
+        should_debounce = listener._should_debounce(
+            "living_room", "binary_sensor.test", state
+        )
         assert should_debounce is False
 
         # Immediate second call should debounce
-        should_debounce = listener._should_debounce("living_room", "binary_sensor.test", state)
+        should_debounce = listener._should_debounce(
+            "living_room", "binary_sensor.test", state
+        )
         assert should_debounce is True
 
         # Wait for debounce delay + buffer
@@ -57,7 +61,9 @@ class TestEventListenerDebounce:
         mock_coordinator.async_send_area_update.assert_called_once_with("living_room")
 
     @pytest.mark.asyncio
-    async def test_rapid_events_cancel_previous_debounce(self, listener, mock_coordinator):
+    async def test_rapid_events_cancel_previous_debounce(
+        self, listener, mock_coordinator
+    ):
         """Test that rapid events cancel and reschedule debounce."""
         state = MagicMock(spec=State)
         state.state = "on"
@@ -85,15 +91,21 @@ class TestEventListenerDebounce:
         state.attributes = {"device_class": "motion"}
 
         # Motion OFF should never debounce
-        should_debounce = listener._should_debounce("living_room", "binary_sensor.motion", state)
+        should_debounce = listener._should_debounce(
+            "living_room", "binary_sensor.motion", state
+        )
         assert should_debounce is False
 
         # Even if we call it immediately again
-        should_debounce = listener._should_debounce("living_room", "binary_sensor.motion", state)
+        should_debounce = listener._should_debounce(
+            "living_room", "binary_sensor.motion", state
+        )
         assert should_debounce is False
 
     @pytest.mark.asyncio
-    async def test_motion_on_inactive_area_bypasses_debounce(self, listener, mock_coordinator):
+    async def test_motion_on_inactive_area_bypasses_debounce(
+        self, listener, mock_coordinator
+    ):
         """Test that motion ON in inactive area bypasses debounce."""
         # Set area as inactive
         mock_coordinator.get_area_activity.return_value = "inactive"
@@ -103,11 +115,15 @@ class TestEventListenerDebounce:
         state.attributes = {"device_class": "motion"}
 
         # Motion ON in inactive area should not debounce
-        should_debounce = listener._should_debounce("living_room", "binary_sensor.motion", state)
+        should_debounce = listener._should_debounce(
+            "living_room", "binary_sensor.motion", state
+        )
         assert should_debounce is False
 
     @pytest.mark.asyncio
-    async def test_stop_listening_cancels_pending_debounce(self, listener, mock_coordinator):
+    async def test_stop_listening_cancels_pending_debounce(
+        self, listener, mock_coordinator
+    ):
         """Test that stopping listener cancels pending debounced updates."""
         state = MagicMock(spec=State)
         state.state = "on"

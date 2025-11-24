@@ -137,9 +137,10 @@ def area_manager(
     """Create AreaManager instance with mocked registries."""
     # Clear module-level caches to prevent stale data between tests
     from ..utils import area_manager as am
+
     am._MONITORED_DOMAINS_CACHE = None
     am._PRESENCE_DETECTION_DOMAINS_CACHE = None
-    
+
     monkeypatch.setattr(
         "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
     )
@@ -218,7 +219,8 @@ class TestAreaManagerPresenceDetection:
         hass.states.get = MagicMock(return_value=motion_state)
 
         result = area_manager.get_area_presence_binary("living_room")
-        assert result is True
+        assert result["presence_detected"] is True
+        assert "binary_sensor.living_room_motion" in result["detection_reasons"]
 
     def test_get_area_presence_binary_returns_false_when_no_motion(
         self, area_manager, hass
@@ -228,7 +230,8 @@ class TestAreaManagerPresenceDetection:
         hass.states.get = MagicMock(return_value=motion_state)
 
         result = area_manager.get_area_presence_binary("living_room")
-        assert result is False
+        assert result["presence_detected"] is False
+        assert len(result["detection_reasons"]) == 0
 
     def test_get_area_presence_binary_checks_multiple_sensors(self, area_manager, hass):
         """Test that binary presence checks all presence sensors."""
@@ -247,7 +250,8 @@ class TestAreaManagerPresenceDetection:
         hass.states.get = MagicMock(side_effect=get_state)
 
         result = area_manager.get_area_presence_binary("living_room")
-        assert result is True
+        assert result["presence_detected"] is True
+        assert "binary_sensor.living_room_presence" in result["detection_reasons"]
 
 
 class TestAreaManagerEnvironmentalState:
@@ -884,7 +888,12 @@ class TestAreaManagerEdgeCases:
         assert result == 50.0
 
     def test_illuminance_averaging_with_multiple_valid_sensors(
-        self, hass, area_registry_mock, entity_registry_mock, device_registry_mock, monkeypatch
+        self,
+        hass,
+        area_registry_mock,
+        entity_registry_mock,
+        device_registry_mock,
+        monkeypatch,
     ):
         """Test illuminance averaging with 3+ valid sensors."""
         # Add more illuminance sensors to living room
@@ -921,7 +930,8 @@ class TestAreaManagerEdgeCases:
 
         # Create new AreaManager instance after modifying entities
         monkeypatch.setattr(
-            "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
+            "homeassistant.helpers.area_registry.async_get",
+            lambda h: area_registry_mock,
         )
         monkeypatch.setattr(
             "homeassistant.helpers.entity_registry.async_get",
@@ -995,14 +1005,19 @@ class TestAreaManagerDeviceAreaLookup:
     """Test device-based area lookup for entities without direct area assignment."""
 
     def test_entity_without_area_but_with_device(
-        self, hass, area_registry_mock, entity_registry_mock, device_registry_mock, monkeypatch
+        self,
+        hass,
+        area_registry_mock,
+        entity_registry_mock,
+        device_registry_mock,
+        monkeypatch,
     ):
         """Test entity lookup when entity has no area but device does."""
         # Create entity with device_id but no area_id
         test_entity = _create_mock_entity(
             "sensor.test_sensor", None, "device_123", "temperature"
         )
-        
+
         # Mock entity registry to return our test entity
         entity_registry_mock.async_get = MagicMock(return_value=test_entity)
 
@@ -1012,7 +1027,8 @@ class TestAreaManagerDeviceAreaLookup:
         device_registry_mock.async_get = MagicMock(return_value=mock_device)
 
         monkeypatch.setattr(
-            "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
+            "homeassistant.helpers.area_registry.async_get",
+            lambda h: area_registry_mock,
         )
         monkeypatch.setattr(
             "homeassistant.helpers.entity_registry.async_get",
@@ -1033,14 +1049,19 @@ class TestAreaManagerDeviceAreaLookup:
         device_registry_mock.async_get.assert_called_with("device_123")
 
     def test_entity_without_area_and_device_without_area(
-        self, hass, area_registry_mock, entity_registry_mock, device_registry_mock, monkeypatch
+        self,
+        hass,
+        area_registry_mock,
+        entity_registry_mock,
+        device_registry_mock,
+        monkeypatch,
     ):
         """Test entity lookup when neither entity nor device has area."""
         # Create entity with device_id but no area_id
         test_entity = _create_mock_entity(
             "sensor.test_sensor", None, "device_123", "temperature"
         )
-        
+
         # Mock entity registry to return our test entity
         entity_registry_mock.async_get = MagicMock(return_value=test_entity)
 
@@ -1050,7 +1071,8 @@ class TestAreaManagerDeviceAreaLookup:
         device_registry_mock.async_get = MagicMock(return_value=mock_device)
 
         monkeypatch.setattr(
-            "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
+            "homeassistant.helpers.area_registry.async_get",
+            lambda h: area_registry_mock,
         )
         monkeypatch.setattr(
             "homeassistant.helpers.entity_registry.async_get",
@@ -1069,19 +1091,25 @@ class TestAreaManagerDeviceAreaLookup:
         assert result is None
 
     def test_entity_without_area_and_without_device(
-        self, hass, area_registry_mock, entity_registry_mock, device_registry_mock, monkeypatch
+        self,
+        hass,
+        area_registry_mock,
+        entity_registry_mock,
+        device_registry_mock,
+        monkeypatch,
     ):
         """Test entity lookup when entity has no area and no device."""
         # Create entity without device_id and without area_id
         test_entity = _create_mock_entity(
             "sensor.test_sensor", None, None, "temperature"
         )
-        
+
         # Mock entity_registry.async_get() to return our test entity
         entity_registry_mock.async_get.return_value = test_entity
 
         monkeypatch.setattr(
-            "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
+            "homeassistant.helpers.area_registry.async_get",
+            lambda h: area_registry_mock,
         )
         monkeypatch.setattr(
             "homeassistant.helpers.entity_registry.async_get",
@@ -1104,10 +1132,15 @@ class TestAreaManagerInvalidStates:
     """Test handling of invalid states (unavailable, unknown, etc.)."""
 
     def test_presence_with_multiple_motion_sensors_some_unavailable(
-        self, hass, area_registry_mock, entity_registry_mock, device_registry_mock, monkeypatch
+        self,
+        hass,
+        area_registry_mock,
+        entity_registry_mock,
+        device_registry_mock,
+        monkeypatch,
     ):
         """Test presence detection when some motion sensors are unavailable.
-        
+
         Scenario: 3 motion sensors in garage
         - 2 sensors are unavailable
         - 1 sensor is on
@@ -1140,7 +1173,8 @@ class TestAreaManagerInvalidStates:
         hass.states.get = MagicMock(side_effect=get_state)
 
         monkeypatch.setattr(
-            "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
+            "homeassistant.helpers.area_registry.async_get",
+            lambda h: area_registry_mock,
         )
         monkeypatch.setattr(
             "homeassistant.helpers.entity_registry.async_get",
@@ -1157,13 +1191,18 @@ class TestAreaManagerInvalidStates:
         result = area_manager.get_area_presence_binary("living_room")
 
         # Should detect presence because one valid sensor is "on"
-        assert result is True
+        assert result["presence_detected"] is True
 
     def test_presence_with_all_motion_sensors_unavailable(
-        self, hass, area_registry_mock, entity_registry_mock, device_registry_mock, monkeypatch
+        self,
+        hass,
+        area_registry_mock,
+        entity_registry_mock,
+        device_registry_mock,
+        monkeypatch,
     ):
         """Test presence detection when all motion sensors are unavailable.
-        
+
         Scenario: 3 motion sensors in garage, all unavailable
         Expected: No presence detected (False)
         """
@@ -1184,7 +1223,8 @@ class TestAreaManagerInvalidStates:
         hass.states.get = MagicMock(side_effect=get_state)
 
         monkeypatch.setattr(
-            "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
+            "homeassistant.helpers.area_registry.async_get",
+            lambda h: area_registry_mock,
         )
         monkeypatch.setattr(
             "homeassistant.helpers.entity_registry.async_get",
@@ -1201,13 +1241,18 @@ class TestAreaManagerInvalidStates:
         result = area_manager.get_area_presence_binary("living_room")
 
         # Should NOT detect presence when all sensors are unavailable
-        assert result is False
+        assert result["presence_detected"] is False
 
     def test_presence_with_mixed_invalid_states(
-        self, hass, area_registry_mock, entity_registry_mock, device_registry_mock, monkeypatch
+        self,
+        hass,
+        area_registry_mock,
+        entity_registry_mock,
+        device_registry_mock,
+        monkeypatch,
     ):
         """Test presence detection with various invalid states.
-        
+
         Scenario: 4 motion sensors with different invalid states + 1 valid "off"
         - 1 sensor is unknown
         - 1 sensor is unavailable
@@ -1248,7 +1293,8 @@ class TestAreaManagerInvalidStates:
         hass.states.get = MagicMock(side_effect=get_state)
 
         monkeypatch.setattr(
-            "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
+            "homeassistant.helpers.area_registry.async_get",
+            lambda h: area_registry_mock,
         )
         monkeypatch.setattr(
             "homeassistant.helpers.entity_registry.async_get",
@@ -1265,4 +1311,4 @@ class TestAreaManagerInvalidStates:
         result = area_manager.get_area_presence_binary("living_room")
 
         # Should NOT detect presence (only valid sensor is "off")
-        assert result is False
+        assert result["presence_detected"] is False

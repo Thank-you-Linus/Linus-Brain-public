@@ -27,7 +27,7 @@ def hass():
     """Mock Home Assistant instance."""
     hass_mock = MagicMock()
     hass_mock.states = MagicMock()
-    
+
     # Mock entity states
     states = {
         "binary_sensor.motion": State("binary_sensor.motion", "on"),
@@ -35,8 +35,10 @@ def hass():
         "binary_sensor.occupancy": State("binary_sensor.occupancy", "on"),
         "media_player.tv": State("media_player.tv", "playing"),
     }
-    hass_mock.states.get = MagicMock(side_effect=lambda entity_id: states.get(entity_id))
-    
+    hass_mock.states.get = MagicMock(
+        side_effect=lambda entity_id: states.get(entity_id)
+    )
+
     return hass_mock
 
 
@@ -113,7 +115,12 @@ def config_entry_mock():
 
 @pytest.fixture
 def area_manager(
-    hass, area_registry_mock, entity_registry_mock, device_registry_mock, config_entry_mock, monkeypatch
+    hass,
+    area_registry_mock,
+    entity_registry_mock,
+    device_registry_mock,
+    config_entry_mock,
+    monkeypatch,
 ):
     """Create AreaManager instance with mocked registries."""
     monkeypatch.setattr(
@@ -137,7 +144,7 @@ class TestPresenceDetectionConfiguration:
     def test_default_config_all_enabled(self, area_manager):
         """Test that hardcoded defaults have all detection types enabled."""
         config = area_manager._get_presence_detection_config()
-        
+
         assert config["motion"] is True
         assert config["presence"] is True
         assert config["occupancy"] is True
@@ -149,9 +156,9 @@ class TestPresenceDetectionConfiguration:
         config_entry_mock.options = {
             CONF_PRESENCE_DETECTION_CONFIG: ["motion", "media_playing"]
         }
-        
+
         config = area_manager._get_presence_detection_config()
-        
+
         assert config["motion"] is True
         assert config["presence"] is False
         assert config["occupancy"] is False
@@ -160,12 +167,10 @@ class TestPresenceDetectionConfiguration:
     def test_config_flow_single_option(self, area_manager, config_entry_mock):
         """Test that config flow can have just one option enabled."""
         # Set config flow options to only enable motion
-        config_entry_mock.options = {
-            CONF_PRESENCE_DETECTION_CONFIG: ["motion"]
-        }
-        
+        config_entry_mock.options = {CONF_PRESENCE_DETECTION_CONFIG: ["motion"]}
+
         config = area_manager._get_presence_detection_config()
-        
+
         assert config["motion"] is True
         assert config["presence"] is False
         assert config["occupancy"] is False
@@ -175,12 +180,10 @@ class TestPresenceDetectionConfiguration:
         """Test that empty config list disables all detection types."""
         # Note: In production, the UI enforces at least one selection
         # But we test the edge case here
-        config_entry_mock.options = {
-            CONF_PRESENCE_DETECTION_CONFIG: []
-        }
-        
+        config_entry_mock.options = {CONF_PRESENCE_DETECTION_CONFIG: []}
+
         config = area_manager._get_presence_detection_config()
-        
+
         assert config["motion"] is False
         assert config["presence"] is False
         assert config["occupancy"] is False
@@ -190,57 +193,61 @@ class TestPresenceDetectionConfiguration:
 class TestDynamicPresenceDetection:
     """Test presence detection using dynamic configuration."""
 
-    def test_presence_detected_with_motion_enabled(self, area_manager, config_entry_mock):
+    def test_presence_detected_with_motion_enabled(
+        self, area_manager, config_entry_mock
+    ):
         """Test that presence is detected when motion is enabled and active."""
-        config_entry_mock.options = {
-            CONF_PRESENCE_DETECTION_CONFIG: ["motion"]
-        }
-        
+        config_entry_mock.options = {CONF_PRESENCE_DETECTION_CONFIG: ["motion"]}
+
         entity_states = {
             "motion": "on",
             "presence": "off",
             "occupancy": "off",
             "media": "off",
         }
-        
+
         assert area_manager._compute_presence_detected(entity_states) is True
 
-    def test_presence_not_detected_with_motion_disabled(self, area_manager, config_entry_mock):
+    def test_presence_not_detected_with_motion_disabled(
+        self, area_manager, config_entry_mock
+    ):
         """Test that motion doesn't trigger detection when disabled."""
         config_entry_mock.options = {
             CONF_PRESENCE_DETECTION_CONFIG: ["presence"]  # Only presence enabled
         }
-        
+
         entity_states = {
             "motion": "on",  # Motion active but disabled in config
             "presence": "off",
             "occupancy": "off",
             "media": "off",
         }
-        
+
         assert area_manager._compute_presence_detected(entity_states) is False
 
-    def test_presence_detected_with_media_playing(self, area_manager, config_entry_mock):
+    def test_presence_detected_with_media_playing(
+        self, area_manager, config_entry_mock
+    ):
         """Test that media playing triggers presence when enabled."""
-        config_entry_mock.options = {
-            CONF_PRESENCE_DETECTION_CONFIG: ["media_playing"]
-        }
-        
+        config_entry_mock.options = {CONF_PRESENCE_DETECTION_CONFIG: ["media_playing"]}
+
         entity_states = {
             "motion": "off",
             "presence": "off",
             "occupancy": "off",
             "media": "playing",
         }
-        
+
         assert area_manager._compute_presence_detected(entity_states) is True
 
-    def test_presence_detected_with_multiple_enabled(self, area_manager, config_entry_mock):
+    def test_presence_detected_with_multiple_enabled(
+        self, area_manager, config_entry_mock
+    ):
         """Test that any enabled sensor type triggers presence."""
         config_entry_mock.options = {
             CONF_PRESENCE_DETECTION_CONFIG: ["motion", "presence"]
         }
-        
+
         # Test motion trigger
         entity_states = {
             "motion": "on",
@@ -249,7 +256,7 @@ class TestDynamicPresenceDetection:
             "media": "off",
         }
         assert area_manager._compute_presence_detected(entity_states) is True
-        
+
         # Test presence trigger
         entity_states = {
             "motion": "off",
@@ -261,48 +268,42 @@ class TestDynamicPresenceDetection:
 
     def test_no_presence_when_all_disabled(self, area_manager, config_entry_mock):
         """Test that no presence is detected when all types are disabled."""
-        config_entry_mock.options = {
-            CONF_PRESENCE_DETECTION_CONFIG: []
-        }
-        
+        config_entry_mock.options = {CONF_PRESENCE_DETECTION_CONFIG: []}
+
         entity_states = {
             "motion": "on",
             "presence": "on",
             "occupancy": "on",
             "media": "playing",
         }
-        
+
         # Even with all sensors active, presence should not be detected
         assert area_manager._compute_presence_detected(entity_states) is False
 
     def test_presence_detection_with_occupancy(self, area_manager, config_entry_mock):
         """Test occupancy sensor detection when enabled."""
-        config_entry_mock.options = {
-            CONF_PRESENCE_DETECTION_CONFIG: ["occupancy"]
-        }
-        
+        config_entry_mock.options = {CONF_PRESENCE_DETECTION_CONFIG: ["occupancy"]}
+
         entity_states = {
             "motion": "off",
             "presence": "off",
             "occupancy": "on",
             "media": "off",
         }
-        
+
         assert area_manager._compute_presence_detected(entity_states) is True
 
     def test_media_on_state_triggers_presence(self, area_manager, config_entry_mock):
         """Test that media 'on' state also triggers presence."""
-        config_entry_mock.options = {
-            CONF_PRESENCE_DETECTION_CONFIG: ["media_playing"]
-        }
-        
+        config_entry_mock.options = {CONF_PRESENCE_DETECTION_CONFIG: ["media_playing"]}
+
         entity_states = {
             "motion": "off",
             "presence": "off",
             "occupancy": "off",
             "media": "on",  # "on" state should also work
         }
-        
+
         assert area_manager._compute_presence_detected(entity_states) is True
 
 
@@ -313,27 +314,57 @@ class TestPresenceDetectionBackwardCompatibility:
         """Test that default config provides same behavior as before."""
         # This test ensures backward compatibility
         # Default should be: all detection types enabled
-        
+
         # Test 1: Motion triggers presence
-        entity_states = {"motion": "on", "presence": "off", "occupancy": "off", "media": "off"}
+        entity_states = {
+            "motion": "on",
+            "presence": "off",
+            "occupancy": "off",
+            "media": "off",
+        }
         assert area_manager._compute_presence_detected(entity_states) is True
-        
+
         # Test 2: Presence triggers presence
-        entity_states = {"motion": "off", "presence": "on", "occupancy": "off", "media": "off"}
+        entity_states = {
+            "motion": "off",
+            "presence": "on",
+            "occupancy": "off",
+            "media": "off",
+        }
         assert area_manager._compute_presence_detected(entity_states) is True
-        
+
         # Test 3: Occupancy triggers presence
-        entity_states = {"motion": "off", "presence": "off", "occupancy": "on", "media": "off"}
+        entity_states = {
+            "motion": "off",
+            "presence": "off",
+            "occupancy": "on",
+            "media": "off",
+        }
         assert area_manager._compute_presence_detected(entity_states) is True
-        
+
         # Test 4: Media playing triggers presence
-        entity_states = {"motion": "off", "presence": "off", "occupancy": "off", "media": "playing"}
+        entity_states = {
+            "motion": "off",
+            "presence": "off",
+            "occupancy": "off",
+            "media": "playing",
+        }
         assert area_manager._compute_presence_detected(entity_states) is True
-        
+
         # Test 5: Media on triggers presence
-        entity_states = {"motion": "off", "presence": "off", "occupancy": "off", "media": "on"}
+        entity_states = {
+            "motion": "off",
+            "presence": "off",
+            "occupancy": "off",
+            "media": "on",
+        }
         assert area_manager._compute_presence_detected(entity_states) is True
-        
+
         # Test 6: No sensors active = no presence
-        entity_states = {"motion": "off", "presence": "off", "occupancy": "off", "media": "off"}
+        entity_states = {
+            "motion": "off",
+            "presence": "off",
+            "occupancy": "off",
+            "media": "off",
+        }
         assert area_manager._compute_presence_detected(entity_states) is False

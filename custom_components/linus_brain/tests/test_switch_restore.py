@@ -5,12 +5,12 @@ Tests verify that switches use RestoreEntity correctly to persist state
 across Home Assistant restarts without relying on FeatureFlagManager.
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
-from homeassistant.core import HomeAssistant, State
-from homeassistant.config_entries import ConfigEntry
 
-from ..const import DOMAIN
+import pytest
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, State
+
 from ..switch import LinusBrainFeatureSwitch
 
 
@@ -170,4 +170,3 @@ async def test_feature_switch_turn_off_updates_state(
 
     # Verify switch state is OFF
     assert switch.is_on is False
-

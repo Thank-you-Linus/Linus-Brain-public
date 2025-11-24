@@ -19,10 +19,10 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
     CONF_DARK_LUX_THRESHOLD,
-    CONF_INACTIVE_TIMEOUT,
-    CONF_OCCUPIED_THRESHOLD,
-    CONF_OCCUPIED_INACTIVE_TIMEOUT,
     CONF_ENVIRONMENTAL_CHECK_INTERVAL,
+    CONF_INACTIVE_TIMEOUT,
+    CONF_OCCUPIED_INACTIVE_TIMEOUT,
+    CONF_OCCUPIED_THRESHOLD,
     CONF_PRESENCE_DETECTION_CONFIG,
     CONF_SUPABASE_KEY,
     CONF_SUPABASE_URL,
@@ -43,32 +43,32 @@ CONFIG_SCHEMA = vol.Schema(
         vol.Optional(
             CONF_USE_SUN_ELEVATION,
             default=True,
-            description="Use sun elevation for darkness detection"
+            description="Use sun elevation for darkness detection",
         ): bool,
         vol.Optional(
             CONF_DARK_LUX_THRESHOLD,
             default=DEFAULT_DARK_THRESHOLD_LUX,
-            description="Lux threshold below which area is considered dark"
+            description="Lux threshold below which area is considered dark",
         ): vol.All(vol.Coerce(float), vol.Range(min=0, max=1000)),
         vol.Optional(
             CONF_INACTIVE_TIMEOUT,
             default=60,
-            description="Timeout in seconds before area becomes inactive (from movement)"
+            description="Timeout in seconds before area becomes inactive (from movement)",
         ): vol.All(vol.Coerce(int), vol.Range(min=1, max=3600)),
         vol.Optional(
             CONF_OCCUPIED_THRESHOLD,
             default=300,
-            description="Duration in seconds before area is considered occupied"
+            description="Duration in seconds before area is considered occupied",
         ): vol.All(vol.Coerce(int), vol.Range(min=1, max=7200)),
         vol.Optional(
             CONF_OCCUPIED_INACTIVE_TIMEOUT,
             default=300,
-            description="Timeout in seconds before area becomes inactive (from occupied)"
+            description="Timeout in seconds before area becomes inactive (from occupied)",
         ): vol.All(vol.Coerce(int), vol.Range(min=1, max=7200)),
         vol.Optional(
             CONF_ENVIRONMENTAL_CHECK_INTERVAL,
             default=DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL,
-            description="Interval in seconds between environmental state checks (lux, temperature, etc.)"
+            description="Interval in seconds between environmental state checks (lux, temperature, etc.)",
         ): vol.All(vol.Coerce(int), vol.Range(min=5, max=600)),
     }
 )
@@ -177,16 +177,31 @@ class LinusBrainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_SUPABASE_KEY: api_key,
                     },
                     options={
-                        CONF_USE_SUN_ELEVATION: user_input.get(CONF_USE_SUN_ELEVATION, True),
-                        CONF_DARK_LUX_THRESHOLD: user_input.get(CONF_DARK_LUX_THRESHOLD, DEFAULT_DARK_THRESHOLD_LUX),
+                        CONF_USE_SUN_ELEVATION: user_input.get(
+                            CONF_USE_SUN_ELEVATION, True
+                        ),
+                        CONF_DARK_LUX_THRESHOLD: user_input.get(
+                            CONF_DARK_LUX_THRESHOLD, DEFAULT_DARK_THRESHOLD_LUX
+                        ),
                         CONF_PRESENCE_DETECTION_CONFIG: user_input.get(
                             CONF_PRESENCE_DETECTION_CONFIG,
-                            list(PRESENCE_DETECTION_OPTIONS.keys())  # All enabled by default
+                            list(
+                                PRESENCE_DETECTION_OPTIONS.keys()
+                            ),  # All enabled by default
                         ),
-                        CONF_INACTIVE_TIMEOUT: user_input.get(CONF_INACTIVE_TIMEOUT, 60),
-                        CONF_OCCUPIED_THRESHOLD: user_input.get(CONF_OCCUPIED_THRESHOLD, 300),
-                        CONF_OCCUPIED_INACTIVE_TIMEOUT: user_input.get(CONF_OCCUPIED_INACTIVE_TIMEOUT, 300),
-                        CONF_ENVIRONMENTAL_CHECK_INTERVAL: user_input.get(CONF_ENVIRONMENTAL_CHECK_INTERVAL, DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL),
+                        CONF_INACTIVE_TIMEOUT: user_input.get(
+                            CONF_INACTIVE_TIMEOUT, 60
+                        ),
+                        CONF_OCCUPIED_THRESHOLD: user_input.get(
+                            CONF_OCCUPIED_THRESHOLD, 300
+                        ),
+                        CONF_OCCUPIED_INACTIVE_TIMEOUT: user_input.get(
+                            CONF_OCCUPIED_INACTIVE_TIMEOUT, 300
+                        ),
+                        CONF_ENVIRONMENTAL_CHECK_INTERVAL: user_input.get(
+                            CONF_ENVIRONMENTAL_CHECK_INTERVAL,
+                            DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL,
+                        ),
                     },
                 )
 
@@ -249,14 +264,24 @@ class LinusBrainOptionsFlow(config_entries.OptionsFlow):
 
         # Get current option values
         current_use_sun = self.config_entry.options.get(CONF_USE_SUN_ELEVATION, True)
-        current_dark_lux = self.config_entry.options.get(CONF_DARK_LUX_THRESHOLD, DEFAULT_DARK_THRESHOLD_LUX)
-        current_inactive_timeout = self.config_entry.options.get(CONF_INACTIVE_TIMEOUT, 60)
-        current_occupied_threshold = self.config_entry.options.get(CONF_OCCUPIED_THRESHOLD, 300)
-        current_occupied_inactive_timeout = self.config_entry.options.get(CONF_OCCUPIED_INACTIVE_TIMEOUT, 300)
-        current_environmental_check_interval = self.config_entry.options.get(CONF_ENVIRONMENTAL_CHECK_INTERVAL, DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL)
+        current_dark_lux = self.config_entry.options.get(
+            CONF_DARK_LUX_THRESHOLD, DEFAULT_DARK_THRESHOLD_LUX
+        )
+        current_inactive_timeout = self.config_entry.options.get(
+            CONF_INACTIVE_TIMEOUT, 60
+        )
+        current_occupied_threshold = self.config_entry.options.get(
+            CONF_OCCUPIED_THRESHOLD, 300
+        )
+        current_occupied_inactive_timeout = self.config_entry.options.get(
+            CONF_OCCUPIED_INACTIVE_TIMEOUT, 300
+        )
+        current_environmental_check_interval = self.config_entry.options.get(
+            CONF_ENVIRONMENTAL_CHECK_INTERVAL, DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL
+        )
         current_presence_detection = self.config_entry.options.get(
             CONF_PRESENCE_DETECTION_CONFIG,
-            list(PRESENCE_DETECTION_OPTIONS.keys())  # All enabled by default
+            list(PRESENCE_DETECTION_OPTIONS.keys()),  # All enabled by default
         )
 
         # Show options form

@@ -67,7 +67,6 @@ def sample_insights():
             "metadata": {"source": "default"},
             "updated_at": "2025-10-26T00:00:00Z",
         },
-
         {
             "id": "insight-5",
             "instance_id": None,

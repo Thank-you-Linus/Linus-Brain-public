@@ -1,9 +1,8 @@
 """Tests for invalid state handling."""
 
-import pytest
-from homeassistant.core import HomeAssistant, State
+from homeassistant.core import State
 
-from custom_components.linus_brain.utils import is_state_valid, INVALID_STATES
+from custom_components.linus_brain.utils import INVALID_STATES, is_state_valid
 
 
 def test_is_state_valid_with_none():

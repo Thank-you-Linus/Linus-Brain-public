@@ -107,19 +107,19 @@ async def async_setup_entry(
     # Add insight sensors for each area
     if area_manager and insights_manager:
         from .const import ENABLED_INSIGHT_SENSORS
-        
+
         eligible_areas = area_manager.get_activity_tracking_areas()
         insight_types = insights_manager.get_all_insight_types()
-        
+
         # Filter to only enabled insight types
         enabled_types = [it for it in insight_types if it in ENABLED_INSIGHT_SENSORS]
-        
+
         if enabled_types:
             _LOGGER.info(
                 f"Creating insight sensors for {len(eligible_areas)} areas "
                 f"and {len(enabled_types)} enabled insight types: {enabled_types}"
             )
-            
+
             for area_id, area_name in eligible_areas.items():
                 for insight_type in enabled_types:
                     _LOGGER.debug(
@@ -161,7 +161,9 @@ class LinusBrainSyncSensor(CoordinatorEntity, SensorEntity):
         self._attr_translation_key = "last_sync"
         self._attr_unique_id = f"{DOMAIN}_last_sync"
         self._attr_has_entity_name = True
-        self._attr_suggested_object_id = f"{DOMAIN}_last_sync"  # Force English entity_id
+        self._attr_suggested_object_id = (
+            f"{DOMAIN}_last_sync"  # Force English entity_id
+        )
         self._attr_icon = "mdi:cloud-sync"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_device_info = get_integration_device_info(entry.entry_id)  # type: ignore[assignment]
@@ -178,7 +180,7 @@ class LinusBrainSyncSensor(CoordinatorEntity, SensorEntity):
             get_monitored_domains,
             get_presence_detection_domains,
         )
-        
+
         # Get real cloud sync time from app_storage
         sync_time = self.coordinator.app_storage.get_sync_time()  # type: ignore[attr-defined]
 
@@ -223,7 +225,9 @@ class LinusBrainRoomsSensor(CoordinatorEntity, SensorEntity):
         self._attr_translation_key = "monitored_areas"
         self._attr_unique_id = f"{DOMAIN}_monitored_areas"
         self._attr_has_entity_name = True
-        self._attr_suggested_object_id = f"{DOMAIN}_monitored_areas"  # Force English entity_id
+        self._attr_suggested_object_id = (
+            f"{DOMAIN}_monitored_areas"  # Force English entity_id
+        )
         self._attr_icon = "mdi:home-group"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_device_info = get_integration_device_info(entry.entry_id)  # type: ignore[assignment]
@@ -329,7 +333,9 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_activity_{area_id}"
         self._attr_translation_key = "activity"
         self._attr_has_entity_name = True
-        self._attr_suggested_object_id = f"{DOMAIN}_activity_{area_id}"  # Force English entity_id
+        self._attr_suggested_object_id = (
+            f"{DOMAIN}_activity_{area_id}"  # Force English entity_id
+        )
         self._attr_translation_placeholders = {"area_name": area_name}
         self._attr_icon = "mdi:home-analytics"
         self._attr_device_class = SensorDeviceClass.ENUM
@@ -369,14 +375,16 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
 
         seconds_until_timeout = None
         timeout_type = None
-        
+
         # Check exit action timeout first (higher priority)
         if self._rule_engine:
-            exit_timeout_remaining = self._rule_engine.get_exit_timeout_remaining(self._area_id)
+            exit_timeout_remaining = self._rule_engine.get_exit_timeout_remaining(
+                self._area_id
+            )
             if exit_timeout_remaining is not None:
                 seconds_until_timeout = round(exit_timeout_remaining, 1)
                 timeout_type = "exit_action"
-        
+
         # Fall back to activity timeout if no exit timeout
         if seconds_until_timeout is None and time_until_state_loss is not None:
             seconds_until_timeout = round(time_until_state_loss, 1)
@@ -425,7 +433,9 @@ class LinusBrainRuleEngineStatsSensor(CoordinatorEntity, SensorEntity):
         self._attr_translation_key = "rule_engine"
         self._attr_has_entity_name = True
         self._attr_unique_id = f"{DOMAIN}_rule_engine"
-        self._attr_suggested_object_id = f"{DOMAIN}_rule_engine"  # Force English entity_id
+        self._attr_suggested_object_id = (
+            f"{DOMAIN}_rule_engine"  # Force English entity_id
+        )
         self._attr_icon = "mdi:robot"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_device_info = get_integration_device_info(entry.entry_id)  # type: ignore[assignment]
@@ -482,7 +492,9 @@ class LinusBrainCloudHealthSensor(CoordinatorEntity, SensorEntity):
         self._attr_translation_key = "cloud_health"
         self._attr_has_entity_name = True
         self._attr_unique_id = f"{DOMAIN}_cloud_health"
-        self._attr_suggested_object_id = f"{DOMAIN}_cloud_health"  # Force English entity_id
+        self._attr_suggested_object_id = (
+            f"{DOMAIN}_cloud_health"  # Force English entity_id
+        )
         self._attr_icon = "mdi:cloud-check"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_device_class = SensorDeviceClass.ENUM
@@ -557,7 +569,9 @@ class LinusBrainActivitiesSensor(CoordinatorEntity, SensorEntity):
         self._attr_translation_key = "activities"
         self._attr_has_entity_name = True
         self._attr_unique_id = f"{DOMAIN}_activities"
-        self._attr_suggested_object_id = f"{DOMAIN}_activities"  # Force English entity_id
+        self._attr_suggested_object_id = (
+            f"{DOMAIN}_activities"  # Force English entity_id
+        )
         self._attr_icon = "mdi:run"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_device_info = get_integration_device_info(entry.entry_id)  # type: ignore[assignment]
@@ -608,7 +622,9 @@ class LinusBrainAppSensor(CoordinatorEntity, SensorEntity):
         self._attr_has_entity_name = True
         self._attr_translation_placeholders = {"app_name": self._app_name}
         self._attr_unique_id = f"{DOMAIN}_app_{app_id}"
-        self._attr_suggested_object_id = f"{DOMAIN}_app_{app_id}"  # Force English entity_id
+        self._attr_suggested_object_id = (
+            f"{DOMAIN}_app_{app_id}"  # Force English entity_id
+        )
         self._attr_icon = "mdi:application-cog"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_device_info = get_integration_device_info(entry.entry_id)  # type: ignore[assignment]
@@ -662,16 +678,16 @@ class LinusBrainAppSensor(CoordinatorEntity, SensorEntity):
 class LinusInsightSensor(CoordinatorEntity, SensorEntity):
     """
     Sensor showing a specific insight value for an area.
-    
+
     Each insight type gets its own sensor entity per area.
     For example: sensor.linus_brain_dark_threshold_salon
-    
+
     Displays native value with proper unit (e.g., "20 lx", "75%")
     and includes confidence/source in attributes.
     """
-    
+
     coordinator: LinusBrainCoordinator
-    
+
     def __init__(
         self,
         coordinator: LinusBrainCoordinator,
@@ -683,7 +699,7 @@ class LinusInsightSensor(CoordinatorEntity, SensorEntity):
     ) -> None:
         """
         Initialize the insight sensor.
-        
+
         Args:
             coordinator: Main coordinator
             insights_manager: Insights manager for data access
@@ -698,14 +714,14 @@ class LinusInsightSensor(CoordinatorEntity, SensorEntity):
         self._area_id = area_id
         self._area_name = area_name
         self._insight_type = insight_type
-        
+
         # Get config for this insight type
         from .const import INSIGHT_SENSOR_CONFIG
+
         self._config = INSIGHT_SENSOR_CONFIG.get(
-            insight_type,
-            INSIGHT_SENSOR_CONFIG["_default"]
+            insight_type, INSIGHT_SENSOR_CONFIG["_default"]
         )
-        
+
         # Set entity attributes
         self._attr_unique_id = f"{DOMAIN}_insight_{insight_type}_{area_id}"
         self._attr_translation_key = self._config["translation_key"]
@@ -716,32 +732,32 @@ class LinusInsightSensor(CoordinatorEntity, SensorEntity):
             "insight_type": insight_type.replace("_", " ").title(),
         }
         self._attr_icon = self._config["icon"]
-        
+
         # Use string for device_class to avoid import issues
         device_class = self._config["device_class"]
         if device_class == "illuminance":
             self._attr_device_class = SensorDeviceClass.ILLUMINANCE
         else:
             self._attr_device_class = device_class
-        
+
         self._attr_native_unit_of_measurement = self._config["unit"]
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_device_info = get_area_device_info(  # type: ignore[assignment]
             entry.entry_id, area_id, area_name
         )
-        
+
         # Initial update
         self._update_from_insights()
-    
+
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         self._update_from_insights()
         super()._handle_coordinator_update()
-    
+
     def _update_from_insights(self) -> None:
         """Update sensor value and attributes from insights manager."""
         from .const import get_insight_value
-        
+
         # Get insight with 3-tier fallback
         insight = self._insights_manager.get_insight(
             instance_id=self._coordinator.instance_id,
@@ -749,7 +765,7 @@ class LinusInsightSensor(CoordinatorEntity, SensorEntity):
             insight_type=self._insight_type,
             default=None,
         )
-        
+
         if insight is None:
             # No insight available at any level
             _LOGGER.debug(
@@ -763,14 +779,14 @@ class LinusInsightSensor(CoordinatorEntity, SensorEntity):
                 "error": "No insight available",
             }
             return
-        
+
         # Extract value using configured path
         value = get_insight_value(insight, self._config["value_path"])
-        
+
         # Set native value
         self._attr_native_value = value
         self._attr_available = True
-        
+
         _LOGGER.debug(
             "Updated insight sensor %s for area %s: value=%s, source=%s",
             self._insight_type,
@@ -778,12 +794,14 @@ class LinusInsightSensor(CoordinatorEntity, SensorEntity):
             value,
             insight.get("source", "unknown"),
         )
-        
+
         # Set attributes with metadata
         self._attr_extra_state_attributes = {
             "confidence": insight.get("confidence", 0.0),
             "source": insight.get("source", "unknown"),
             "updated_at": insight.get("updated_at"),
             "metadata": insight.get("metadata", {}),
-            "full_value": insight.get("value", {}),  # Include full value for complex insights
+            "full_value": insight.get(
+                "value", {}
+            ),  # Include full value for complex insights
         }

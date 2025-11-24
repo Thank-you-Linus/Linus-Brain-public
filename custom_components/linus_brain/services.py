@@ -403,24 +403,26 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """
         area_id = call.data.get("area_id")
         app_id = call.data.get("app_id")
-        
-        _LOGGER.info(f"Service reset_app_preferences called for area: {area_id}, app: {app_id or 'current'}")
+
+        _LOGGER.info(
+            f"Service reset_app_preferences called for area: {area_id}, app: {app_id or 'current'}"
+        )
 
         for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
             coordinator = entry_data.get("coordinator")
             app_storage = entry_data.get("app_storage")
-            
+
             if not coordinator or not app_storage:
                 continue
-            
+
             try:
                 # Get current assignment
                 assignment = app_storage.get_assignment(area_id)
-                
+
                 if not assignment:
                     _LOGGER.warning(f"No assignment found for area {area_id}")
                     continue
-                
+
                 # If app_id specified, verify it matches
                 assignment_app_id = assignment.get("app_id")
                 if app_id and assignment_app_id != app_id:
@@ -428,16 +430,18 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                         f"Area {area_id} is assigned to {assignment_app_id}, not {app_id}"
                     )
                     continue
-                
+
                 # Reset config_overrides to empty dict (app defaults will be used)
                 assignment["config_overrides"] = {}
-                
+
                 # Save to local storage
                 app_storage.set_assignment(area_id, assignment)
                 await app_storage.async_save()
-                
-                _LOGGER.info(f"Reset preferences for area {area_id} (app: {assignment_app_id})")
-                
+
+                _LOGGER.info(
+                    f"Reset preferences for area {area_id} (app: {assignment_app_id})"
+                )
+
                 # Sync to cloud if available
                 try:
                     await coordinator.supabase_client.assign_app_to_area(
@@ -450,12 +454,14 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                         changed_by="service",
                         change_reason="Reset preferences to defaults",
                     )
-                    _LOGGER.info(f"Synced reset preferences to cloud for area {area_id}")
+                    _LOGGER.info(
+                        f"Synced reset preferences to cloud for area {area_id}"
+                    )
                 except Exception as cloud_err:
                     _LOGGER.warning(
                         f"Failed to sync reset preferences to cloud for {area_id}: {cloud_err}"
                     )
-                
+
             except Exception as err:
                 _LOGGER.error(f"Failed to reset preferences for area {area_id}: {err}")
 

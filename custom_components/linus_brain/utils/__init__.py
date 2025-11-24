@@ -16,7 +16,7 @@ from .state_validator import INVALID_STATES, is_state_valid
 
 __all__ = [
     "AppStorage",
-    "EntityResolver", 
+    "EntityResolver",
     "FeatureFlagManager",
     "ValidationResult",
     "is_state_valid",

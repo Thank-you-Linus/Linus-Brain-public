@@ -60,11 +60,10 @@ class EventListener:
         self.light_learning = light_learning
         self._listeners: list[Callable[[], None]] = []
         self._last_update_times: dict[str, float] = {}
-        
+
         # Use TimeoutManager for debouncing area updates
         self._debounce_manager = TimeoutManager(
-            logger=_LOGGER,
-            logger_prefix="[DEBOUNCE]"
+            logger=_LOGGER, logger_prefix="[DEBOUNCE]"
         )
 
         self._debounce_interval = 5.0
@@ -86,12 +85,14 @@ class EventListener:
 
         # IMPORTANT: Ignore Linus Brain's own entities to prevent feedback loops
         # Our sensors (context, insights, stats, etc.) should not trigger area updates
-        if entity_id.startswith("sensor.linus_brain_") or entity_id.startswith("switch.linus_brain_"):
+        if entity_id.startswith("sensor.linus_brain_") or entity_id.startswith(
+            "switch.linus_brain_"
+        ):
             return False
 
         # Get dynamic monitored domains (includes base + activity detection_conditions)
         monitored_domains = get_monitored_domains()
-        
+
         # Check if domain is monitored
         if domain not in monitored_domains:
             return False
@@ -141,11 +142,14 @@ class EventListener:
 
         # Skip invalid states
         if not is_state_valid(new_state):
-            _LOGGER.debug(f"Skipping debounce check for {entity_id} with invalid state: {new_state.state}")
+            _LOGGER.debug(
+                f"Skipping debounce check for {entity_id} with invalid state: {new_state.state}"
+            )
             return True  # Debounce (skip) invalid states
 
         domain = split_entity_id(entity_id)[0]
-        device_class = new_state.attributes.get("original_device_class"
+        device_class = new_state.attributes.get(
+            "original_device_class"
         ) or new_state.attributes.get("device_class")
 
         if domain == "binary_sensor" and device_class in (
@@ -184,7 +188,7 @@ class EventListener:
                 key=area,
                 delay=self._debounce_interval,
                 callback=self._deferred_area_update,
-                area=area
+                area=area,
             )
             return True
 

@@ -28,7 +28,9 @@ from .entity_resolver import EntityResolver
 _LOGGER = logging.getLogger(__name__)
 
 COOLDOWN_SECONDS = 30
-DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL = 30  # Default interval (seconds) between environmental state checks
+DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL = (
+    30  # Default interval (seconds) between environmental state checks
+)
 DEBOUNCE_SECONDS = 2
 
 
@@ -81,21 +83,21 @@ class RuleEngine:
         self._last_triggered: dict[str, datetime] = {}
         self._debounce_tasks: dict[str, asyncio.Task] = {}
         self._last_actions: dict[str, dict[str, Any]] = {}
-        
+
         # Environmental state tracking for transition detection
         # Format: {area_id: {"is_dark": bool}}
         self._previous_env_state: dict[str, dict[str, bool]] = {}
-        
+
         # Lux-based action tracking for cooldown (prevents rapid flickering)
         # Tracks separate cooldowns for enter (lights ON) and exit (lights OFF) actions
         # Format: {area_id: {"enter": datetime, "exit": datetime}}
         self._last_environmental_action: dict[str, dict[str, datetime]] = {}
-        
+
         # Exit action timeout tracking
         # Tracks pending exit action timeouts for environmental transitions
         # Format: {area_id: asyncio.Task}
         self._exit_timeout_tasks: dict[str, asyncio.Task] = {}
-        
+
         # Exit timeout metadata for calculating remaining time
         # Format: {area_id: {"start_time": datetime, "duration": float}}
         self._exit_timeout_metadata: dict[str, dict[str, Any]] = {}
@@ -178,11 +180,11 @@ class RuleEngine:
                 _LOGGER.info(
                     "automatic_lighting app not found in storage, loading fallback app and activities"
                 )
-                from ..const import DEFAULT_AUTOLIGHT_APP, DEFAULT_ACTIVITY_TYPES
-                
+                from ..const import DEFAULT_ACTIVITY_TYPES, DEFAULT_AUTOLIGHT_APP
+
                 # Load default app
                 self.app_storage.set_app("automatic_lighting", DEFAULT_AUTOLIGHT_APP)
-                
+
                 # Ensure required activities exist (movement, inactive, empty)
                 for activity_id in ["movement", "inactive", "empty"]:
                     if not self.app_storage.get_activity(activity_id):
@@ -190,7 +192,7 @@ class RuleEngine:
                             self.app_storage.set_activity(
                                 activity_id, DEFAULT_ACTIVITY_TYPES[activity_id]
                             )
-                
+
                 await self.app_storage.async_save()
                 _LOGGER.info(
                     "Loaded fallback: 1 app (automatic_lighting) + 3 activities (movement, inactive, empty)"
@@ -409,7 +411,7 @@ class RuleEngine:
             Transition type string or None if no transition detected
         """
         previous_state = self._previous_env_state.get(area_id)
-        
+
         if previous_state is None:
             # First time seeing this area, no transition
             return None
@@ -417,7 +419,7 @@ class RuleEngine:
         # Check for darkness transition
         if not previous_state.get("is_dark") and current_state.get("is_dark"):
             return "became_dark"
-        
+
         # Check for brightness transition
         if previous_state.get("is_dark") and not current_state.get("is_dark"):
             return "became_bright"
@@ -633,10 +635,14 @@ class RuleEngine:
                 key = f"{area_id}_{entity_id}"
 
             if key in self._debounce_tasks and not self._debounce_tasks[key].done():
-                _LOGGER.debug(f"[DEBOUNCE] {key}: Cancelled previous rule evaluation task, rescheduling")
+                _LOGGER.debug(
+                    f"[DEBOUNCE] {key}: Cancelled previous rule evaluation task, rescheduling"
+                )
                 self._debounce_tasks[key].cancel()
 
-            _LOGGER.debug(f"[DEBOUNCE] {key}: Scheduled rule evaluation with {DEBOUNCE_SECONDS}s delay")
+            _LOGGER.debug(
+                f"[DEBOUNCE] {key}: Scheduled rule evaluation with {DEBOUNCE_SECONDS}s delay"
+            )
             self._debounce_tasks[key] = asyncio.create_task(
                 self._async_evaluate_rule_debounced(
                     area_id, entity_id, is_environmental=is_environmental
@@ -662,7 +668,9 @@ class RuleEngine:
         trigger_type = "environmental transition" if is_environmental else entity_id
         _LOGGER.info(f"Evaluating rule for {area_id} (triggered by {trigger_type})")
 
-        await self._async_evaluate_and_execute(area_id, is_environmental=is_environmental)
+        await self._async_evaluate_and_execute(
+            area_id, is_environmental=is_environmental
+        )
 
     async def _async_evaluate_and_execute(
         self, area_id: str, is_environmental: bool = False
@@ -698,7 +706,9 @@ class RuleEngine:
         if is_environmental:
             current_activity = self.activity_tracker.get_activity(area_id)
         else:
-            current_activity = await self.activity_tracker.async_evaluate_activity(area_id)
+            current_activity = await self.activity_tracker.async_evaluate_activity(
+                area_id
+            )
 
         assignment = self._assignments[area_id]
         app_id = assignment.get("app_id")
@@ -716,13 +726,13 @@ class RuleEngine:
         # Check the switch entity state via Home Assistant
         switch_entity_id = f"switch.linus_brain_feature_{app_id}_{area_id}"
         switch_state = self.hass.states.get(switch_entity_id)
-        
+
         if switch_state is None:
             _LOGGER.debug(
                 f"Switch {switch_entity_id} not found, assuming app {app_id} is disabled for area {area_id}"
             )
             return
-        
+
         if switch_state.state != "on":
             _LOGGER.debug(
                 f"App {app_id} not enabled for area {area_id} (switch is {switch_state.state}), skipping execution"
@@ -761,13 +771,17 @@ class RuleEngine:
                 # SPECIAL CASE: Bypass cooldown when transitioning from transition state (inactive) to active state
                 # This ensures lights turn on when movement is re-detected after inactivity
                 bypass_cooldown = (
-                    previous_activity 
+                    previous_activity
                     and self.activity_tracker
-                    and self.activity_tracker._activities.get(previous_activity, {}).get("is_transition_state", False)
+                    and self.activity_tracker._activities.get(
+                        previous_activity, {}
+                    ).get("is_transition_state", False)
                 )
-                
+
                 if is_environmental:
-                    if not bypass_cooldown and not self._check_environmental_cooldown(area_id, "enter"):
+                    if not bypass_cooldown and not self._check_environmental_cooldown(
+                        area_id, "enter"
+                    ):
                         self._stats["cooldown_blocks"] += 1
                         _LOGGER.debug(
                             f"Rule {area_id}:{current_activity} (environmental) enter actions in cooldown, skipping"
@@ -775,23 +789,26 @@ class RuleEngine:
                         return
                 else:
                     if not bypass_cooldown and not self._check_cooldown(
-                        area_id, current_activity, is_environmental=False, action_type="enter"
+                        area_id,
+                        current_activity,
+                        is_environmental=False,
+                        action_type="enter",
                     ):
                         self._stats["cooldown_blocks"] += 1
                         _LOGGER.debug(
                             f"Rule {area_id}:{current_activity} (activity) enter actions in cooldown, skipping"
                         )
                         return
-                
+
                 if bypass_cooldown:
                     _LOGGER.info(
                         f"Rule {area_id}: Bypassing cooldown for {previous_activity} → {current_activity} transition (from transition state)"
                     )
-                
+
                 _LOGGER.info(
                     f"Conditions met for {area_id} (activity: {current_activity}), executing actions"
                 )
-                
+
                 # Cancel any pending exit action timeout when conditions become met
                 # This handles the case where environment transitions back (e.g., bright→dark)
                 # before the exit timeout expires
@@ -807,7 +824,7 @@ class RuleEngine:
 
                 if success:
                     self._stats["successful_executions"] += 1
-                    
+
                     # Update cooldown tracking based on trigger type
                     if is_environmental:
                         # For environmental triggers, update environmental cooldown
@@ -815,7 +832,10 @@ class RuleEngine:
                     else:
                         # For activity triggers, update last_triggered
                         self._update_last_triggered(
-                            area_id, current_activity, is_environmental=False, action_type="enter"
+                            area_id,
+                            current_activity,
+                            is_environmental=False,
+                            action_type="enter",
                         )
 
                     self._last_actions[area_id] = {
@@ -843,7 +863,7 @@ class RuleEngine:
                 _LOGGER.debug(
                     f"Conditions not met for {area_id} (activity: {current_activity})"
                 )
-                
+
                 # Check if we should schedule exit actions with timeout
                 # Exit actions run when:
                 # 1. Environmental transition occurred (e.g., became_bright)
@@ -859,16 +879,20 @@ class RuleEngine:
                                 f"Rule {area_id}:{current_activity} (environmental) exit actions in cooldown, skipping"
                             )
                             return
-                        
+
                         # Get timeout duration from current activity
                         timeout_seconds = 0
-                        if self.activity_tracker and hasattr(self.activity_tracker, '_activities'):
-                            activity_data = self.activity_tracker._activities.get(current_activity, {})
+                        if self.activity_tracker and hasattr(
+                            self.activity_tracker, "_activities"
+                        ):
+                            activity_data = self.activity_tracker._activities.get(
+                                current_activity, {}
+                            )
                             timeout_seconds = activity_data.get("timeout_seconds", 0)
                             # Ensure timeout_seconds is a number, not a Mock
                             if not isinstance(timeout_seconds, (int, float)):
                                 timeout_seconds = 0
-                        
+
                         if timeout_seconds > 0:
                             _LOGGER.info(
                                 f"Environmental transition with conditions not met for {area_id} "
@@ -887,19 +911,19 @@ class RuleEngine:
                                 f"Environmental transition with conditions not met for {area_id} "
                                 f"(activity: {current_activity}), executing exit actions immediately (no timeout)"
                             )
-                            
+
                             success = await self.action_executor.execute_actions(
                                 on_exit,
                                 area_id,
                                 current_activity=current_activity,
                                 previous_activity=previous_activity,
                             )
-                            
+
                             if success:
                                 self._stats["successful_executions"] += 1
                                 # Update environmental cooldown for exit actions
                                 self._update_environmental_cooldown(area_id, "exit")
-                                
+
                                 self._last_actions[area_id] = {
                                     "activity": current_activity,
                                     "timestamp": dt_util.utcnow().isoformat(),
@@ -946,17 +970,19 @@ class RuleEngine:
             return True
 
         last_trigger = self._last_triggered[cooldown_key]
-        
+
         # Activity-based triggers use fixed cooldown
         cooldown_until = last_trigger + timedelta(seconds=COOLDOWN_SECONDS)
 
         return dt_util.utcnow() > cooldown_until
 
-    def _check_environmental_cooldown(self, area_id: str, action_type: str = "enter") -> bool:
+    def _check_environmental_cooldown(
+        self, area_id: str, action_type: str = "enter"
+    ) -> bool:
         """
         Check if environmental-based action is in cooldown period.
 
-        Prevents rapid light flickering when environmental values (lux, temperature, etc.) 
+        Prevents rapid light flickering when environmental values (lux, temperature, etc.)
         fluctuate near thresholds. Uses configurable environmental_check_interval from app_storage.
         Tracks separate cooldowns for enter (lights ON) and exit (lights OFF) actions.
 
@@ -969,7 +995,7 @@ class RuleEngine:
         """
         if area_id not in self._last_environmental_action:
             return True
-        
+
         if action_type not in self._last_environmental_action[area_id]:
             return True
 
@@ -977,19 +1003,27 @@ class RuleEngine:
         cooldown_seconds = DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL
         if self.app_storage and hasattr(self.app_storage, "_data"):
             try:
-                stored_cooldown = self.app_storage._data.get("environmental_check_interval")
-                if stored_cooldown is not None and isinstance(stored_cooldown, (int, float)):
+                stored_cooldown = self.app_storage._data.get(
+                    "environmental_check_interval"
+                )
+                if stored_cooldown is not None and isinstance(
+                    stored_cooldown, (int, float)
+                ):
                     cooldown_seconds = int(stored_cooldown)
             except Exception:
                 # Fall back to default if retrieval fails
                 pass
 
-        last_environmental_action = self._last_environmental_action[area_id][action_type]
+        last_environmental_action = self._last_environmental_action[area_id][
+            action_type
+        ]
         cooldown_until = last_environmental_action + timedelta(seconds=cooldown_seconds)
 
         return dt_util.utcnow() > cooldown_until
 
-    def _update_environmental_cooldown(self, area_id: str, action_type: str = "enter") -> None:
+    def _update_environmental_cooldown(
+        self, area_id: str, action_type: str = "enter"
+    ) -> None:
         """
         Update last environmental-based action timestamp for an area.
 
@@ -999,13 +1033,13 @@ class RuleEngine:
         """
         if area_id not in self._last_environmental_action:
             self._last_environmental_action[area_id] = {}
-        
+
         self._last_environmental_action[area_id][action_type] = dt_util.utcnow()
 
     def _cancel_exit_action_timeout(self, area_id: str) -> None:
         """
         Cancel any pending exit action timeout for an area.
-        
+
         Args:
             area_id: The area ID
         """
@@ -1017,25 +1051,25 @@ class RuleEngine:
                     f"[EXIT_TIMEOUT] {area_id}: Cancelled pending exit action timeout"
                 )
             del self._exit_timeout_tasks[area_id]
-        
+
         # Clean up metadata as well
         if area_id in self._exit_timeout_metadata:
             del self._exit_timeout_metadata[area_id]
 
     def _schedule_exit_action_timeout(
-        self, 
-        area_id: str, 
-        on_exit_actions: list, 
+        self,
+        area_id: str,
+        on_exit_actions: list,
         timeout_seconds: float,
         current_activity: str,
         previous_activity: str | None = None,
     ) -> None:
         """
         Schedule exit actions to execute after a timeout period.
-        
+
         This allows environmental transitions (e.g., dark→bright) to delay
         turning off lights, similar to activity timeouts.
-        
+
         Args:
             area_id: The area ID
             on_exit_actions: List of exit actions to execute
@@ -1045,20 +1079,20 @@ class RuleEngine:
         """
         # Cancel any existing exit timeout first
         self._cancel_exit_action_timeout(area_id)
-        
+
         # Store metadata for calculating remaining time
         self._exit_timeout_metadata[area_id] = {
             "start_time": dt_util.utcnow(),
             "duration": timeout_seconds,
         }
-        
+
         task = asyncio.create_task(
             self._exit_action_timeout_handler(
-                area_id, 
-                on_exit_actions, 
-                timeout_seconds, 
-                current_activity, 
-                previous_activity
+                area_id,
+                on_exit_actions,
+                timeout_seconds,
+                current_activity,
+                previous_activity,
             )
         )
         self._exit_timeout_tasks[area_id] = task
@@ -1076,7 +1110,7 @@ class RuleEngine:
     ) -> None:
         """
         Handle the execution of exit actions after timeout expires.
-        
+
         Args:
             area_id: The area ID
             on_exit_actions: List of exit actions to execute
@@ -1089,23 +1123,23 @@ class RuleEngine:
                 f"[EXIT_TIMEOUT] {area_id}: Waiting {timeout_seconds}s before executing exit actions"
             )
             await asyncio.sleep(timeout_seconds)
-            
+
             _LOGGER.info(
                 f"[EXIT_TIMEOUT] {area_id}: Timeout expired, executing exit actions"
             )
-            
+
             success = await self.action_executor.execute_actions(
                 on_exit_actions,
                 area_id,
                 current_activity=current_activity,
                 previous_activity=previous_activity,
             )
-            
+
             if success:
                 self._stats["successful_executions"] += 1
                 # Update environmental cooldown for exit actions
                 self._update_environmental_cooldown(area_id, "exit")
-                
+
                 self._last_actions[area_id] = {
                     "activity": current_activity,
                     "timestamp": dt_util.utcnow().isoformat(),
@@ -1113,13 +1147,13 @@ class RuleEngine:
                     "action_type": "on_exit",
                 }
                 self._update_switch_last_action(area_id)
-            
+
             # Clean up task tracking and metadata
             if area_id in self._exit_timeout_tasks:
                 del self._exit_timeout_tasks[area_id]
             if area_id in self._exit_timeout_metadata:
                 del self._exit_timeout_metadata[area_id]
-                
+
         except asyncio.CancelledError:
             _LOGGER.debug(
                 f"[EXIT_TIMEOUT] {area_id}: Exit action timeout was cancelled"
@@ -1139,23 +1173,23 @@ class RuleEngine:
     def get_exit_timeout_remaining(self, area_id: str) -> float | None:
         """
         Get time remaining before exit actions execute.
-        
+
         Args:
             area_id: The area ID
-            
+
         Returns:
             Seconds remaining before exit timeout expires, or None if no timeout active
         """
         if area_id not in self._exit_timeout_metadata:
             return None
-        
+
         metadata = self._exit_timeout_metadata[area_id]
         start_time = metadata["start_time"]
         duration = metadata["duration"]
-        
+
         elapsed = (dt_util.utcnow() - start_time).total_seconds()
         remaining = duration - elapsed
-        
+
         return max(0, remaining) if remaining > 0 else None
 
     def _update_last_triggered(

@@ -5,10 +5,10 @@ import pytest
 import pytest_asyncio
 from homeassistant.core import HomeAssistant
 
+from ..coordinator import LinusBrainCoordinator
 from ..utils.activity_tracker import ActivityTracker
 from ..utils.app_storage import AppStorage
 from ..utils.condition_evaluator import ConditionEvaluator
-from ..coordinator import LinusBrainCoordinator
 
 
 @pytest.fixture
@@ -255,8 +255,8 @@ async def test_lights_turn_off_when_empty_state_reached(
     hass: HomeAssistant,
     mock_condition_evaluator: MagicMock,
 ):
-    from custom_components.linus_brain.utils.rule_engine import RuleEngine
     from custom_components.linus_brain.utils.action_executor import ActionExecutor
+    from custom_components.linus_brain.utils.rule_engine import RuleEngine
 
     area_id = "living_room"
 
@@ -439,8 +439,8 @@ async def test_full_scenario_movement_to_empty_with_light_control(
     mock_app_storage: MagicMock,
     mock_condition_evaluator: MagicMock,
 ):
-    from custom_components.linus_brain.utils.rule_engine import RuleEngine
     from custom_components.linus_brain.utils.action_executor import ActionExecutor
+    from custom_components.linus_brain.utils.rule_engine import RuleEngine
 
     area_id = "living_room"
 

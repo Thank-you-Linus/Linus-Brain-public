@@ -30,11 +30,11 @@ def mock_hass():
     """Mock Home Assistant instance with feature switch enabled by default."""
     hass = MagicMock()
     hass.states = MagicMock()
-    
+
     # By default, return a switch that's ON (feature enabled)
     default_switch = create_switch_state("living_room", "automatic_lighting", True)
     hass.states.get = MagicMock(return_value=default_switch)
-    
+
     hass.services = MagicMock()
     hass.services.async_call = AsyncMock()
     hass.data = {}
@@ -77,12 +77,14 @@ def mock_feature_flag_manager():
     """Mock FeatureFlagManager - only provides feature definitions."""
     manager = MagicMock()
     # FeatureFlagManager no longer manages state, only definitions
-    manager.get_feature_definitions = MagicMock(return_value={
-        "automatic_lighting": {
-            "name": "Automatic Lighting",
-            "default_enabled": True
+    manager.get_feature_definitions = MagicMock(
+        return_value={
+            "automatic_lighting": {
+                "name": "Automatic Lighting",
+                "default_enabled": True,
+            }
         }
-    })
+    )
     return manager
 
 
@@ -217,7 +219,7 @@ async def test_lights_turn_on_when_dark_and_movement(rule_engine, mock_hass):
     call_args = mock_hass.services.async_call.call_args[0]  # positional args
     assert call_args[0] == "light"
     assert call_args[1] == "turn_on"
-    
+
     # Service data is the third positional argument
     service_data = call_args[2] if len(call_args) > 2 else {}
     entity_ids = service_data.get("entity_id", [])
@@ -299,7 +301,7 @@ async def test_lights_respect_feature_flag_off(rule_engine, mock_hass):
     rule_engine.area_manager.get_area_environmental_state = MagicMock(
         return_value={"is_dark": True, "illuminance": 5}
     )
-    
+
     # Mock the switch state to be OFF (feature disabled)
     off_switch = create_switch_state("living_room", "automatic_lighting", False)
     mock_hass.states.get = MagicMock(return_value=off_switch)
@@ -380,7 +382,9 @@ async def test_lights_turn_on_when_becomes_dark(rule_engine, mock_hass):
 
     # Detect transition
     current_state = {"is_dark": True}
-    transition = rule_engine._detect_environmental_transition("living_room", current_state)
+    transition = rule_engine._detect_environmental_transition(
+        "living_room", current_state
+    )
     assert transition == "became_dark"
 
     # Second evaluation: Now dark, should trigger lights
@@ -472,7 +476,9 @@ async def test_complete_flow_movement_to_empty(rule_engine, mock_hass):
     mock_hass.services.async_call.reset_mock()
 
     # Phase 2: Activity becomes empty → lights OFF
-    rule_engine.activity_tracker.async_evaluate_activity = AsyncMock(return_value="empty")
+    rule_engine.activity_tracker.async_evaluate_activity = AsyncMock(
+        return_value="empty"
+    )
 
     await rule_engine._async_evaluate_and_execute("living_room")
     assert mock_hass.services.async_call.call_count == 1
@@ -518,7 +524,9 @@ async def test_stats_accuracy_triggers_vs_executions(rule_engine, mock_hass):
     # Assert stats
     stats = rule_engine.get_stats()
     assert stats["total_triggers"] == 3  # All 3 evaluations counted
-    assert stats["successful_executions"] == 2  # Only 2 actually executed (dark scenarios)
+    assert (
+        stats["successful_executions"] == 2
+    )  # Only 2 actually executed (dark scenarios)
     assert stats["failed_executions"] == 0  # None failed
 
 
@@ -661,12 +669,12 @@ async def test_multiple_lights_all_turn_on(rule_engine, mock_hass):
 @pytest.mark.asyncio
 async def test_inactive_to_movement_retriggers_lights(rule_engine, mock_hass):
     """Test that lights turn back on when transitioning from inactive to movement.
-    
+
     Scenario:
     1. Movement detected → lights ON
     2. Motion stops → inactive (transition state)
     3. Movement detected again → lights should turn ON again (bypass cooldown)
-    
+
     This ensures that when someone leaves a room (inactive) and comes back
     immediately (movement), the lights turn back on even if cooldown hasn't expired.
     """
@@ -685,7 +693,7 @@ async def test_inactive_to_movement_retriggers_lights(rule_engine, mock_hass):
             "is_transition_state": True,  # Key: this is a transition state
         },
     }
-    
+
     rule_engine.activity_tracker.async_evaluate_activity = AsyncMock(
         return_value="movement"
     )
@@ -693,30 +701,30 @@ async def test_inactive_to_movement_retriggers_lights(rule_engine, mock_hass):
     rule_engine.area_manager.get_area_environmental_state = MagicMock(
         return_value={"is_dark": True, "illuminance": 5}
     )
-    
+
     # Step 1: First movement → lights turn ON
     await rule_engine._async_evaluate_and_execute("living_room")
     assert mock_hass.services.async_call.call_count == 1
     mock_hass.services.async_call.reset_mock()
-    
+
     # Step 2: Simulate transition to inactive (set previous_activity)
     from ..const import DOMAIN
+
     entry_data = mock_hass.data.get(DOMAIN, {}).get(rule_engine.entry_id, {})
     mock_coordinator = MagicMock()
     mock_coordinator.previous_activities = {"living_room": "inactive"}
     entry_data["coordinator"] = mock_coordinator
     mock_hass.data.setdefault(DOMAIN, {})[rule_engine.entry_id] = entry_data
-    
+
     # Step 3: Movement detected again → should bypass cooldown and turn lights ON
     await rule_engine._async_evaluate_and_execute("living_room")
-    
+
     # Assert: Lights turned ON again (cooldown bypassed due to transition from inactive)
     assert mock_hass.services.async_call.call_count == 1
     call_args = mock_hass.services.async_call.call_args[0]
     assert call_args[0] == "light"
     assert call_args[1] == "turn_on"
-    
+
     # Verify stats don't show cooldown block
     stats = rule_engine.get_stats()
     assert stats["successful_executions"] == 2  # Both executions succeeded
-

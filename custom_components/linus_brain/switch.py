@@ -112,7 +112,9 @@ class LinusBrainFeatureSwitch(RestoreEntity, SwitchEntity):
         # Set entity attributes
         self._attr_unique_id = f"{DOMAIN}_feature_{feature_id}_{area_id}"
         self._attr_has_entity_name = True
-        self._attr_suggested_object_id = f"{DOMAIN}_feature_{feature_id}_{area_id}"  # Force English entity_id
+        self._attr_suggested_object_id = (
+            f"{DOMAIN}_feature_{feature_id}_{area_id}"  # Force English entity_id
+        )
 
         # Use translation key for proper localization
         self._attr_translation_key = f"feature_{feature_id}"
@@ -156,23 +158,30 @@ class LinusBrainFeatureSwitch(RestoreEntity, SwitchEntity):
         self._attr_is_on = True
         self.async_write_ha_state()
         _LOGGER.info(f"Feature {self._feature_id} ENABLED for area {self._area_id}")
-        
+
         # Trigger immediate rule evaluation if rule engine is available
         from .const import DOMAIN
-        rule_engine = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {}).get("rule_engine")
+
+        rule_engine = (
+            self.hass.data.get(DOMAIN, {})
+            .get(self._entry.entry_id, {})
+            .get("rule_engine")
+        )
         if rule_engine:
             _LOGGER.info(
                 f"Triggering immediate rule evaluation for {self._area_id} after enabling {self._feature_id}"
             )
             # Schedule evaluation in background to avoid blocking switch response
             self.hass.async_create_task(
-                rule_engine._async_evaluate_and_execute(self._area_id, is_environmental=False)
+                rule_engine._async_evaluate_and_execute(
+                    self._area_id, is_environmental=False
+                )
             )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """
         Turn the feature off.
-        
+
         Note: This only disables future automation. It does not change the current
         state of devices (e.g., lights remain on if they were on). This allows users
         to disable automation without disrupting their current environment.

@@ -8,9 +8,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from ..utils import area_manager
 from ..utils.condition_evaluator import ConditionEvaluator
 from ..utils.entity_resolver import EntityResolver
-from ..utils import area_manager
 
 
 @pytest.fixture
@@ -53,9 +53,7 @@ def mock_area_manager():
 @pytest.fixture
 def condition_evaluator(mock_hass, mock_entity_resolver, mock_area_manager):
     """Create ConditionEvaluator instance with mocked area_manager."""
-    return ConditionEvaluator(
-        mock_hass, mock_entity_resolver, None, mock_area_manager
-    )
+    return ConditionEvaluator(mock_hass, mock_entity_resolver, None, mock_area_manager)
 
 
 class TestPresenceConfigCaching:

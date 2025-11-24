@@ -81,7 +81,9 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
 
         # Initialize utilities for activity tracker
         self.entity_resolver = EntityResolver(hass)
-        self.condition_evaluator = ConditionEvaluator(hass, self.entity_resolver, None, self.area_manager)
+        self.condition_evaluator = ConditionEvaluator(
+            hass, self.entity_resolver, None, self.area_manager
+        )
 
         # Initialize activity tracker with app_storage
         self.activity_tracker = ActivityTracker(

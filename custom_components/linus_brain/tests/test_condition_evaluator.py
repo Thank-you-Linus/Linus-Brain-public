@@ -4,7 +4,7 @@ Unit tests for ConditionEvaluator.
 Tests condition evaluation including nested AND/OR logic.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 

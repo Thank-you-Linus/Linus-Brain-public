@@ -182,11 +182,15 @@ class TestAppStorageCloudSync:
 
         assert result is True
         # All activities come from local const.py (4 system activities)
-        assert len(app_storage._data["activities"]) == 4  # movement, inactive, empty, occupied
+        assert (
+            len(app_storage._data["activities"]) == 4
+        )  # movement, inactive, empty, occupied
         assert len(app_storage._data["apps"]) == 1
-        assert len(app_storage._data["assignments"]) == 0  # Assignments managed by switches
+        assert (
+            len(app_storage._data["assignments"]) == 0
+        )  # Assignments managed by switches
         assert app_storage._data["is_fallback"] is False
-        
+
         # Verify system activities exist (loaded from local)
         assert "movement" in app_storage._data["activities"]
         assert "inactive" in app_storage._data["activities"]
@@ -209,7 +213,9 @@ class TestAppStorageCloudSync:
         )
 
         assert result is True
-        assert app_storage._data["assignments"] == {}  # Always empty (managed by switches)
+        assert (
+            app_storage._data["assignments"] == {}
+        )  # Always empty (managed by switches)
         assert app_storage.is_fallback_data() is False
         # Activities are loaded from local const.py (4 activities)
         assert len(app_storage._data["activities"]) == 4
@@ -383,7 +389,9 @@ class TestAppStorageInitialize:
         )
 
         assert data["is_fallback"] is True
-        assert len(data["activities"]) == 4  # Fallback loads from const.py (4 activities: movement, inactive, occupied, empty)
+        assert (
+            len(data["activities"]) == 4
+        )  # Fallback loads from const.py (4 activities: movement, inactive, occupied, empty)
         assert "automatic_lighting" in data["apps"]
 
     @pytest.mark.asyncio
@@ -442,9 +450,7 @@ class TestAppStorageInitialize:
 
         # The key assertion: synced_at should be set (cloud sync succeeded)
         sync_time = app_storage.get_sync_time()
-        assert (
-            sync_time is not None
-        ), "Sync time should be set when cloud sync succeeds"
+        assert sync_time is not None, "Sync time should be set when cloud sync succeeds"
 
         # Verify system activities are injected (movement, inactive, occupied, empty)
         activities = app_storage.get_activities()
@@ -453,7 +459,7 @@ class TestAppStorageInitialize:
         assert "inactive" in activities
         assert "occupied" in activities
         assert "empty" in activities
-        
+
         # Verify automatic_lighting was injected as fallback when cloud had none
         apps = app_storage.get_apps()
         assert len(apps) == 1
@@ -470,12 +476,12 @@ class TestAppStorageDefensiveFallbacks:
         # Storage is empty, no automatic_lighting app
         # But get_app should auto-inject and return it
         app = app_storage.get_app("automatic_lighting")
-        
+
         # Should have auto-injected the fallback
         assert app is not None
         assert app["app_id"] == "automatic_lighting"
         assert "activity_actions" in app
-        
+
         # Verify it was persisted to storage
         stored_app = app_storage._data["apps"].get("automatic_lighting")
         assert stored_app is not None
@@ -489,7 +495,7 @@ class TestAppStorageDefensiveFallbacks:
             "activity_actions": {"movement": {}},
         }
         app_storage.set_app("automatic_lighting", custom_app)
-        
+
         app = app_storage.get_app("automatic_lighting")
         assert app == custom_app
         assert app["app_name"] == "Custom AutoLight"
@@ -533,7 +539,7 @@ class TestAppStorageDefensiveFallbacks:
             "timeout_seconds": 999,
         }
         app_storage.set_activity("movement", custom_activity)
-        
+
         activity = app_storage.get_activity("movement")
         assert activity == custom_activity
         assert activity["timeout_seconds"] == 999
@@ -544,7 +550,9 @@ class TestAppStorageDefensiveFallbacks:
     ):
         """Test that cloud sync injects automatic_lighting fallback when not in cloud."""
         # Mock cloud returning no app (automatic_lighting missing)
-        mock_supabase.fetch_app_with_actions.return_value = None  # App not found in cloud
+        mock_supabase.fetch_app_with_actions.return_value = (
+            None  # App not found in cloud
+        )
         mock_supabase.fetch_activity_types.return_value = {
             "movement": {"activity_id": "movement"},
             "inactive": {"activity_id": "inactive"},
@@ -556,12 +564,12 @@ class TestAppStorageDefensiveFallbacks:
         )
 
         assert result is True
-        
+
         # Verify automatic_lighting was injected as fallback
         app = app_storage.get_app("automatic_lighting")
         assert app is not None
         assert app["app_id"] == "automatic_lighting"
-        
+
         # Verify assignments are empty (managed locally by switches, not from cloud)
         assignment = app_storage.get_assignment("kitchen")
         assert assignment is None  # Assignments not fetched from cloud anymore
@@ -586,12 +594,12 @@ class TestAppStorageDefensiveFallbacks:
         )
 
         assert result is True
-        
+
         # Verify all system activities exist (should be injected)
         movement = app_storage.get_activity("movement")
         inactive = app_storage.get_activity("inactive")
         empty = app_storage.get_activity("empty")
-        
+
         assert movement is not None
         assert inactive is not None
         assert empty is not None

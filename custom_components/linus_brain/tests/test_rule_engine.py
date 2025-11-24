@@ -91,29 +91,30 @@ class TestRuleEngineInitialization:
     ):
         """Test that _ensure_default_assignments loads fallback when automatic_lighting app is missing."""
         from unittest.mock import patch
+
         from ..const import DEFAULT_AUTOLIGHT_APP
 
         # Mock no app exists yet
         mock_app_storage.get_app.return_value = None
-        
+
         # Mock activity check (will need to add 3 activities)
         mock_app_storage.get_activity.return_value = None
-        
+
         # Mock that user has areas configured
         mock_area1 = MagicMock()
         mock_area1.id = "kitchen"
         mock_area1.name = "Kitchen"
-        
+
         mock_area2 = MagicMock()
         mock_area2.id = "bedroom"
         mock_area2.name = "Bedroom"
-        
+
         # Patch area_registry at the import location
-        with patch('homeassistant.helpers.area_registry.async_get') as mock_ar_get:
+        with patch("homeassistant.helpers.area_registry.async_get") as mock_ar_get:
             mock_registry = MagicMock()
             mock_registry.async_list_areas.return_value = [mock_area1, mock_area2]
             mock_ar_get.return_value = mock_registry
-            
+
             # Mock hass.data for coordinator (optional)
             rule_engine.hass.data = {"linus_brain": {"test_entry": {}}}
 
@@ -122,14 +123,16 @@ class TestRuleEngineInitialization:
 
         # Verify app was created
         assert mock_app_storage.set_app.call_count == 1
-        mock_app_storage.set_app.assert_any_call("automatic_lighting", DEFAULT_AUTOLIGHT_APP)
-        
+        mock_app_storage.set_app.assert_any_call(
+            "automatic_lighting", DEFAULT_AUTOLIGHT_APP
+        )
+
         # Verify activities were created (movement, inactive, empty)
         assert mock_app_storage.set_activity.call_count == 3
-        
+
         # Verify async_save was called to persist
         assert mock_app_storage.async_save.call_count >= 1
-        
+
         # Verify assignments were created for both areas
         assert mock_app_storage.set_assignment.call_count == 2
 

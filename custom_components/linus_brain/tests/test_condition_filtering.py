@@ -5,11 +5,10 @@ Tests that ConditionEvaluator correctly filters conditions based on the
 presence detection configuration from config flow.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
-from ..const import CONF_PRESENCE_DETECTION_CONFIG
 from ..utils.condition_evaluator import ConditionEvaluator
 from ..utils.entity_resolver import EntityResolver
 
@@ -19,7 +18,7 @@ def mock_hass():
     """Mock Home Assistant instance."""
     hass = MagicMock()
     hass.states = MagicMock()
-    
+
     # Mock entity states
     states = {
         "binary_sensor.motion": MagicMock(state="on"),
@@ -28,7 +27,7 @@ def mock_hass():
         "media_player.tv": MagicMock(state="playing"),
     }
     hass.states.get = MagicMock(side_effect=lambda entity_id: states.get(entity_id))
-    
+
     return hass
 
 

@@ -12,13 +12,12 @@ Key responsibilities:
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from homeassistant.core import HomeAssistant, State, split_entity_id
 from homeassistant.helpers import area_registry, device_registry, entity_registry
 
-from .state_validator import is_state_valid
 from ..const import (
     CONF_PRESENCE_DETECTION_CONFIG,
     DEFAULT_ACTIVITY_TYPES,
@@ -29,6 +28,7 @@ from ..const import (
     MONITORED_DOMAINS,  # Used in module-level get_monitored_domains()
     PRESENCE_DETECTION_DOMAINS,  # Used in module-level get_presence_detection_domains()
 )
+from .state_validator import is_state_valid
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,18 +40,18 @@ _PRESENCE_DETECTION_DOMAINS_CACHE: dict[str, list[str]] | None = None
 def _extract_domains_from_conditions(conditions: list) -> dict[str, set[str]]:
     """
     Recursively extract domains and device_classes from condition structures.
-    
+
     Args:
         conditions: List of condition dictionaries
-        
+
     Returns:
         Dictionary mapping domain to set of device_classes
     """
     result: dict[str, set[str]] = {}
-    
+
     if not conditions:
         return result
-    
+
     for condition in conditions:
         # Handle nested OR/AND conditions
         if condition.get("condition") in ("or", "and"):
@@ -60,38 +60,38 @@ def _extract_domains_from_conditions(conditions: list) -> dict[str, set[str]]:
                 if domain not in result:
                     result[domain] = set()
                 result[domain].update(device_classes)
-        
+
         # Handle state conditions with domain/device_class
         elif condition.get("condition") == "state":
             domain = condition.get("domain")
             device_class = condition.get("device_class")
-            
+
             if domain:
                 if domain not in result:
                     result[domain] = set()
                 if device_class:
                     result[domain].add(device_class)
-    
+
     return result
 
 
 def get_monitored_domains() -> dict[str, list[str]]:
     """
     Dynamically compute monitored domains from activity detection conditions.
-    
+
     Uses module-level cache since constants don't change at runtime.
-    
+
     Returns:
         Dictionary mapping domain to list of device_classes (empty list = monitor all)
     """
     global _MONITORED_DOMAINS_CACHE
-    
+
     # Return cached result if available
     if _MONITORED_DOMAINS_CACHE is not None:
         return _MONITORED_DOMAINS_CACHE
-    
+
     domains: dict[str, set[str]] = {}
-    
+
     # 1. Extract from activity detection conditions
     for activity in DEFAULT_ACTIVITY_TYPES.values():
         conditions = activity.get("detection_conditions", [])
@@ -100,7 +100,7 @@ def get_monitored_domains() -> dict[str, list[str]]:
             if domain not in domains:
                 domains[domain] = set()
             domains[domain].update(device_classes)
-    
+
     # 2. Extract from app conditions (e.g., automatic_lighting)
     for activity_actions in DEFAULT_AUTOLIGHT_APP["activity_actions"].values():
         conditions = activity_actions.get("conditions", [])
@@ -109,19 +109,19 @@ def get_monitored_domains() -> dict[str, list[str]]:
             if domain not in domains:
                 domains[domain] = set()
             domains[domain].update(device_classes)
-    
+
     # 3. Add base sensors for insights (illuminance, temperature, humidity, presence)
     # These are always monitored from MONITORED_DOMAINS constant
     for domain, device_classes in MONITORED_DOMAINS.items():
         if domain not in domains:
             domains[domain] = set()
         domains[domain].update(device_classes)
-    
+
     # Convert sets to lists (empty list means monitor all entities in that domain)
     result = {}
     for domain, device_classes in domains.items():
         result[domain] = sorted(list(device_classes)) if device_classes else []
-    
+
     # Cache the result
     _MONITORED_DOMAINS_CACHE = result
     return result
@@ -131,20 +131,20 @@ def get_presence_detection_domains() -> dict[str, list[str]]:
     """
     Dynamically compute presence detection domains from activity detection conditions.
     Only includes domains/device_classes used for presence/movement detection.
-    
+
     Uses module-level cache since constants don't change at runtime.
-    
+
     Returns:
         Dictionary mapping domain to list of device_classes (empty list = monitor all)
     """
     global _PRESENCE_DETECTION_DOMAINS_CACHE
-    
+
     # Return cached result if available
     if _PRESENCE_DETECTION_DOMAINS_CACHE is not None:
         return _PRESENCE_DETECTION_DOMAINS_CACHE
-    
+
     domains: dict[str, set[str]] = {}
-    
+
     # 1. Extract only from activities that detect presence (movement, occupied)
     presence_activities = ["movement", "occupied"]
     for activity_id in presence_activities:
@@ -156,19 +156,19 @@ def get_presence_detection_domains() -> dict[str, list[str]]:
                 if domain not in domains:
                     domains[domain] = set()
                 domains[domain].update(device_classes)
-    
+
     # 2. Add base presence detection domains (e.g., 'presence' device class)
     # These are always monitored from PRESENCE_DETECTION_DOMAINS constant
     for domain, device_classes in PRESENCE_DETECTION_DOMAINS.items():
         if domain not in domains:
             domains[domain] = set()
         domains[domain].update(device_classes)
-    
+
     # Convert sets to lists
     result = {}
     for domain, device_classes in domains.items():
         result[domain] = sorted(list(device_classes)) if device_classes else []
-    
+
     # Cache the result
     _PRESENCE_DETECTION_DOMAINS_CACHE = result
     return result
@@ -213,7 +213,7 @@ class AreaManager:
             Dictionary mapping area_id to list of entity_ids
         """
         area_entities: dict[str, list[str]] = {}
-        
+
         # Get dynamically computed monitored domains
         monitored_domains = get_monitored_domains()
 
@@ -298,25 +298,24 @@ class AreaManager:
         """
         # Get the current presence detection configuration
         config = self._get_presence_detection_config()
-        
+
         # Check each configured detection type
         presence_checks = []
-        
+
         if config.get("motion", False):
             presence_checks.append(entity_states.get("motion") == "on")
-        
+
         if config.get("presence", False):
             presence_checks.append(entity_states.get("presence") == "on")
-        
+
         if config.get("occupancy", False):
             presence_checks.append(entity_states.get("occupancy") == "on")
-        
+
         if config.get("media_playing", False):
             presence_checks.append(entity_states.get("media") in ["playing", "on"])
-        
+
         # Return True if ANY enabled detection type is active
         return any(presence_checks) if presence_checks else False
-
 
     def _get_presence_detection_config(self) -> dict[str, bool]:
         """
@@ -324,7 +323,7 @@ class AreaManager:
         1. Config Flow (user's personal preference) - Primary source
         2. Cloud (Supabase ha_instances.presence_detection_config) - Secondary/shared default
         3. Hardcoded Defaults (const.py) - Ultimate fallback
-        
+
         Returns:
             Dictionary mapping detection types to enabled state:
             {
@@ -339,14 +338,16 @@ class AreaManager:
             config_list = self._config_entry.options.get(CONF_PRESENCE_DETECTION_CONFIG)
             if config_list is not None:
                 # Convert list of enabled detection types to dict
-                _LOGGER.debug(f"Using presence detection config from config flow: {config_list}")
+                _LOGGER.debug(
+                    f"Using presence detection config from config flow: {config_list}"
+                )
                 return {
                     "motion": "motion" in config_list,
                     "presence": "presence" in config_list,
                     "occupancy": "occupancy" in config_list,
                     "media_playing": "media_playing" in config_list,
                 }
-        
+
         # Priority 2: Cloud (Supabase ha_instances.presence_detection_config)
         # TODO: Implement cloud fetch in future iteration
         # This would query Supabase for ha_instances.presence_detection_config
@@ -357,14 +358,13 @@ class AreaManager:
         #         _LOGGER.debug(f"Using presence detection config from cloud: {cloud_config}")
         #         return cloud_config
         # For now, we skip this and fall through to defaults
-        
+
         # Priority 3: Hardcoded Defaults
         _LOGGER.debug("Using hardcoded default presence detection config")
         return {
             key: config["enabled"]
             for key, config in DEFAULT_PRESENCE_DETECTION_CONFIG.items()
         }
-
 
     async def get_area_state(self, area_id: str) -> dict[str, Any] | None:
         """
@@ -397,7 +397,9 @@ class AreaManager:
         for entity_id in entity_ids:
             state = self._get_entity_state(entity_id)
             if not is_state_valid(state):
-                _LOGGER.debug(f"Skipping entity {entity_id} with invalid state: {state.state if state else 'None'}")
+                _LOGGER.debug(
+                    f"Skipping entity {entity_id} with invalid state: {state.state if state else 'None'}"
+                )
                 continue
 
             domain = split_entity_id(entity_id)[0]
@@ -647,8 +649,46 @@ class AreaManager:
 
         return area_id
 
+    def _get_presence_sensors_for_area(self, area_id: str) -> list[str]:
+        """
+        Get list of presence sensor entity IDs for a specific area.
+
+        Args:
+            area_id: The area ID to get sensors for
+
+        Returns:
+            List of entity IDs that can detect presence in the area
+        """
+        presence_sensors = []
+        presence_config = get_presence_detection_domains()
+
+        for entity in self._entity_registry.entities.values():
+            # Check if entity belongs to this area
+            entity_area = entity.area_id
+            if not entity_area and entity.device_id:
+                device_registry_instance = device_registry.async_get(self.hass)
+                device = device_registry_instance.async_get(entity.device_id)
+                if device:
+                    entity_area = device.area_id
+
+            if entity_area != area_id:
+                continue
+
+            # Check if entity is a presence detection entity
+            domain = entity.domain
+            if domain not in presence_config:
+                continue
+
+            device_classes = presence_config[domain]
+            if device_classes and entity.original_device_class not in device_classes:
+                continue
+
+            presence_sensors.append(entity.entity_id)
+
+        return presence_sensors
+
     def get_area_presence_binary(
-        self, area_id: str, presence_sensors: list[str]
+        self, area_id: str, presence_sensors: list[str] | None = None
     ) -> dict[str, Any]:
         """
         Get binary presence detection for an area.
@@ -657,7 +697,9 @@ class AreaManager:
 
         Args:
             area_id: The area ID to check
-            presence_sensors: List of entity_ids to check
+            presence_sensors: Optional list of entity_ids to check.
+                            If not provided, will automatically discover
+                            presence sensors in the area.
 
         Returns:
             Dictionary with binary presence and detection reasons:
@@ -667,6 +709,10 @@ class AreaManager:
                 "timestamp": "2025-10-22T21:00:00Z"
             }
         """
+        # If presence_sensors not provided, get them automatically
+        if presence_sensors is None:
+            presence_sensors = self._get_presence_sensors_for_area(area_id)
+
         detection_reasons = []
 
         for entity_id in presence_sensors:
@@ -686,7 +732,7 @@ class AreaManager:
         return {
             "presence_detected": len(detection_reasons) > 0,
             "detection_reasons": detection_reasons,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
     # ========================================================================
@@ -725,7 +771,11 @@ class AreaManager:
                     if state:
                         try:
                             value = float(state.state)
-                            return round(value, round_digits) if round_digits is not None else value
+                            return (
+                                round(value, round_digits)
+                                if round_digits is not None
+                                else value
+                            )
                         except (ValueError, TypeError):
                             pass
 
@@ -854,11 +904,11 @@ class AreaManager:
         # Determine dark threshold with priority: AI Insight > User Config > Default Constant
         # 1. Start with hardcoded default
         dark_threshold = DEFAULT_DARK_THRESHOLD_LUX  # 20.0 lux
-        
+
         # 2. Override with user-configured value if available (local default)
         if self._config_entry:
             from ..const import CONF_DARK_LUX_THRESHOLD
-            
+
             dark_threshold = self._config_entry.options.get(
                 CONF_DARK_LUX_THRESHOLD, DEFAULT_DARK_THRESHOLD_LUX
             )
@@ -881,7 +931,10 @@ class AreaManager:
                 f"Area {area_id}: Using both illuminance AND sun_elevation "
                 f"(illuminance={illuminance} < {dark_threshold} OR sun_elevation={sun_elevation} < {DEFAULT_DARK_THRESHOLD_SUN_ELEVATION})"
             )
-            is_dark = illuminance < dark_threshold or sun_elevation < DEFAULT_DARK_THRESHOLD_SUN_ELEVATION
+            is_dark = (
+                illuminance < dark_threshold
+                or sun_elevation < DEFAULT_DARK_THRESHOLD_SUN_ELEVATION
+            )
         elif illuminance is not None:
             _LOGGER.debug(
                 f"Area {area_id}: Using ONLY illuminance "
@@ -924,7 +977,10 @@ class AreaManager:
             Temperature value, or None if no temperature sensors found
         """
         return self._get_area_sensor_average(
-            area_id, "temperature", registry_attr="temperature_entity_id", round_digits=1
+            area_id,
+            "temperature",
+            registry_attr="temperature_entity_id",
+            round_digits=1,
         )
 
     def get_area_humidity(self, area_id: str) -> float | None:

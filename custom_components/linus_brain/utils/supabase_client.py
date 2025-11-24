@@ -14,7 +14,6 @@ import logging
 from typing import Any
 
 import aiohttp
-
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -108,9 +107,7 @@ class SupabaseClient:
                     return (status, data)
                 else:
                     text = await response.text()
-                    _LOGGER.error(
-                        f"Failed {operation} (status {status}): {text}"
-                    )
+                    _LOGGER.error(f"Failed {operation} (status {status}): {text}")
                     return (status, text)
 
         except aiohttp.ClientError as err:
@@ -162,9 +159,7 @@ class SupabaseClient:
                     return (status, data)
                 else:
                     text = await response.text()
-                    _LOGGER.error(
-                        f"Failed {operation} (status {status}): {text}"
-                    )
+                    _LOGGER.error(f"Failed {operation} (status {status}): {text}")
                     return (status, text)
 
         except aiohttp.ClientError as err:
@@ -215,9 +210,7 @@ class SupabaseClient:
                     return (status, data)
                 else:
                     text = await response.text()
-                    _LOGGER.error(
-                        f"Failed {operation} (status {status}): {text}"
-                    )
+                    _LOGGER.error(f"Failed {operation} (status {status}): {text}")
                     return (status, text)
 
         except aiohttp.ClientError as err:
@@ -262,9 +255,7 @@ class SupabaseClient:
         }
 
         _LOGGER.debug("Fetching automation rules from Supabase")
-        status, data = await self._http_get(
-            url, params=params, operation="fetch rules"
-        )
+        status, data = await self._http_get(url, params=params, operation="fetch rules")
 
         if status == 200:
             _LOGGER.debug(f"Fetched {len(data)} rules from Supabase")
@@ -325,9 +316,7 @@ class SupabaseClient:
             "select": "*",
         }
 
-        _LOGGER.debug(
-            f"Looking up instance for HA installation: {ha_installation_id}"
-        )
+        _LOGGER.debug(f"Looking up instance for HA installation: {ha_installation_id}")
 
         status, data = await self._http_get(
             url, params=params, operation="lookup instance"
@@ -436,9 +425,7 @@ class SupabaseClient:
         )
 
         if status in (200, 204):
-            _LOGGER.debug(
-                f"Successfully updated last_seen for instance: {instance_id}"
-            )
+            _LOGGER.debug(f"Successfully updated last_seen for instance: {instance_id}")
             return True
         else:
             return False
@@ -482,14 +469,10 @@ class SupabaseClient:
             f"Sending light action for {data.get('entity_id')} in {data.get('area_id', 'unknown')}"
         )
 
-        status, _ = await self._http_post(
-            url, data, operation="send light action"
-        )
+        status, _ = await self._http_post(url, data, operation="send light action")
 
         if status in (200, 201, 204):
-            _LOGGER.debug(
-                f"Successfully sent light action for {data.get('entity_id')}"
-            )
+            _LOGGER.debug(f"Successfully sent light action for {data.get('entity_id')}")
             return True
         else:
             return False
