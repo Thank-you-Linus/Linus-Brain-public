@@ -14,6 +14,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_API_KEY, CONF_URL
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
@@ -22,12 +23,14 @@ from .const import (
     CONF_OCCUPIED_THRESHOLD,
     CONF_OCCUPIED_INACTIVE_TIMEOUT,
     CONF_ENVIRONMENTAL_CHECK_INTERVAL,
+    CONF_PRESENCE_DETECTION_CONFIG,
     CONF_SUPABASE_KEY,
     CONF_SUPABASE_URL,
     CONF_USE_SUN_ELEVATION,
     DEFAULT_DARK_THRESHOLD_LUX,
     DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL,
     DOMAIN,
+    PRESENCE_DETECTION_OPTIONS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -176,6 +179,10 @@ class LinusBrainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     options={
                         CONF_USE_SUN_ELEVATION: user_input.get(CONF_USE_SUN_ELEVATION, True),
                         CONF_DARK_LUX_THRESHOLD: user_input.get(CONF_DARK_LUX_THRESHOLD, DEFAULT_DARK_THRESHOLD_LUX),
+                        CONF_PRESENCE_DETECTION_CONFIG: user_input.get(
+                            CONF_PRESENCE_DETECTION_CONFIG,
+                            list(PRESENCE_DETECTION_OPTIONS.keys())  # All enabled by default
+                        ),
                         CONF_INACTIVE_TIMEOUT: user_input.get(CONF_INACTIVE_TIMEOUT, 60),
                         CONF_OCCUPIED_THRESHOLD: user_input.get(CONF_OCCUPIED_THRESHOLD, 300),
                         CONF_OCCUPIED_INACTIVE_TIMEOUT: user_input.get(CONF_OCCUPIED_INACTIVE_TIMEOUT, 300),
@@ -247,6 +254,10 @@ class LinusBrainOptionsFlow(config_entries.OptionsFlow):
         current_occupied_threshold = self.config_entry.options.get(CONF_OCCUPIED_THRESHOLD, 300)
         current_occupied_inactive_timeout = self.config_entry.options.get(CONF_OCCUPIED_INACTIVE_TIMEOUT, 300)
         current_environmental_check_interval = self.config_entry.options.get(CONF_ENVIRONMENTAL_CHECK_INTERVAL, DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL)
+        current_presence_detection = self.config_entry.options.get(
+            CONF_PRESENCE_DETECTION_CONFIG,
+            list(PRESENCE_DETECTION_OPTIONS.keys())  # All enabled by default
+        )
 
         # Show options form
         return self.async_show_form(
@@ -261,6 +272,13 @@ class LinusBrainOptionsFlow(config_entries.OptionsFlow):
                         CONF_DARK_LUX_THRESHOLD,
                         default=current_dark_lux,
                     ): vol.All(vol.Coerce(float), vol.Range(min=0, max=1000)),
+                    vol.Optional(
+                        CONF_PRESENCE_DETECTION_CONFIG,
+                        default=current_presence_detection,
+                    ): vol.All(
+                        cv.multi_select(PRESENCE_DETECTION_OPTIONS),
+                        vol.Length(min=1),
+                    ),
                     vol.Optional(
                         CONF_INACTIVE_TIMEOUT,
                         default=current_inactive_timeout,
@@ -290,6 +308,12 @@ class LinusBrainOptionsFlow(config_entries.OptionsFlow):
                     "Local default lux level below which an area is considered dark. "
                     "This serves as a fallback before AI-learned insights. "
                     "Cloud/AI values have priority. Default: 20 lux. Range: 0-1000 lux."
+                ),
+                "presence_detection_config_desc": (
+                    "Select which sensor types should trigger presence detection. "
+                    "Motion sensors are recommended for most setups. "
+                    "Media players can detect presence when watching TV/movies. "
+                    "At least one option must be selected."
                 ),
                 "inactive_timeout_desc": (
                     "Timeout in seconds after 'movement' stops before area becomes 'inactive'. "

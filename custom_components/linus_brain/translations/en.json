@@ -39,6 +39,7 @@
         "data": {
           "use_sun_elevation": "Use Sun Elevation",
           "dark_lux_threshold": "Dark Lux Threshold",
+          "presence_detection_config": "Presence Detection Sensors",
           "inactive_timeout": "Inactive Timeout",
           "occupied_threshold": "Occupied Threshold",
           "occupied_inactive_timeout": "Occupied Inactive Timeout",
@@ -47,6 +48,7 @@
         "data_description": {
           "use_sun_elevation": "Use sun elevation in addition to illuminance for darkness detection (recommended)",
           "dark_lux_threshold": "Lux threshold below which an area is considered dark (0-1000 lux, default: 20). Acts as fallback for areas without AI insights.",
+          "presence_detection_config": "Select which sensor types should trigger presence detection. Motion sensors are recommended for most setups. At least one option must be selected.",
           "inactive_timeout": "Time in seconds before an area transitions from movement to inactive (1-3600s, default: 60). Cloud values override this.",
           "occupied_threshold": "Time in seconds before an area transitions from movement to occupied (1-7200s, default: 300). Cloud values override this.",
           "occupied_inactive_timeout": "Time in seconds before an area transitions from occupied to inactive (1-7200s, default: 300). Allows longer timeouts for prolonged occupation.",

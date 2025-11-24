@@ -20,10 +20,12 @@ from homeassistant.helpers import area_registry, device_registry, entity_registr
 
 from .state_validator import is_state_valid
 from ..const import (
+    CONF_PRESENCE_DETECTION_CONFIG,
     DEFAULT_ACTIVITY_TYPES,
     DEFAULT_AUTOLIGHT_APP,
     DEFAULT_DARK_THRESHOLD_LUX,
     DEFAULT_DARK_THRESHOLD_SUN_ELEVATION,
+    DEFAULT_PRESENCE_DETECTION_CONFIG,
     MONITORED_DOMAINS,  # Used in module-level get_monitored_domains()
     PRESENCE_DETECTION_DOMAINS,  # Used in module-level get_presence_detection_domains()
 )
@@ -259,13 +261,10 @@ class AreaManager:
 
     def _compute_presence_detected(self, entity_states: dict[str, Any]) -> bool:
         """
-        Compute binary presence detection based on entity states.
+        Compute binary presence detection based on entity states and configuration.
 
-        Presence is detected if ANY of the following are active:
-        - Motion sensor is "on"
-        - Presence sensor is "on"
-        - Occupancy sensor is "on"
-        - Media player is "playing" or "on"
+        Dynamically checks enabled detection types based on user configuration.
+        Priority order: Config Flow > Cloud > Hardcoded Defaults
 
         Args:
             entity_states: Dictionary of entity types to their values
@@ -273,12 +272,75 @@ class AreaManager:
         Returns:
             True if presence detected, False otherwise
         """
-        return (
-            entity_states.get("motion") == "on"
-            or entity_states.get("presence") == "on"
-            or entity_states.get("occupancy") == "on"
-            or entity_states.get("media") in ["playing", "on"]
-        )
+        # Get the current presence detection configuration
+        config = self._get_presence_detection_config()
+        
+        # Check each configured detection type
+        presence_checks = []
+        
+        if config.get("motion", False):
+            presence_checks.append(entity_states.get("motion") == "on")
+        
+        if config.get("presence", False):
+            presence_checks.append(entity_states.get("presence") == "on")
+        
+        if config.get("occupancy", False):
+            presence_checks.append(entity_states.get("occupancy") == "on")
+        
+        if config.get("media_playing", False):
+            presence_checks.append(entity_states.get("media") in ["playing", "on"])
+        
+        # Return True if ANY enabled detection type is active
+        return any(presence_checks) if presence_checks else False
+
+
+    def _get_presence_detection_config(self) -> dict[str, bool]:
+        """
+        Get the presence detection configuration based on priority order:
+        1. Config Flow (user's personal preference) - Primary source
+        2. Cloud (Supabase ha_instances.presence_detection_config) - Secondary/shared default
+        3. Hardcoded Defaults (const.py) - Ultimate fallback
+        
+        Returns:
+            Dictionary mapping detection types to enabled state:
+            {
+                "motion": True/False,
+                "presence": True/False,
+                "occupancy": True/False,
+                "media_playing": True/False,
+            }
+        """
+        # Priority 1: Config Flow (user's personal preference)
+        if self._config_entry and self._config_entry.options:
+            config_list = self._config_entry.options.get(CONF_PRESENCE_DETECTION_CONFIG)
+            if config_list is not None:
+                # Convert list of enabled detection types to dict
+                _LOGGER.debug(f"Using presence detection config from config flow: {config_list}")
+                return {
+                    "motion": "motion" in config_list,
+                    "presence": "presence" in config_list,
+                    "occupancy": "occupancy" in config_list,
+                    "media_playing": "media_playing" in config_list,
+                }
+        
+        # Priority 2: Cloud (Supabase ha_instances.presence_detection_config)
+        # TODO: Implement cloud fetch in future iteration
+        # This would query Supabase for ha_instances.presence_detection_config
+        # Example implementation:
+        # if self._coordinator and hasattr(self._coordinator, 'ha_instance_data'):
+        #     cloud_config = self._coordinator.ha_instance_data.get('presence_detection_config')
+        #     if cloud_config:
+        #         _LOGGER.debug(f"Using presence detection config from cloud: {cloud_config}")
+        #         return cloud_config
+        # For now, we skip this and fall through to defaults
+        
+        # Priority 3: Hardcoded Defaults
+        _LOGGER.debug("Using hardcoded default presence detection config")
+        return {
+            key: config["enabled"]
+            for key, config in DEFAULT_PRESENCE_DETECTION_CONFIG.items()
+        }
+
 
     async def get_area_state(self, area_id: str) -> dict[str, Any] | None:
         """

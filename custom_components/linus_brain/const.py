@@ -18,6 +18,7 @@ CONF_INACTIVE_TIMEOUT = "inactive_timeout"
 CONF_OCCUPIED_THRESHOLD = "occupied_threshold"
 CONF_OCCUPIED_INACTIVE_TIMEOUT = "occupied_inactive_timeout"
 CONF_ENVIRONMENTAL_CHECK_INTERVAL = "environmental_check_interval"
+CONF_PRESENCE_DETECTION_CONFIG = "presence_detection_config"
 
 # Activity types
 ACTIVITY_EMPTY = "empty"
@@ -220,6 +221,43 @@ MONITORED_DOMAINS = {
 PRESENCE_DETECTION_DOMAINS = {
     "binary_sensor": ["motion"],  # Motion and presence sensors
     "media_player": [],  # Media players (playing state indicates presence)
+}
+
+# Default presence detection configuration
+# Maps detection type to domain/device_class/state combinations
+DEFAULT_PRESENCE_DETECTION_CONFIG = {
+    "motion": {
+        "domain": "binary_sensor",
+        "device_class": "motion",
+        "state": "on",
+        "enabled": True,
+    },
+    "presence": {
+        "domain": "binary_sensor",
+        "device_class": "presence",
+        "state": "on",
+        "enabled": True,
+    },
+    "occupancy": {
+        "domain": "binary_sensor",
+        "device_class": "occupancy",
+        "state": "on",
+        "enabled": True,
+    },
+    "media_playing": {
+        "domain": "media_player",
+        "device_class": None,
+        "state": ["playing", "on"],
+        "enabled": True,
+    },
+}
+
+# Available presence detection options for UI multi-select
+PRESENCE_DETECTION_OPTIONS = {
+    "motion": "Motion sensors (binary_sensor.motion)",
+    "presence": "Presence sensors (binary_sensor.presence)",
+    "occupancy": "Occupancy sensors (binary_sensor.occupancy)",
+    "media_playing": "Media players (state: playing/on)",
 }
 
 

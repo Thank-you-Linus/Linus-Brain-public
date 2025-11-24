@@ -56,6 +56,80 @@ class ConditionEvaluator:
         self.activity_tracker = activity_tracker
         self.area_manager = area_manager
 
+    def _should_evaluate_presence_condition(self, condition: dict[str, Any]) -> bool:
+        """
+        Check if a presence-related condition should be evaluated based on
+        the presence detection configuration.
+
+        This filters conditions based on user config (config flow) for which
+        sensor types should trigger presence detection.
+
+        Args:
+            condition: Condition dictionary to check
+
+        Returns:
+            True if condition should be evaluated, False if it should be skipped
+        """
+        if not self.area_manager:
+            # No area manager, evaluate all conditions
+            return True
+
+        # Only filter state conditions with device_class or domain
+        if condition.get("condition") != "state":
+            return True
+
+        # Get presence detection config from area_manager
+        try:
+            presence_config = self.area_manager._get_presence_detection_config()
+        except Exception as err:
+            _LOGGER.warning(f"Could not get presence detection config: {err}")
+            return True
+
+        # Check if this is a presence-related condition
+        domain = condition.get("domain")
+        device_class = condition.get("device_class")
+        entity_id = condition.get("entity_id")
+
+        # Extract domain/device_class from entity_id if not specified
+        if entity_id and not domain:
+            domain = entity_id.split(".")[0] if "." in entity_id else None
+
+        # If domain is binary_sensor, check device_class against config
+        if domain == "binary_sensor":
+            # Check motion sensors
+            if device_class == "motion" and not presence_config.get("motion", True):
+                _LOGGER.debug(
+                    f"Skipping motion condition (disabled in config): {condition}"
+                )
+                return False
+
+            # Check presence sensors
+            if device_class == "presence" and not presence_config.get("presence", True):
+                _LOGGER.debug(
+                    f"Skipping presence condition (disabled in config): {condition}"
+                )
+                return False
+
+            # Check occupancy sensors
+            if device_class == "occupancy" and not presence_config.get(
+                "occupancy", True
+            ):
+                _LOGGER.debug(
+                    f"Skipping occupancy condition (disabled in config): {condition}"
+                )
+                return False
+
+        # If domain is media_player, check media_playing config
+        elif domain == "media_player":
+            if not presence_config.get("media_playing", True):
+                _LOGGER.debug(
+                    f"Skipping media_player condition (disabled in config): {condition}"
+                )
+                return False
+
+        # Not a presence condition, or it's enabled
+        return True
+
     async def evaluate_conditions(
         self,
         conditions: list[dict[str, Any]],
@@ -64,6 +138,8 @@ class ConditionEvaluator:
     ) -> bool:
         """
         Evaluate a list of conditions with AND/OR logic.
+
+        Filters conditions based on presence detection configuration before evaluation.
 
         Args:
             conditions: List of condition dictionaries
@@ -85,7 +161,16 @@ class ConditionEvaluator:
         _LOGGER.debug(f"Resolved conditions for area {area_id}: {resolved_conditions}")
 
         results = []
+        evaluated_count = 0
+
         for condition in resolved_conditions:
+            # Check if this presence-related condition should be evaluated
+            if not self._should_evaluate_presence_condition(condition):
+                _LOGGER.debug(f"Condition skipped (disabled in config): {condition}")
+                continue
+
+            evaluated_count += 1
+
             try:
                 result = await self._evaluate_single_condition(condition)
                 results.append(result)
@@ -104,6 +189,13 @@ class ConditionEvaluator:
 
                 if logic == "and":
                     return False
+
+        # If no conditions were evaluated (all skipped)
+        if evaluated_count == 0:
+            _LOGGER.debug(
+                "All conditions skipped due to presence detection config, returning False"
+            )
+            return False
 
         if logic == "and":
             return all(results)
@@ -179,8 +271,19 @@ class ConditionEvaluator:
             f"Evaluating AND condition with {len(nested_conditions)} nested conditions"
         )
 
+        evaluated_count = 0
+
         # Evaluate each nested condition
         for i, nested_condition in enumerate(nested_conditions):
+            # Check if this presence-related condition should be evaluated
+            if not self._should_evaluate_presence_condition(nested_condition):
+                _LOGGER.debug(
+                    f"AND condition {i+1}/{len(nested_conditions)}: skipped (disabled in config)"
+                )
+                continue
+
+            evaluated_count += 1
+
             try:
                 result = await self._evaluate_single_condition(nested_condition)
                 _LOGGER.debug(
@@ -196,6 +299,13 @@ class ConditionEvaluator:
                 _LOGGER.error(f"Failed to evaluate nested AND condition {i+1}: {err}")
                 # Treat errors as False for AND conditions
                 return False
+
+        # If no conditions were evaluated (all skipped), treat as False
+        if evaluated_count == 0:
+            _LOGGER.debug(
+                "All AND conditions skipped due to presence detection config"
+            )
+            return False
 
         _LOGGER.debug("All AND conditions passed")
         return True
@@ -226,9 +336,18 @@ class ConditionEvaluator:
 
         # Track results for logging
         results = []
+        skipped_count = 0
 
         # Evaluate each nested condition
         for i, nested_condition in enumerate(nested_conditions):
+            # Check if this presence-related condition should be evaluated
+            if not self._should_evaluate_presence_condition(nested_condition):
+                _LOGGER.debug(
+                    f"OR condition {i+1}/{len(nested_conditions)}: skipped (disabled in config)"
+                )
+                skipped_count += 1
+                continue
+
             try:
                 result = await self._evaluate_single_condition(nested_condition)
                 _LOGGER.debug(f"OR condition {i+1}/{len(nested_conditions)}: {result}")
@@ -243,6 +362,13 @@ class ConditionEvaluator:
                 _LOGGER.error(f"Failed to evaluate nested OR condition {i+1}: {err}")
                 results.append(False)
                 # Continue evaluating other conditions (don't fail entire OR)
+
+        # If all conditions were skipped, treat as False
+        if skipped_count == len(nested_conditions):
+            _LOGGER.debug(
+                "All OR conditions skipped due to presence detection config"
+            )
+            return False
 
         _LOGGER.debug(f"All OR conditions failed: {results}")
         return False
