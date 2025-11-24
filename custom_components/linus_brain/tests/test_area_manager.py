@@ -135,6 +135,11 @@ def area_manager(
     hass, area_registry_mock, entity_registry_mock, device_registry_mock, monkeypatch
 ):
     """Create AreaManager instance with mocked registries."""
+    # Clear module-level caches to prevent stale data between tests
+    from ..utils import area_manager as am
+    am._MONITORED_DOMAINS_CACHE = None
+    am._PRESENCE_DETECTION_DOMAINS_CACHE = None
+    
     monkeypatch.setattr(
         "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
     )

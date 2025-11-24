@@ -4,8 +4,6 @@ Constants for Linus Brain integration.
 This module contains all constant values used throughout the integration.
 """
 
-from typing import Any
-
 # Integration domain
 DOMAIN = "linus_brain"
 
@@ -211,7 +209,7 @@ DEFAULT_AUTOLIGHT_APP = {
 # Monitored domains for entity discovery and tracking
 # Maps domain to list of device_classes (empty list = monitor all entities in that domain)
 MONITORED_DOMAINS = {
-    "binary_sensor": ["motion"],  # Presence detection
+    "binary_sensor": ["motion", "occupancy", "presence"],  # Presence detection
     "media_player": [],  # Media player presence detection (all media players)
     "sensor": ["humidity", "illuminance", "temperature"],  # Environmental sensors for insights
 }
@@ -219,7 +217,7 @@ MONITORED_DOMAINS = {
 # Presence detection domains for activity tracking
 # Only includes domains/device_classes used for presence/movement detection
 PRESENCE_DETECTION_DOMAINS = {
-    "binary_sensor": ["motion"],  # Motion and presence sensors
+    "binary_sensor": ["motion", "occupancy", "presence"],  # Motion, occupancy, and presence sensors
     "media_player": [],  # Media players (playing state indicates presence)
 }
 

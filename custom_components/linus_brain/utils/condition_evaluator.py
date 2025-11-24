@@ -55,6 +55,59 @@ class ConditionEvaluator:
         self.entity_resolver = entity_resolver
         self.activity_tracker = activity_tracker
         self.area_manager = area_manager
+        
+        # Cache for presence detection config (performance optimization)
+        self._presence_config_cache: dict[str, bool] | None = None
+        self._cache_timestamp: datetime | None = None
+        self._cache_ttl_seconds = 60  # Cache for 60 seconds
+
+    def _get_presence_config_cached(self) -> dict[str, bool]:
+        """
+        Get presence detection config with caching for performance.
+        
+        Cache is valid for 60 seconds to avoid repeated config lookups
+        during bulk condition evaluations.
+        
+        Returns:
+            Dictionary mapping detection types to enabled state
+        """
+        # Default permissive config
+        default_config: dict[str, bool] = {
+            "motion": True,
+            "presence": True,
+            "occupancy": True,
+            "media_playing": True,
+        }
+        
+        now = datetime.now()
+        
+        # Check if cache is valid
+        cache_expired = (
+            self._presence_config_cache is None or 
+            self._cache_timestamp is None or 
+            (now - self._cache_timestamp).total_seconds() > self._cache_ttl_seconds
+        )
+        
+        if cache_expired:
+            # Cache miss - fetch fresh config
+            if self.area_manager:
+                try:
+                    config = self.area_manager._get_presence_detection_config()
+                    self._presence_config_cache = config
+                    self._cache_timestamp = now
+                    return config
+                except Exception as err:
+                    _LOGGER.warning(f"Could not get presence detection config: {err}")
+                    return default_config
+            else:
+                # No area manager - cache and return default config
+                self._presence_config_cache = default_config
+                self._cache_timestamp = now
+                return default_config
+        
+        # Cache hit - return cached value
+        # At this point cache is guaranteed to be set, but return default as fallback
+        return self._presence_config_cache or default_config
 
     def _should_evaluate_presence_condition(self, condition: dict[str, Any]) -> bool:
         """
@@ -78,12 +131,8 @@ class ConditionEvaluator:
         if condition.get("condition") != "state":
             return True
 
-        # Get presence detection config from area_manager
-        try:
-            presence_config = self.area_manager._get_presence_detection_config()
-        except Exception as err:
-            _LOGGER.warning(f"Could not get presence detection config: {err}")
-            return True
+        # Get presence detection config from cache
+        presence_config = self._get_presence_config_cached()
 
         # Check if this is a presence-related condition
         domain = condition.get("domain")
@@ -162,11 +211,14 @@ class ConditionEvaluator:
 
         results = []
         evaluated_count = 0
+        skipped_conditions = []  # Track skipped conditions for grouped logging
 
         for condition in resolved_conditions:
             # Check if this presence-related condition should be evaluated
             if not self._should_evaluate_presence_condition(condition):
-                _LOGGER.debug(f"Condition skipped (disabled in config): {condition}")
+                # Track skipped condition type for logging
+                condition_type = condition.get("device_class") or condition.get("domain") or "unknown"
+                skipped_conditions.append(condition_type)
                 continue
 
             evaluated_count += 1
@@ -189,6 +241,13 @@ class ConditionEvaluator:
 
                 if logic == "and":
                     return False
+
+        # Log all skipped conditions in one message (reduces log spam)
+        if skipped_conditions:
+            _LOGGER.debug(
+                f"Skipped {len(skipped_conditions)} conditions (disabled in config): "
+                f"{set(skipped_conditions)}"
+            )
 
         # If no conditions were evaluated (all skipped)
         if evaluated_count == 0:

@@ -10,13 +10,10 @@ Tests the complete automatic lighting flow including:
 - Environmental transitions (becomes dark → lights on)
 """
 
-import asyncio
-from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import State
-from homeassistant.util import dt as dt_util
 
 from ..utils.rule_engine import RuleEngine
 
@@ -552,13 +549,11 @@ async def test_no_assignment_graceful_handling(rule_engine, mock_hass):
 
 @pytest.mark.asyncio
 async def test_environmental_cooldown_longer(rule_engine, mock_hass):
-    """Test that environmental triggers have longer cooldown (300s vs 30s)."""
-    from ..utils.rule_engine import COOLDOWN_ENVIRONMENTAL_SECONDS, COOLDOWN_SECONDS
+    """Test that environmental triggers use configurable cooldown (default 30s) vs activity cooldown (30s)."""
+    from ..utils.rule_engine import COOLDOWN_SECONDS
 
     # Verify constants
-    assert COOLDOWN_ENVIRONMENTAL_SECONDS == 300
     assert COOLDOWN_SECONDS == 30
-    assert COOLDOWN_ENVIRONMENTAL_SECONDS > COOLDOWN_SECONDS
 
     # Setup
     rule_engine.activity_tracker.async_evaluate_activity = AsyncMock(
@@ -589,13 +584,13 @@ async def test_environmental_cooldown_longer(rule_engine, mock_hass):
 
 @pytest.mark.asyncio
 async def test_movement_timeout_is_30_seconds():
-    """Test that movement activity has timeout of 5s (configurable)."""
+    """Test that movement activity has timeout of 1s (immediate transition to inactive)."""
     from ..const import DEFAULT_ACTIVITY_TYPES
 
-    # Verify movement timeout (configurable, currently 5s)
+    # Verify movement timeout (1s for quick transition to inactive)
     movement_activity = DEFAULT_ACTIVITY_TYPES.get("movement")
     assert movement_activity is not None
-    assert movement_activity["timeout_seconds"] == 5
+    assert movement_activity["timeout_seconds"] == 1
     assert movement_activity["is_transition_state"] is False
 
     # Verify inactive also has correct timeout
@@ -656,3 +651,72 @@ async def test_multiple_lights_all_turn_on(rule_engine, mock_hass):
     entity_ids = service_data.get("entity_id", [])
     assert "light.living_room_main" in entity_ids
     assert "light.living_room_accent" in entity_ids
+
+
+# ============================================================================
+# TEST 16: Inactive → Movement Re-triggers Lights (Bug Fix)
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_inactive_to_movement_retriggers_lights(rule_engine, mock_hass):
+    """Test that lights turn back on when transitioning from inactive to movement.
+    
+    Scenario:
+    1. Movement detected → lights ON
+    2. Motion stops → inactive (transition state)
+    3. Movement detected again → lights should turn ON again (bypass cooldown)
+    
+    This ensures that when someone leaves a room (inactive) and comes back
+    immediately (movement), the lights turn back on even if cooldown hasn't expired.
+    """
+    # Setup: activity tracker with transition state support
+    rule_engine.activity_tracker._activities = {
+        "empty": {
+            "activity_id": "empty",
+            "is_transition_state": False,
+        },
+        "movement": {
+            "activity_id": "movement",
+            "is_transition_state": False,
+        },
+        "inactive": {
+            "activity_id": "inactive",
+            "is_transition_state": True,  # Key: this is a transition state
+        },
+    }
+    
+    rule_engine.activity_tracker.async_evaluate_activity = AsyncMock(
+        return_value="movement"
+    )
+    rule_engine.activity_tracker.get_activity = MagicMock(return_value="movement")
+    rule_engine.area_manager.get_area_environmental_state = MagicMock(
+        return_value={"is_dark": True, "illuminance": 5}
+    )
+    
+    # Step 1: First movement → lights turn ON
+    await rule_engine._async_evaluate_and_execute("living_room")
+    assert mock_hass.services.async_call.call_count == 1
+    mock_hass.services.async_call.reset_mock()
+    
+    # Step 2: Simulate transition to inactive (set previous_activity)
+    from ..const import DOMAIN
+    entry_data = mock_hass.data.get(DOMAIN, {}).get(rule_engine.entry_id, {})
+    mock_coordinator = MagicMock()
+    mock_coordinator.previous_activities = {"living_room": "inactive"}
+    entry_data["coordinator"] = mock_coordinator
+    mock_hass.data.setdefault(DOMAIN, {})[rule_engine.entry_id] = entry_data
+    
+    # Step 3: Movement detected again → should bypass cooldown and turn lights ON
+    await rule_engine._async_evaluate_and_execute("living_room")
+    
+    # Assert: Lights turned ON again (cooldown bypassed due to transition from inactive)
+    assert mock_hass.services.async_call.call_count == 1
+    call_args = mock_hass.services.async_call.call_args[0]
+    assert call_args[0] == "light"
+    assert call_args[1] == "turn_on"
+    
+    # Verify stats don't show cooldown block
+    stats = rule_engine.get_stats()
+    assert stats["successful_executions"] == 2  # Both executions succeeded
+

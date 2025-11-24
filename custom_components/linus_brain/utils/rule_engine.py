@@ -754,22 +754,27 @@ class RuleEngine:
                 conditions, area_id, logic
             )
 
-            # Check if this rule uses lux-based conditions (is_dark)
-            uses_lux_condition = self._has_lux_condition(conditions)
-
             if conditions_met:
                 # Check cooldown for "enter" actions
                 # For environmental triggers, use configurable environmental_check_interval
                 # For activity triggers, use fixed COOLDOWN_SECONDS
+                # SPECIAL CASE: Bypass cooldown when transitioning from transition state (inactive) to active state
+                # This ensures lights turn on when movement is re-detected after inactivity
+                bypass_cooldown = (
+                    previous_activity 
+                    and self.activity_tracker
+                    and self.activity_tracker._activities.get(previous_activity, {}).get("is_transition_state", False)
+                )
+                
                 if is_environmental:
-                    if not self._check_environmental_cooldown(area_id, "enter"):
+                    if not bypass_cooldown and not self._check_environmental_cooldown(area_id, "enter"):
                         self._stats["cooldown_blocks"] += 1
                         _LOGGER.debug(
                             f"Rule {area_id}:{current_activity} (environmental) enter actions in cooldown, skipping"
                         )
                         return
                 else:
-                    if not self._check_cooldown(
+                    if not bypass_cooldown and not self._check_cooldown(
                         area_id, current_activity, is_environmental=False, action_type="enter"
                     ):
                         self._stats["cooldown_blocks"] += 1
@@ -777,6 +782,11 @@ class RuleEngine:
                             f"Rule {area_id}:{current_activity} (activity) enter actions in cooldown, skipping"
                         )
                         return
+                
+                if bypass_cooldown:
+                    _LOGGER.info(
+                        f"Rule {area_id}: Bypassing cooldown for {previous_activity} → {current_activity} transition (from transition state)"
+                    )
                 
                 _LOGGER.info(
                     f"Conditions met for {area_id} (activity: {current_activity}), executing actions"
