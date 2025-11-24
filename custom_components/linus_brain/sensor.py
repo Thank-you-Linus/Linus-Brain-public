@@ -26,6 +26,7 @@ Area Context Sensors:
 - Displays: activity level, illuminance, sun elevation, area state (is_dark)
 """
 
+import json
 import logging
 from typing import Any
 
@@ -40,6 +41,57 @@ from .const import DOMAIN, get_area_device_info, get_integration_device_info
 from .coordinator import LinusBrainCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _format_activity_summary(activity_data: dict[str, Any]) -> str:
+    """Create a readable text summary of an activity."""
+    summary_parts = []
+    
+    # Basic info
+    name = activity_data.get("activity_name", "Unknown")
+    desc = activity_data.get("description", "")
+    summary_parts.append(f"📋 {name}: {desc}")
+    
+    # Detection conditions
+    conditions = activity_data.get("detection_conditions", [])
+    if conditions:
+        device_classes = set()
+        for cond_group in conditions:
+            if isinstance(cond_group, dict):
+                for subcond in cond_group.get("conditions", []):
+                    if isinstance(subcond, dict):
+                        dc = subcond.get("device_class")
+                        domain = subcond.get("domain")
+                        if dc:
+                            device_classes.add(f"{domain}.{dc}")
+                        elif domain == "media_player":
+                            device_classes.add("media_player")
+        
+        if device_classes:
+            summary_parts.append(f"🔍 Detects: {', '.join(sorted(device_classes))}")
+    
+    # Timing
+    threshold = activity_data.get("duration_threshold_seconds", 0)
+    timeout = activity_data.get("timeout_seconds", 0)
+    if threshold > 0:
+        summary_parts.append(f"⏱️  Duration: {threshold}s")
+    if timeout > 0:
+        summary_parts.append(f"⏰ Timeout: {timeout}s")
+    
+    return "\n".join(summary_parts)
+
+
+def _format_action_summary(actions: dict[str, Any]) -> str:
+    """Create a readable text summary of actions."""
+    if not actions:
+        return "No actions"
+    
+    summary_parts = []
+    for activity_id, activity_actions in actions.items():
+        action_count = len(activity_actions) if isinstance(activity_actions, list) else 0
+        summary_parts.append(f"  {activity_id}: {action_count} action(s)")
+    
+    return "\n".join(summary_parts)
 
 
 async def async_setup_entry(
@@ -590,11 +642,19 @@ class LinusBrainActivitiesSensor(CoordinatorEntity, SensorEntity):
 
         self._attr_native_value = len(activities)
 
+        # Create readable summaries for each activity
+        activities_summary = {}
+        for activity_id, activity_data in activities.items():
+            activities_summary[activity_id] = _format_activity_summary(activity_data)
+
         self._attr_extra_state_attributes = {
-            "activities": activities,
+            "count": len(activities),
             "activity_ids": list(activities.keys()),
             "is_fallback": is_fallback,
             "synced_at": sync_time.isoformat() if sync_time else None,
+            "summary": "\n\n".join(activities_summary.values()),
+            # Keep detailed data for automations
+            "activities_detailed": activities,
         }
 
 
@@ -661,17 +721,22 @@ class LinusBrainAppSensor(CoordinatorEntity, SensorEntity):
             if assignment.get("app_id") == self._app_id
         ]
 
+        # Create readable summary
+        actions_summary = _format_action_summary(activity_actions)
+
         self._attr_extra_state_attributes = {
             "app_id": self._app_id,
             "app_name": self._app_name,
             "version": version,
             "description": app_data.get("description", ""),
             "created_by": app_data.get("created_by", "unknown"),
-            "activity_actions": activity_actions,
             "supported_activities": supported_activities,
             "total_actions": total_actions,
             "areas_assigned": areas_using_app,
             "areas_count": len(areas_using_app),
+            "actions_summary": f"📱 Actions:\n{actions_summary}",
+            # Keep detailed data for automations
+            "activity_actions_detailed": activity_actions,
         }
 
 
