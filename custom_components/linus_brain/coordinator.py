@@ -64,6 +64,7 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
             _LOGGER,
             name="Linus Brain",
             update_interval=UPDATE_INTERVAL,
+            config_entry=config_entry,
         )
 
         self.supabase_url = supabase_url

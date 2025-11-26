@@ -421,9 +421,12 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
             if self.coordinator.data
             else None
         )
-        active_presence_entities = self._coordinator.active_presence_entities.get(
-            self._area_id, []
-        )
+        # Get active presence entities with defensive None handling
+        active_presence_dict = self._coordinator.active_presence_entities
+        if active_presence_dict is not None:
+            active_presence_entities = active_presence_dict.get(self._area_id, [])
+        else:
+            active_presence_entities = []
 
         seconds_until_timeout = None
         timeout_type = None
@@ -452,20 +455,21 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
         # Get configured timeouts for all activities
         configured_timeouts = self._activity_tracker.get_configured_timeouts()
 
+        # Ensure all list/dict attributes have safe defaults (never None)
         self._attr_extra_state_attributes = {
             "activity_level": activity_level,
             "seconds_until_timeout": seconds_until_timeout,
             "timeout_type": timeout_type,
-            "active_presence_entities": active_presence_entities,
+            "active_presence_entities": active_presence_entities or [],
             "illuminance": area_state.get("illuminance"),
             "temperature": area_state.get("temperature"),
             "humidity": area_state.get("humidity"),
             "sun_elevation": area_state.get("sun_elevation"),
             "is_dark": area_state.get("is_dark"),
-            "tracking_entities": tracking_entities,
+            "tracking_entities": tracking_entities or [],
             "last_automation_rule": last_rule,
-            "insights": insights,
-            "configured_timeouts": configured_timeouts,
+            "insights": insights or {},
+            "configured_timeouts": configured_timeouts or {},
         }
 
 
@@ -642,20 +646,40 @@ class LinusBrainActivitiesSensor(CoordinatorEntity, SensorEntity):
 
         self._attr_native_value = len(activities)
 
-        # Create readable summaries for each activity
-        activities_summary = {}
-        for activity_id, activity_data in activities.items():
-            activities_summary[activity_id] = _format_activity_summary(activity_data)
-
-        self._attr_extra_state_attributes = {
+        # Create structured attributes for each activity
+        attrs = {
             "count": len(activities),
             "activity_ids": list(activities.keys()),
             "is_fallback": is_fallback,
             "synced_at": sync_time.isoformat() if sync_time else None,
-            "summary": "\n\n".join(activities_summary.values()),
-            # Keep detailed data for automations
-            "activities_detailed": activities,
         }
+        
+        # Add individual attributes per activity for easy reading
+        for activity_id, activity_data in activities.items():
+            prefix = f"{activity_id}_"
+            attrs[f"{prefix}name"] = activity_data.get("activity_name", "Unknown")
+            attrs[f"{prefix}description"] = activity_data.get("description", "")
+            
+            # Extract device classes from detection conditions
+            device_classes = []
+            conditions = activity_data.get("detection_conditions", [])
+            for cond_group in conditions:
+                if isinstance(cond_group, dict):
+                    for subcond in cond_group.get("conditions", []):
+                        if isinstance(subcond, dict):
+                            dc = subcond.get("device_class")
+                            domain = subcond.get("domain")
+                            if dc:
+                                device_classes.append(f"{domain}.{dc}")
+                            elif domain == "media_player":
+                                device_classes.append("media_player")
+            
+            attrs[f"{prefix}detects"] = ", ".join(sorted(set(device_classes))) if device_classes else "none"
+            attrs[f"{prefix}duration_threshold"] = activity_data.get("duration_threshold_seconds", 0)
+            attrs[f"{prefix}timeout"] = activity_data.get("timeout_seconds", 0)
+            attrs[f"{prefix}is_system"] = activity_data.get("is_system", False)
+
+        self._attr_extra_state_attributes = attrs
 
 
 class LinusBrainAppSensor(CoordinatorEntity, SensorEntity):
@@ -704,16 +728,13 @@ class LinusBrainAppSensor(CoordinatorEntity, SensorEntity):
             self._attr_extra_state_attributes = {"error": "App not found in storage"}
             return
 
-        # Get version
         version = app_data.get("version", "default")
         self._attr_native_value = version
 
-        # Get activity actions
         activity_actions = app_data.get("activity_actions", {})
         supported_activities = list(activity_actions.keys())
         total_actions = sum(len(actions) for actions in activity_actions.values())
 
-        # Get areas using this app
         assignments = self.coordinator.app_storage.get_assignments()  # type: ignore[attr-defined]
         areas_using_app = [
             area_id
@@ -721,23 +742,27 @@ class LinusBrainAppSensor(CoordinatorEntity, SensorEntity):
             if assignment.get("app_id") == self._app_id
         ]
 
-        # Create readable summary
-        actions_summary = _format_action_summary(activity_actions)
-
-        self._attr_extra_state_attributes = {
+        attrs = {
             "app_id": self._app_id,
             "app_name": self._app_name,
             "version": version,
             "description": app_data.get("description", ""),
             "created_by": app_data.get("created_by", "unknown"),
-            "supported_activities": supported_activities,
+            "supported_activities": ", ".join(supported_activities),
             "total_actions": total_actions,
-            "areas_assigned": areas_using_app,
+            "areas_assigned": ", ".join(areas_using_app) if areas_using_app else "none",
             "areas_count": len(areas_using_app),
-            "actions_summary": f"📱 Actions:\n{actions_summary}",
-            # Keep detailed data for automations
-            "activity_actions_detailed": activity_actions,
         }
+        
+        for activity_id, actions in activity_actions.items():
+            action_count = len(actions) if isinstance(actions, list) else 0
+            attrs[f"actions_{activity_id}"] = action_count
+            if action_count > 0 and isinstance(actions, list):
+                first_action = actions[0]
+                if isinstance(first_action, dict):
+                    attrs[f"actions_{activity_id}_first"] = first_action.get("action", "unknown")
+
+        self._attr_extra_state_attributes = attrs
 
 
 class LinusInsightSensor(CoordinatorEntity, SensorEntity):

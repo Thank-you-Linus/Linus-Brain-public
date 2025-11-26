@@ -32,15 +32,37 @@ async def async_setup_entry(
         entry: Config entry
         async_add_entities: Callback to add entities
     """
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    insights_manager = hass.data[DOMAIN][entry.entry_id].get("insights_manager")
+    try:
+        # Verify domain data exists
+        if DOMAIN not in hass.data:
+            _LOGGER.error(f"Domain {DOMAIN} not found in hass.data during button setup")
+            return
 
-    buttons = [
-        LinusBrainSyncButton(coordinator, insights_manager, entry),
-    ]
+        if entry.entry_id not in hass.data[DOMAIN]:
+            _LOGGER.error(
+                f"Entry {entry.entry_id} not found in hass.data[{DOMAIN}] during button setup"
+            )
+            return
 
-    async_add_entities(buttons)
-    _LOGGER.info(f"Added {len(buttons)} Linus Brain button entities")
+        coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+        insights_manager = hass.data[DOMAIN][entry.entry_id].get("insights_manager")
+
+        buttons = [
+            LinusBrainSyncButton(coordinator, insights_manager, entry),
+        ]
+
+        async_add_entities(buttons)
+        _LOGGER.info(f"Added {len(buttons)} Linus Brain button entities")
+
+    except KeyError as err:
+        _LOGGER.error(
+            f"Failed to setup button platform - missing data: {err}. "
+            f"Available data: {hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).keys()}"
+        )
+        raise
+    except Exception as err:
+        _LOGGER.error(f"Failed to setup button platform: {err}", exc_info=True)
+        raise
 
 
 class LinusBrainSyncButton(CoordinatorEntity, ButtonEntity):

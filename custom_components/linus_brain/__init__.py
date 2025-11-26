@@ -485,26 +485,48 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """
     _LOGGER.info("Unloading Linus Brain integration")
 
-    # Unload platforms
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    # Unload platforms with graceful error handling
+    # Some platforms might not have been loaded if setup failed
+    unload_results = []
+    for platform in PLATFORMS:
+        try:
+            result = await hass.config_entries.async_unload_platforms(entry, [platform])
+            unload_results.append(result)
+            _LOGGER.debug(f"Unloaded platform {platform}: {result}")
+        except ValueError as err:
+            # Platform was never loaded, this is OK during reload after failed setup
+            _LOGGER.debug(f"Platform {platform} was not loaded, skipping: {err}")
+            unload_results.append(True)  # Consider this successful
+        except Exception as err:
+            _LOGGER.error(f"Failed to unload platform {platform}: {err}")
+            unload_results.append(False)
+
+    unload_ok = all(unload_results)
 
     if unload_ok:
-        entry_data = hass.data[DOMAIN][entry.entry_id]
+        # Only cleanup if entry data exists (might not exist if setup failed)
+        if entry.entry_id in hass.data.get(DOMAIN, {}):
+            entry_data = hass.data[DOMAIN][entry.entry_id]
 
-        event_listener = entry_data["event_listener"]
-        await event_listener.async_stop_listening()
+            event_listener = entry_data.get("event_listener")
+            if event_listener:
+                await event_listener.async_stop_listening()
 
-        rule_engine = entry_data.get("rule_engine")
-        if rule_engine:
-            await rule_engine.async_shutdown()
+            rule_engine = entry_data.get("rule_engine")
+            if rule_engine:
+                await rule_engine.async_shutdown()
 
-        hass.data[DOMAIN].pop(entry.entry_id)
+            hass.data[DOMAIN].pop(entry.entry_id)
+        else:
+            _LOGGER.debug("Entry data not found, setup may have failed previously")
 
         # Unload services if this was the last config entry
-        if not hass.data[DOMAIN]:
+        if not hass.data.get(DOMAIN):
             await async_unload_services(hass)
 
         _LOGGER.info("Linus Brain integration unloaded successfully")
+    else:
+        _LOGGER.warning("Some platforms failed to unload, but continuing anyway")
 
     return unload_ok
 
