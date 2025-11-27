@@ -382,9 +382,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     light_learning = LightLearning(hass, coordinator)
 
+    _LOGGER.info("🎧 Creating EventListener...")
     event_listener = EventListener(hass, coordinator, light_learning)
 
+    _LOGGER.info("🎧 Starting EventListener...")
     await event_listener.async_start_listening()
+    _LOGGER.info("🎧 EventListener started successfully!")
     entry.async_on_unload(event_listener.async_stop_listening)
 
     async def async_check_activity_timeouts(_now=None):
