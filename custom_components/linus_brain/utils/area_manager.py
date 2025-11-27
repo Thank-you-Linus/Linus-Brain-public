@@ -201,6 +201,16 @@ class AreaManager:
             if domain not in monitored_domains:
                 continue
 
+            # IMPORTANT: Skip entities that are disabled or don't have a state
+            # This prevents including obsolete/deleted entities
+            if entity.disabled_by is not None:
+                continue
+            
+            # Check if entity exists in hass.states (entity must be loaded and available)
+            state = self.hass.states.get(entity.entity_id)
+            if state is None:
+                continue
+
             # Check device class (if applicable)
             device_classes = monitored_domains[domain]
             if device_classes and entity.original_device_class not in device_classes:
@@ -498,6 +508,12 @@ class AreaManager:
         )
         entities = self._entity_registry.entities.values()
         for entity in entities:
+            # Skip disabled entities or entities without state
+            if entity.disabled_by is not None:
+                continue
+            if self.hass.states.get(entity.entity_id) is None:
+                continue
+
             entity_area_id = self._get_entity_area_id(entity)
 
             if entity_area_id != area_id:
@@ -639,6 +655,12 @@ class AreaManager:
         presence_config = get_presence_detection_domains()
 
         for entity in self._entity_registry.entities.values():
+            # Skip disabled entities or entities without state
+            if entity.disabled_by is not None:
+                continue
+            if self.hass.states.get(entity.entity_id) is None:
+                continue
+
             # Check if entity belongs to this area
             entity_area = entity.area_id
             if not entity_area and entity.device_id:
@@ -997,6 +1019,12 @@ class AreaManager:
         matching_entities = []
 
         for entity in self._entity_registry.entities.values():
+            # Skip disabled entities or entities without state
+            if entity.disabled_by is not None:
+                continue
+            if self.hass.states.get(entity.entity_id) is None:
+                continue
+
             entity_area_id = self._get_entity_area_id(entity)
 
             if entity_area_id != area_id:

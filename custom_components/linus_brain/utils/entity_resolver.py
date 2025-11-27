@@ -73,6 +73,16 @@ class EntityResolver:
             if entity_domain != domain:
                 continue
 
+            # IMPORTANT: Skip entities that are disabled or don't have a state
+            # This prevents returning obsolete/deleted entities
+            if entity.disabled_by is not None:
+                continue
+            
+            # Check if entity exists in hass.states (entity must be loaded and available)
+            state = self.hass.states.get(entity.entity_id)
+            if state is None:
+                continue
+
             all_entities_in_domain.append(entity.entity_id)
 
             if (
@@ -124,14 +134,19 @@ class EntityResolver:
         area_id: str,
     ) -> dict[str, Any] | None:
         """
-        Resolve generic condition to condition with entity_id.
+        Resolve generic condition to condition with entity_id(s).
+
+        If multiple entities match a generic selector (domain + device_class + area),
+        automatically expands to an OR condition with all matching entities.
+        This ensures that "at least one" sensor being ON triggers the condition.
 
         Args:
             condition: Condition with generic selectors or explicit entity_id
             area_id: Area context for resolution
 
         Returns:
-            Resolved condition with entity_id, or None if resolution failed
+            Resolved condition with entity_id, or OR condition with multiple entities,
+            or None if resolution failed
         """
         condition_type = condition.get("condition")
 
@@ -161,35 +176,66 @@ class EntityResolver:
 
         target_area_id = area_id if area == "current" or area is None else area
 
-        entity_id = self.resolve_entity(
+        # Resolve ALL matching entities instead of just first
+        matching_entities = self.resolve_entity(
             domain=domain,
             area_id=target_area_id,
             device_class=device_class,
-            strategy="first",
+            strategy="all",  # Changed from "first" to "all"
         )
 
-        if not entity_id:
+        if not matching_entities:
             _LOGGER.debug(
                 f"Cannot resolve condition: domain={domain}, "
                 f"device_class={device_class}, area={target_area_id}"
             )
             return None
 
-        resolved_condition = condition.copy()
-        resolved_condition["entity_id"] = entity_id
+        # Ensure matching_entities is always a list
+        if isinstance(matching_entities, str):
+            matching_entities = [matching_entities]
 
-        del resolved_condition["domain"]
-        if "device_class" in resolved_condition:
-            del resolved_condition["device_class"]
-        if "area" in resolved_condition:
-            del resolved_condition["area"]
+        # If only one entity matches, return simple condition
+        if len(matching_entities) == 1:
+            resolved_condition = condition.copy()
+            resolved_condition["entity_id"] = matching_entities[0]
+            
+            # Cleanup generic selectors
+            for key in ["domain", "device_class", "area"]:
+                resolved_condition.pop(key, None)
+            
+            _LOGGER.debug(
+                f"Resolved condition: domain={domain}, device_class={device_class} "
+                f"→ entity_id={matching_entities[0]}"
+            )
+            
+            return resolved_condition
 
-        _LOGGER.debug(
-            f"Resolved condition: domain={domain}, device_class={device_class} "
-            f"→ entity_id={entity_id}"
+        # Multiple entities found: expand to OR condition (at least one must match)
+        # This ensures that if ANY sensor of this type is ON, the condition passes
+        _LOGGER.info(
+            f"🔄 Expanding condition: {len(matching_entities)} entities found for "
+            f"domain={domain}, device_class={device_class}, area={target_area_id} "
+            f"→ Creating OR condition"
         )
 
-        return resolved_condition
+        expanded_conditions = []
+        for entity_id in matching_entities:
+            entity_condition = condition.copy()
+            entity_condition["entity_id"] = entity_id
+            
+            # Cleanup generic selectors
+            for key in ["domain", "device_class", "area"]:
+                entity_condition.pop(key, None)
+            
+            expanded_conditions.append(entity_condition)
+            _LOGGER.debug(f"  → Added entity: {entity_id}")
+
+        # Return OR condition wrapping all entity conditions
+        return {
+            "condition": "or",
+            "conditions": expanded_conditions
+        }
 
     def resolve_nested_conditions(
         self,
