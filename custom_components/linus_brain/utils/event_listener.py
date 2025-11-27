@@ -100,12 +100,23 @@ class EventListener:
 
         # For media_player and light, always process
         if domain in ("media_player", "light"):
+            _LOGGER.debug(f"✅ Will process {entity_id}: domain={domain} always monitored")
             return True
 
         # Try original_device_class first, then device_class
         device_class = state.attributes.get(
             "original_device_class"
         ) or state.attributes.get("device_class")
+
+        # Log binary_sensor occupancy specifically for debugging
+        if domain == "binary_sensor" and device_class == "occupancy":
+            _LOGGER.info(
+                f"🔍 Checking binary_sensor.occupancy: {entity_id}, "
+                f"device_class={device_class}, "
+                f"original_device_class={state.attributes.get('original_device_class')}, "
+                f"state={state.state}, "
+                f"all_attributes={state.attributes}"
+            )
 
         if device_class in MONITORED_DEVICE_CLASSES:
             _LOGGER.debug(f"✅ Will process {entity_id}: device_class={device_class} is in MONITORED_DEVICE_CLASSES")
@@ -217,6 +228,23 @@ class EventListener:
         if not new_state or not entity_id:
             return
 
+        # Log binary_sensor occupancy events for debugging
+        domain = split_entity_id(entity_id)[0]
+        if domain == "binary_sensor":
+            device_class = new_state.attributes.get("original_device_class") or new_state.attributes.get("device_class")
+            if device_class == "occupancy":
+                _LOGGER.info(
+                    f"👁️ Received binary_sensor.occupancy event: {entity_id} "
+                    f"({old_state.state if old_state else 'unknown'} -> {new_state.state})"
+                )
+
+        # Log media_player events for debugging
+        if domain == "media_player":
+            _LOGGER.debug(
+                f"🎵 Received media_player event: {entity_id} "
+                f"({old_state.state if old_state else 'unknown'} -> {new_state.state})"
+            )
+
         if not self._should_process_entity(entity_id, new_state):
             return
 
@@ -296,6 +324,80 @@ class EventListener:
         )
 
         self._listeners.append(remove_listener)
+
+        # Log all entities that would be monitored
+        _LOGGER.info("📋 Scanning entities that will be monitored by EventListener...")
+        
+        from .area_manager import get_monitored_domains
+        monitored_domains = get_monitored_domains()
+        
+        monitored_entities = []
+        ignored_entities = []
+        
+        for state in self.hass.states.async_all():
+            entity_id = state.entity_id
+            
+            # Skip Linus Brain's own entities
+            if entity_id.startswith("sensor.linus_brain_") or entity_id.startswith("switch.linus_brain_"):
+                continue
+                
+            domain = split_entity_id(entity_id)[0]
+            
+            # Check if domain is monitored
+            if domain not in monitored_domains:
+                continue
+            
+            # Check if would be processed
+            if self._should_process_entity(entity_id, state):
+                area = self.coordinator.area_manager.get_entity_area(entity_id)
+                device_class = state.attributes.get("original_device_class") or state.attributes.get("device_class")
+                monitored_entities.append({
+                    "entity_id": entity_id,
+                    "domain": domain,
+                    "device_class": device_class,
+                    "area": area,
+                    "state": state.state
+                })
+            else:
+                device_class = state.attributes.get("original_device_class") or state.attributes.get("device_class")
+                area = self.coordinator.area_manager.get_entity_area(entity_id)
+                ignored_entities.append({
+                    "entity_id": entity_id,
+                    "domain": domain,
+                    "device_class": device_class,
+                    "area": area,
+                    "reason": "No area assigned" if not area else f"Device class {device_class} not monitored"
+                })
+        
+        # Log summary
+        _LOGGER.info(f"✅ EventListener will monitor {len(monitored_entities)} entities:")
+        
+        # Group by area for better readability
+        by_area = {}
+        for entity_info in monitored_entities:
+            area = entity_info["area"] or "no_area"
+            if area not in by_area:
+                by_area[area] = []
+            by_area[area].append(entity_info)
+        
+        for area, entities in sorted(by_area.items()):
+            if area == "no_area":
+                continue
+            _LOGGER.info(f"  Area '{area}': {len(entities)} entities")
+            for e in entities:
+                _LOGGER.info(f"    - {e['entity_id']} (domain={e['domain']}, device_class={e['device_class']}, state={e['state']})")
+        
+        # Log entities without area
+        if "no_area" in by_area:
+            _LOGGER.warning(f"⚠️ {len(by_area['no_area'])} monitored entities have NO AREA assigned (will be ignored):")
+            for e in by_area["no_area"]:
+                _LOGGER.warning(f"    - {e['entity_id']} (domain={e['domain']}, device_class={e['device_class']})")
+        
+        # Log ignored entities (for debugging)
+        if ignored_entities:
+            _LOGGER.debug(f"❌ {len(ignored_entities)} entities in monitored domains but ignored:")
+            for e in ignored_entities[:10]:  # Limit to first 10
+                _LOGGER.debug(f"    - {e['entity_id']}: {e['reason']}")
 
         _LOGGER.info("Event listener started successfully")
 
