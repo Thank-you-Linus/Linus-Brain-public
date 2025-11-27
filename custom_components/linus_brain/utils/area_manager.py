@@ -124,6 +124,7 @@ def get_monitored_domains() -> dict[str, list[str]]:
 
     # Cache the result
     _MONITORED_DOMAINS_CACHE = result
+    _LOGGER.info(f"💡 Monitored domains computed: {result}")
     return result
 
 

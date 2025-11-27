@@ -95,6 +95,7 @@ class EventListener:
 
         # Check if domain is monitored
         if domain not in monitored_domains:
+            _LOGGER.debug(f"⛔ Ignoring {entity_id}: domain {domain} not in monitored_domains {list(monitored_domains.keys())}")
             return False
 
         # For media_player and light, always process
@@ -105,9 +106,12 @@ class EventListener:
         device_class = state.attributes.get(
             "original_device_class"
         ) or state.attributes.get("device_class")
+
         if device_class in MONITORED_DEVICE_CLASSES:
+            _LOGGER.debug(f"✅ Will process {entity_id}: device_class={device_class} is in MONITORED_DEVICE_CLASSES")
             return True
 
+        _LOGGER.debug(f"⛔ Ignoring {entity_id}: device_class={device_class} not in MONITORED_DEVICE_CLASSES {MONITORED_DEVICE_CLASSES}")
         return False
 
     async def _deferred_area_update(self, area: str) -> None:
