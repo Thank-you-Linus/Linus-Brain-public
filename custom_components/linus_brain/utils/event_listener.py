@@ -96,7 +96,12 @@ class EventListener:
 
         # Check if domain is monitored
         if domain not in monitored_domains:
-            _LOGGER.debug(f"⛔ Ignoring {entity_id}: domain {domain} not in monitored_domains {list(monitored_domains.keys())}")
+            # Special debug for occupancy sensors
+            if "occupancy" in entity_id or (state.attributes.get("device_class") == "occupancy"):
+                _LOGGER.error(
+                    f"🚨 {entity_id}: domain '{domain}' NOT in monitored_domains! "
+                    f"Available domains: {list(monitored_domains.keys())}"
+                )
             return False
 
         # For media_player and light, always process
@@ -114,21 +119,19 @@ class EventListener:
             if entity_entry:
                 device_class = entity_entry.original_device_class or entity_entry.device_class
 
-        # Log binary_sensor occupancy specifically for debugging
-        if domain == "binary_sensor" and device_class == "occupancy":
+        # Special debug for occupancy sensors
+        if device_class == "occupancy":
+            monitored_classes = monitored_domains.get(domain, [])
             _LOGGER.info(
-                f"🔍 Checking binary_sensor.occupancy: {entity_id}, "
-                f"device_class={device_class}, "
-                f"state_device_class={state.attributes.get('device_class')}, "
-                f"state_original_device_class={state.attributes.get('original_device_class')}, "
-                f"state={state.state}"
+                f"🔍 Checking occupancy sensor {entity_id}: "
+                f"domain={domain}, device_class={device_class}, "
+                f"monitored_classes={monitored_classes}, "
+                f"will_process={device_class in MONITORED_DEVICE_CLASSES}"
             )
 
         if device_class in MONITORED_DEVICE_CLASSES:
-            _LOGGER.debug(f"✅ Will process {entity_id}: device_class={device_class} is in MONITORED_DEVICE_CLASSES")
             return True
 
-        _LOGGER.debug(f"⛔ Ignoring {entity_id}: device_class={device_class} not in MONITORED_DEVICE_CLASSES {MONITORED_DEVICE_CLASSES}")
         return False
 
     async def _deferred_area_update(self, area: str) -> None:
@@ -180,10 +183,9 @@ class EventListener:
         ):
             if new_state.state == "off":
                 _LOGGER.debug(
-                    f"Motion/presence sensor {entity_id} turned OFF, bypassing debounce for immediate transition"
+                    f"Sensor {entity_id} OFF, bypassing debounce"
                 )
                 self._last_update_times[area] = time.time()
-                # Cancel any pending debounced update since we're processing immediately
                 self._debounce_manager.cancel(area)
                 return False
 
@@ -191,10 +193,9 @@ class EventListener:
                 current_activity = self.coordinator.get_area_activity(area)
                 if current_activity == "inactive":
                     _LOGGER.debug(
-                        f"Motion/presence sensor {entity_id} turned ON while area is inactive, bypassing debounce for immediate transition"
+                        f"Sensor {entity_id} ON while inactive, bypassing debounce"
                     )
                     self._last_update_times[area] = time.time()
-                    # Cancel any pending debounced update since we're processing immediately
                     self._debounce_manager.cancel(area)
                     return False
 
@@ -234,6 +235,15 @@ class EventListener:
         if not new_state or not entity_id:
             return
 
+        # Ignore transitions FROM invalid states (startup restoration)
+        # This prevents triggering rules when HA restores states from storage
+        if old_state and not is_state_valid(old_state):
+            _LOGGER.debug(
+                f"⏭️ Ignoring {entity_id}: transition from invalid state "
+                f"({old_state.state} -> {new_state.state})"
+            )
+            return
+
         # Log binary_sensor occupancy events for debugging
         domain = split_entity_id(entity_id)[0]
         if domain == "binary_sensor":
@@ -244,6 +254,16 @@ class EventListener:
                     f"({old_state.state if old_state else 'unknown'} -> {new_state.state})"
                 )
 
+        if not self._should_process_entity(entity_id, new_state):
+            return
+
+        if old_state and old_state.state == new_state.state:
+            return
+
+        _LOGGER.debug(
+            f"State changed for {entity_id}: {old_state.state if old_state else 'unknown'} -> {new_state.state}"
+        )
+
         # Log media_player events for debugging
         if domain == "media_player":
             _LOGGER.debug(
@@ -252,9 +272,11 @@ class EventListener:
             )
 
         if not self._should_process_entity(entity_id, new_state):
+            _LOGGER.debug(f"⛔ Entity {entity_id} not processed by _should_process_entity")
             return
 
         if old_state and old_state.state == new_state.state:
+            _LOGGER.debug(f"⛔ Entity {entity_id} state unchanged: {new_state.state}")
             return
 
         _LOGGER.debug(
@@ -278,22 +300,38 @@ class EventListener:
             # Get device class for better logging
             device_class = None
             if new_state and new_state.attributes:
-                device_class = new_state.attributes.get("device_class")
+                device_class = new_state.attributes.get("device_class") or new_state.attributes.get("original_device_class")
+
+            # Get entity and device info for debugging
+            from homeassistant.helpers import entity_registry as er, device_registry as dr
+            ent_reg = er.async_get(self.hass)
+            entity_entry = ent_reg.async_get(entity_id)
+            
+            debug_info = ""
+            if entity_entry:
+                debug_info = f"\n   entity.area_id={entity_entry.area_id}"
+                debug_info += f"\n   entity.device_id={entity_entry.device_id}"
+                debug_info += f"\n   entity.original_device_class={entity_entry.original_device_class}"
+                
+                if entity_entry.device_id:
+                    dev_reg = dr.async_get(self.hass)
+                    device = dev_reg.async_get(entity_entry.device_id)
+                    if device:
+                        debug_info += f"\n   device.area_id={device.area_id}"
+                        debug_info += f"\n   device.name={device.name_by_user or device.name}"
 
             _LOGGER.warning(
                 f"⚠️ Entity {entity_id} (device_class={device_class}) has no associated area, skipping. "
-                f"Please assign this entity to an area in Home Assistant."
+                f"Please assign this entity or its device to an area in Home Assistant.{debug_info}"
             )
             return
 
         # Get device class for logging
-        device_class = None
-        if new_state and new_state.attributes:
-            device_class = new_state.attributes.get("device_class")
+        device_class = new_state.attributes.get("device_class")
 
         if self._should_debounce(area, entity_id, new_state):
             _LOGGER.debug(
-                f"Debouncing update for area {area} from {entity_id} (device_class={device_class})"
+                f"⏱️ Debouncing update for area {area} from {entity_id}"
             )
             return
 
@@ -340,20 +378,13 @@ class EventListener:
         
         monitored_domains = get_monitored_domains()
         _LOGGER.info(f"💡 Monitored domains: {monitored_domains}")
-        _LOGGER.info(f"💡 Binary sensor in domains? {'binary_sensor' in monitored_domains}")
-        
-        # Debug: Log all areas
-        area_reg = ar.async_get(self.hass)
-        _LOGGER.info("🏠 Available areas:")
-        for area in area_reg.async_list_areas():
-            _LOGGER.info(f"  - {area.name} (id={area.id})")
         
         ent_reg = er.async_get(self.hass)
         
         monitored_entities = []
         ignored_entities = []
-        rejected_occupancy_sensors = []  # Track rejected occupancy sensors specifically
-        all_binary_sensors_in_garage = []  # Debug: track all binary_sensors in garage
+        rejected_occupancy_sensors = []
+        all_binary_sensors_in_garage = []
         
         for state in self.hass.states.async_all():
             entity_id = state.entity_id
@@ -382,11 +413,34 @@ class EventListener:
                     _LOGGER.warning(f"    area from get_entity_area: {area}")
                     _LOGGER.warning(f"    entity.area_id: {entity_entry.area_id if entity_entry else 'NO ENTRY'}")
                     _LOGGER.warning(f"    entity.device_id: {entity_entry.device_id if entity_entry else 'NO ENTRY'}")
+                    _LOGGER.warning(f"    entity.original_device_class: {entity_entry.original_device_class if entity_entry else 'NO ENTRY'}")
+                    _LOGGER.warning(f"    entity.device_class: {entity_entry.device_class if entity_entry else 'NO ENTRY'}")
+                    
                     if entity_entry and entity_entry.device_id:
                         from homeassistant.helpers import device_registry as dr
                         dev_reg = dr.async_get(self.hass)
                         device = dev_reg.async_get(entity_entry.device_id)
-                        _LOGGER.warning(f"    device.area_id: {device.area_id if device else 'NO DEVICE'}")
+                        if device:
+                            _LOGGER.warning(f"    device.area_id: {device.area_id if device else 'NO DEVICE'}")
+                            _LOGGER.warning(f"    device.name: {device.name_by_user or device.name if device else 'NO DEVICE'}")
+                        else:
+                            _LOGGER.warning(f"    device: NOT FOUND (device_id={entity_entry.device_id})")
+                    
+                    # Check if would be monitored
+                    will_be_monitored = self._should_process_entity(entity_id, state)
+                    _LOGGER.warning(f"    will_be_monitored: {will_be_monitored}")
+                    
+                    if not will_be_monitored:
+                        _LOGGER.error(f"❌ {entity_id} will NOT be monitored! Investigating why...")
+                        _LOGGER.error(f"    domain '{domain}' in monitored_domains? {domain in monitored_domains}")
+                        if domain in monitored_domains:
+                            _LOGGER.error(f"    monitored device_classes for {domain}: {monitored_domains[domain]}")
+                            _LOGGER.error(f"    entity device_class '{device_class}' in list? {device_class in monitored_domains[domain] if monitored_domains[domain] else 'N/A (empty list = all)'}")
+                    else:
+                        if not area:
+                            _LOGGER.error(f"⚠️ {entity_id} WOULD be monitored BUT has no area!")
+                        else:
+                            _LOGGER.warning(f"✅ {entity_id} WILL be monitored for area '{area}'")
                 
                 if area == "garage":
                     all_binary_sensors_in_garage.append({
