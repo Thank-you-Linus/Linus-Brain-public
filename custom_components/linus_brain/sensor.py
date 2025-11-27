@@ -448,8 +448,12 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
         # Get configured timeouts for all activities
         configured_timeouts = self._activity_tracker.get_configured_timeouts()
 
+        # Get active presence entities from coordinator (for backward compatibility)
+        active_presence_entities = self._coordinator.active_presence_entities.get(self._area_id, [])
+
         # Activity sensor focuses on contextual activity state and environmental conditions
         # Presence detection attributes (active entities, detection sources) are now in binary_sensor
+        # but we keep active_presence_entities here for backward compatibility with existing templates
         self._attr_extra_state_attributes = {
             # Activity context
             "activity_level": activity_level or "empty",
@@ -463,6 +467,9 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
             "humidity": area_state.get("humidity"),  # Can be None for areas without humidity sensor
             "sun_elevation": area_state.get("sun_elevation") or 0,
             "is_dark": area_state.get("is_dark", False),
+            
+            # Presence detection (backward compatibility - prefer binary_sensor for new templates)
+            "active_presence_entities": active_presence_entities,
             
             # Automation context
             "last_automation_rule": last_rule,
