@@ -3,6 +3,17 @@ Entity Resolver for Linus Brain
 
 Resolves generic entity selectors (domain + device_class + area)
 to concrete entity_ids at runtime, enabling dynamic rule evaluation.
+
+CRITICAL DESIGN PATTERN:
+When resolving conditions with generic selectors that match multiple entities,
+this resolver ALWAYS expands to an OR condition containing ALL matching entities.
+This ensures that ANY entity meeting the condition will trigger it, not just the first one.
+
+Example: If an area has 5 occupancy sensors, checking for "occupancy ON" will
+evaluate all 5 sensors, returning True if ANY of them are ON.
+
+This prevents subtle bugs where only the first entity is checked and other
+entities are ignored, leading to failed detections.
 """
 
 import logging
@@ -136,9 +147,27 @@ class EntityResolver:
         """
         Resolve generic condition to condition with entity_id(s).
 
-        If multiple entities match a generic selector (domain + device_class + area),
-        automatically expands to an OR condition with all matching entities.
+        IMPORTANT: When multiple entities match a generic selector (domain + device_class + area),
+        this method automatically expands to an OR condition with all matching entities.
         This ensures that "at least one" sensor being ON triggers the condition.
+        
+        Example:
+            Input:  {"condition": "state", "domain": "binary_sensor", "device_class": "occupancy", "state": "on"}
+            
+            If 5 occupancy sensors exist in the area, output will be:
+            {
+                "condition": "or",
+                "conditions": [
+                    {"condition": "state", "entity_id": "binary_sensor.occupancy_1", "state": "on"},
+                    {"condition": "state", "entity_id": "binary_sensor.occupancy_2", "state": "on"},
+                    {"condition": "state", "entity_id": "binary_sensor.occupancy_3", "state": "on"},
+                    {"condition": "state", "entity_id": "binary_sensor.occupancy_4", "state": "on"},
+                    {"condition": "state", "entity_id": "binary_sensor.occupancy_5", "state": "on"}
+                ]
+            }
+            
+            This ensures ANY of the 5 sensors being ON will trigger the condition,
+            instead of only checking the first one.
 
         Args:
             condition: Condition with generic selectors or explicit entity_id

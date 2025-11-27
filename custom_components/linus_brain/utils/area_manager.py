@@ -9,6 +9,15 @@ Key responsibilities:
 - Group entities by area_id
 - Compute binary presence detection
 - Generate JSON payloads for Supabase
+
+CRITICAL PATTERN - Entity Filtering:
+When iterating over entity_registry.entities.values(), ALWAYS filter out:
+1. Disabled entities (entity.disabled_by is not None)
+2. Entities without state (hass.states.get(entity_id) is None)
+
+The entity registry contains ALL entities ever created, including deleted/disabled ones.
+Failing to filter will cause obsolete entities to be included in results, leading to
+incorrect evaluations and false negatives.
 """
 
 import logging
