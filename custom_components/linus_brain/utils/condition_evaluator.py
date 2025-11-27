@@ -160,13 +160,20 @@ class ConditionEvaluator:
                 return False
 
             # Check occupancy sensors
-            if device_class == "occupancy" and not presence_config.get(
-                "occupancy", True
-            ):
-                _LOGGER.debug(
-                    f"Skipping occupancy condition (disabled in config): {condition}"
+            occupancy_enabled = presence_config.get("occupancy", True)
+            _LOGGER.debug(
+                f"Occupancy detection check: device_class={device_class}, "
+                f"enabled={occupancy_enabled}, presence_config={presence_config}"
+            )
+            if device_class == "occupancy" and not occupancy_enabled:
+                _LOGGER.warning(
+                    f"❌ Skipping occupancy condition (disabled in config): {condition}"
                 )
                 return False
+            elif device_class == "occupancy":
+                _LOGGER.info(
+                    f"✅ Occupancy detection enabled, will evaluate condition: {condition}"
+                )
 
         # If domain is media_player, check media_playing config
         elif domain == "media_player":
