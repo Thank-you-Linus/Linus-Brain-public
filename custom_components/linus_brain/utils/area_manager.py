@@ -25,16 +25,12 @@ from ..const import (
     DEFAULT_DARK_THRESHOLD_LUX,
     DEFAULT_DARK_THRESHOLD_SUN_ELEVATION,
     DEFAULT_PRESENCE_DETECTION_CONFIG,
-    MONITORED_DOMAINS,  # Used in module-level get_monitored_domains()
-    PRESENCE_DETECTION_DOMAINS,  # Used in module-level get_presence_detection_domains()
+    MONITORED_DOMAINS,
+    PRESENCE_DETECTION_DOMAINS,
 )
 from .state_validator import is_state_valid
 
 _LOGGER = logging.getLogger(__name__)
-
-# Module-level caches for performance (constants don't change at runtime)
-_MONITORED_DOMAINS_CACHE: dict[str, list[str]] | None = None
-_PRESENCE_DETECTION_DOMAINS_CACHE: dict[str, list[str]] | None = None
 
 
 def _extract_domains_from_conditions(conditions: list) -> dict[str, set[str]]:
@@ -79,17 +75,9 @@ def get_monitored_domains() -> dict[str, list[str]]:
     """
     Dynamically compute monitored domains from activity detection conditions.
 
-    Uses module-level cache since constants don't change at runtime.
-
     Returns:
         Dictionary mapping domain to list of device_classes (empty list = monitor all)
     """
-    global _MONITORED_DOMAINS_CACHE
-
-    # Return cached result if available
-    if _MONITORED_DOMAINS_CACHE is not None:
-        return _MONITORED_DOMAINS_CACHE
-
     domains: dict[str, set[str]] = {}
 
     # 1. Extract from activity detection conditions
@@ -122,9 +110,6 @@ def get_monitored_domains() -> dict[str, list[str]]:
     for domain, device_classes in domains.items():
         result[domain] = sorted(list(device_classes)) if device_classes else []
 
-    # Cache the result
-    _MONITORED_DOMAINS_CACHE = result
-    _LOGGER.info(f"💡 Monitored domains computed: {result}")
     return result
 
 
@@ -133,17 +118,9 @@ def get_presence_detection_domains() -> dict[str, list[str]]:
     Dynamically compute presence detection domains from activity detection conditions.
     Only includes domains/device_classes used for presence/movement detection.
 
-    Uses module-level cache since constants don't change at runtime.
-
     Returns:
         Dictionary mapping domain to list of device_classes (empty list = monitor all)
     """
-    global _PRESENCE_DETECTION_DOMAINS_CACHE
-
-    # Return cached result if available
-    if _PRESENCE_DETECTION_DOMAINS_CACHE is not None:
-        return _PRESENCE_DETECTION_DOMAINS_CACHE
-
     domains: dict[str, set[str]] = {}
 
     # 1. Extract only from activities that detect presence (movement, occupied)
@@ -170,8 +147,6 @@ def get_presence_detection_domains() -> dict[str, list[str]]:
     for domain, device_classes in domains.items():
         result[domain] = sorted(list(device_classes)) if device_classes else []
 
-    # Cache the result
-    _PRESENCE_DETECTION_DOMAINS_CACHE = result
     return result
 
 

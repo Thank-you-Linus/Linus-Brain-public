@@ -330,9 +330,12 @@ class EventListener:
         
         from .area_manager import get_monitored_domains
         monitored_domains = get_monitored_domains()
+        _LOGGER.info(f"💡 Monitored domains: {monitored_domains}")
+        _LOGGER.info(f"💡 Binary sensor in domains? {'binary_sensor' in monitored_domains}")
         
         monitored_entities = []
         ignored_entities = []
+        rejected_occupancy_sensors = []  # Track rejected occupancy sensors specifically
         
         for state in self.hass.states.async_all():
             entity_id = state.entity_id
@@ -342,6 +345,17 @@ class EventListener:
                 continue
                 
             domain = split_entity_id(entity_id)[0]
+            device_class = state.attributes.get("original_device_class") or state.attributes.get("device_class")
+            
+            # Track occupancy sensors that are rejected
+            if domain == "binary_sensor" and device_class == "occupancy":
+                if domain not in monitored_domains:
+                    rejected_occupancy_sensors.append({
+                        "entity_id": entity_id,
+                        "reason": f"domain '{domain}' not in monitored_domains",
+                        "monitored_domains": list(monitored_domains.keys())
+                    })
+                    continue
             
             # Check if domain is monitored
             if domain not in monitored_domains:
@@ -350,7 +364,6 @@ class EventListener:
             # Check if would be processed
             if self._should_process_entity(entity_id, state):
                 area = self.coordinator.area_manager.get_entity_area(entity_id)
-                device_class = state.attributes.get("original_device_class") or state.attributes.get("device_class")
                 monitored_entities.append({
                     "entity_id": entity_id,
                     "domain": domain,
@@ -398,6 +411,13 @@ class EventListener:
             _LOGGER.debug(f"❌ {len(ignored_entities)} entities in monitored domains but ignored:")
             for e in ignored_entities[:10]:  # Limit to first 10
                 _LOGGER.debug(f"    - {e['entity_id']}: {e['reason']}")
+        
+        # Log rejected occupancy sensors specifically
+        if rejected_occupancy_sensors:
+            _LOGGER.error(f"🚨 {len(rejected_occupancy_sensors)} binary_sensor.occupancy were REJECTED:")
+            for e in rejected_occupancy_sensors:
+                _LOGGER.error(f"    - {e['entity_id']}: {e['reason']}")
+                _LOGGER.error(f"      Monitored domains: {e['monitored_domains']}")
 
         _LOGGER.info("Event listener started successfully")
 
