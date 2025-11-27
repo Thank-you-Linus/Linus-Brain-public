@@ -32,7 +32,7 @@ from .utils.rule_engine import RuleEngine
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.BUTTON, Platform.SENSOR, Platform.SWITCH]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.SENSOR, Platform.SWITCH]
 
 
 async def async_migrate_device_areas(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -178,6 +178,12 @@ async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> N
         "activity": "activity",
         # Sensor entities (per-app sensors use pattern: app_{app_id})
         "app": "app",
+        # Sensor entities (per-area insight sensors use pattern: {insight_type}_{area_id})
+        "dark_threshold": "dark_threshold",
+        "bright_threshold": "bright_threshold",
+        "default_brightness": "default_brightness",
+        # Binary sensor entities (per-area presence detection use pattern: presence_detection_{area_id})
+        "presence_detection": "presence_detection",
         # Switch entities (per-area feature switches use pattern: feature_{feature_id}_{area_id})
         "feature_automatic_lighting": "feature_automatic_lighting",
     }
@@ -204,6 +210,39 @@ async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> N
             ):
                 area_id = entity_entry.unique_id.replace("linus_brain_activity_", "")
                 expected_name = f"linus_brain_activity_{area_id}"
+            else:
+                continue
+
+        elif translation_key == "presence_detection":
+            # Presence detection binary sensors: binary_sensor.linus_brain_presence_detection_{area_id}
+            # Extract area_id from unique_id which is: linus_brain_presence_detection_{area_id}
+            if entity_entry.unique_id and entity_entry.unique_id.startswith(
+                "linus_brain_presence_detection_"
+            ):
+                area_id = entity_entry.unique_id.replace("linus_brain_presence_detection_", "")
+                expected_name = f"linus_brain_presence_detection_{area_id}"
+            else:
+                continue
+
+        elif translation_key in ["dark_threshold", "bright_threshold", "default_brightness"]:
+            # Insight sensors: sensor.linus_brain_{insight_type}_{area_id}
+            # Extract area_id from unique_id which is: linus_brain_insight_{insight_type}_{area_id}
+            if entity_entry.unique_id and entity_entry.unique_id.startswith("linus_brain_insight_"):
+                # unique_id format: linus_brain_insight_{insight_type}_{area_id}
+                parts = entity_entry.unique_id.split("_", 3)  # Split into ["linus", "brain", "insight", "{type}_{area}"]
+                if len(parts) >= 4:
+                    # parts[3] is "{insight_type}_{area_id}"
+                    type_and_area = parts[3]
+                    # Find the insight type
+                    for insight_type in ["dark_threshold", "bright_threshold", "default_brightness"]:
+                        if type_and_area.startswith(insight_type + "_"):
+                            area_id = type_and_area.replace(insight_type + "_", "")
+                            expected_name = f"linus_brain_{insight_type}_{area_id}"
+                            break
+                    else:
+                        continue
+                else:
+                    continue
             else:
                 continue
 

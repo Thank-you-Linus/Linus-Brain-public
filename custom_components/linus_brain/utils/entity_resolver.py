@@ -114,14 +114,14 @@ class EntityResolver:
             matching_entities.append(entity.entity_id)
 
         if not matching_entities:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 f"No entities found for domain={domain}, device_class={device_class}, area={area_id}. "
                 f"Found {len(all_entities_in_domain)} entities in domain '{domain}': {all_entities_in_domain[:5]}... "
                 f"Found {len(area_mismatch_entities)} entities in other areas: {area_mismatch_entities[:5]}..."
             )
             return None
 
-        _LOGGER.info(
+        _LOGGER.debug(
             f"✅ Resolved {len(matching_entities)} entities for domain={domain}, area={area_id}: {matching_entities}"
         )
 
@@ -242,7 +242,7 @@ class EntityResolver:
 
         # Multiple entities found: expand to OR condition (at least one must match)
         # This ensures that if ANY sensor of this type is ON, the condition passes
-        _LOGGER.info(
+        _LOGGER.debug(
             f"🔄 Expanding condition: {len(matching_entities)} entities found for "
             f"domain={domain}, device_class={device_class}, area={target_area_id} "
             f"→ Creating OR condition"
@@ -258,7 +258,6 @@ class EntityResolver:
                 entity_condition.pop(key, None)
             
             expanded_conditions.append(entity_condition)
-            _LOGGER.debug(f"  → Added entity: {entity_id}")
 
         # Return OR condition wrapping all entity conditions
         return {

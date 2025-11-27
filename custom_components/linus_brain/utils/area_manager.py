@@ -477,6 +477,61 @@ class AreaManager:
 
         return areas
 
+    def get_presence_entities_for_area(self, area_id: str) -> dict[str, list[str]]:
+        """
+        Get all presence detection entities for a specific area.
+
+        Returns entities grouped by type, regardless of their current state.
+        Used by binary_sensor to get the complete list of entities to track.
+
+        Args:
+            area_id: The area ID
+
+        Returns:
+            Dictionary with lists of entity_ids:
+            {
+                "motion": [entity_ids...],
+                "presence": [entity_ids...],
+                "occupancy": [entity_ids...],
+                "media": [entity_ids...],
+            }
+        """
+        result = {
+            "motion": [],
+            "presence": [],
+            "occupancy": [],
+            "media": [],
+        }
+
+        # Get all entities in this area
+        area_entities_map = self._get_monitored_entities()
+        entity_ids = area_entities_map.get(area_id, [])
+
+        for entity_id in entity_ids:
+            # Skip disabled entities
+            entity = self._entity_registry.async_get(entity_id)
+            if not entity or entity.disabled_by is not None:
+                continue
+
+            # Skip entities without state
+            state = self.hass.states.get(entity_id)
+            if not state:
+                continue
+
+            domain = split_entity_id(entity_id)[0]
+
+            # Binary sensors (motion, presence, occupancy)
+            if domain == "binary_sensor":
+                device_class = self._get_device_class(state)
+                if device_class in ["motion", "presence", "occupancy"]:
+                    result[device_class].append(entity_id)
+
+            # Media players
+            elif domain == "media_player":
+                result["media"].append(entity_id)
+
+        return result
+
     def _get_entity_area_id(self, entity: entity_registry.RegistryEntry) -> str | None:
         """
         Get the area ID for an entity, checking device if entity has no area.

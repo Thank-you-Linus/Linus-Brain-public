@@ -58,6 +58,11 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "presence_detection": {
+        "name": "Presence Detection {area_name}"
+      }
+    },
     "button": {
       "sync": {
         "name": "Sync Now"

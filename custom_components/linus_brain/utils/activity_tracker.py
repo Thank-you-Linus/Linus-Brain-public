@@ -390,7 +390,7 @@ class ActivityTracker:
                             state["threshold_start"] = now
                             state["threshold_tracking"] = activity_id
                             state["last_update"] = now
-                            _LOGGER.info(
+                            _LOGGER.debug(
                                 f"[DETECT] {area_id}: {activity_id} conditions met, starting threshold timer ({duration_threshold}s)"
                             )
                             # Don't return yet - continue checking lower-threshold activities
@@ -456,6 +456,7 @@ class ActivityTracker:
                             del self._conditions_false_since[area_id]
                         self._cancel_timeout(area_id)
 
+                        # Only log if activity actually changed
                         if old_activity != activity_id:
                             _LOGGER.info(
                                 f"[DETECT] {area_id}: {activity_id} detected and activated"

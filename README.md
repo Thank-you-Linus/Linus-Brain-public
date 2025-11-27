@@ -33,6 +33,7 @@ Linus Brain agit comme un **pont IA** entre votre Home Assistant et un système 
 
 ## 📚 Documentation
 
+### Guides Utilisateur
 - **[Guide de démarrage rapide](docs/QUICKSTART.md)** - Installation et configuration en 5 étapes
 - **[Feature Flags](docs/FEATURE_FLAGS.md)** 🆕 - Guide complet du système de feature flags par zone
 - **[Apps & Activities](docs/APPS_AND_ACTIVITIES.md)** - Système d'automatisations basées sur les activités
@@ -40,7 +41,20 @@ Linus Brain agit comme un **pont IA** entre votre Home Assistant et un système 
 - **[Format des règles](docs/RULE_FORMAT.md)** - Guide complet sur les sélecteurs d'entités génériques
 - **[Configuration](docs/CONFIGURATION.md)** - Configuration avancée et personnalisation
 - **[Architecture](docs/ARCHITECTURE.md)** - Architecture détaillée du système
+
+### Guides Techniques
+- **[Binary Sensor: Presence Detection](docs/BINARY_SENSOR_PRESENCE.md)** - Capteurs de présence par zone
 - **[Code source](custom_components/linus_brain/)** - Commenté et documenté pour faciliter la compréhension
+- **[CLAUDE.md](CLAUDE.md)** - Guide de développement pour contribuer au projet
+
+### ⚠️ Convention Importante
+
+**Entity IDs TOUJOURS en Anglais** : Tous les entity IDs créés par Linus Brain sont en anglais (ex: `sensor.linus_brain_activity_salon`, `binary_sensor.linus_brain_presence_detection_cuisine`), même si Home Assistant est configuré en français. Les noms affichés sont traduits automatiquement selon la langue de l'interface.
+
+Cela garantit :
+- ✅ Stabilité des automations (pas de changement si la langue change)
+- ✅ Portabilité entre installations
+- ✅ Compatibilité avec les conventions Home Assistant
 
 ---
 

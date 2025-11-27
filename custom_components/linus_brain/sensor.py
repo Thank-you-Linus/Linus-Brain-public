@@ -415,18 +415,11 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
         area_state = self._area_manager.get_area_environmental_state(
             self._area_id, self._coordinator.instance_id
         )
-        tracking_entities = self._area_manager.get_tracking_entities(self._area_id)
         last_rule = (
             self.coordinator.data.get("last_rules", {}).get(self._area_id)
             if self.coordinator.data
             else None
         )
-        # Get active presence entities with defensive None handling
-        active_presence_dict = self._coordinator.active_presence_entities
-        if active_presence_dict is not None:
-            active_presence_entities = active_presence_dict.get(self._area_id, [])
-        else:
-            active_presence_entities = []
 
         seconds_until_timeout = None
         timeout_type = None
@@ -455,21 +448,25 @@ class LinusAreaContextSensor(CoordinatorEntity, SensorEntity):
         # Get configured timeouts for all activities
         configured_timeouts = self._activity_tracker.get_configured_timeouts()
 
-        # Ensure all list/dict attributes have safe defaults (never None)
+        # Activity sensor focuses on contextual activity state and environmental conditions
+        # Presence detection attributes (active entities, detection sources) are now in binary_sensor
         self._attr_extra_state_attributes = {
-            "activity_level": activity_level,
-            "seconds_until_timeout": seconds_until_timeout,
-            "timeout_type": timeout_type,
-            "active_presence_entities": active_presence_entities or [],
-            "illuminance": area_state.get("illuminance"),
-            "temperature": area_state.get("temperature"),
-            "humidity": area_state.get("humidity"),
-            "sun_elevation": area_state.get("sun_elevation"),
-            "is_dark": area_state.get("is_dark"),
-            "tracking_entities": tracking_entities or [],
+            # Activity context
+            "activity_level": activity_level or "empty",
+            "seconds_until_timeout": seconds_until_timeout if seconds_until_timeout is not None else 0,
+            "timeout_type": timeout_type or "none",
+            "configured_timeouts": configured_timeouts or {},
+            
+            # Environmental conditions
+            "illuminance": area_state.get("illuminance") or 0,
+            "temperature": area_state.get("temperature"),  # Can be None for areas without temperature sensor
+            "humidity": area_state.get("humidity"),  # Can be None for areas without humidity sensor
+            "sun_elevation": area_state.get("sun_elevation") or 0,
+            "is_dark": area_state.get("is_dark", False),
+            
+            # Automation context
             "last_automation_rule": last_rule,
             "insights": insights or {},
-            "configured_timeouts": configured_timeouts or {},
         }
 
 

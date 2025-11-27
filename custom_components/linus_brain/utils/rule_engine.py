@@ -618,7 +618,7 @@ class RuleEngine:
                 self._previous_env_state[area_id] = current_env_state
 
                 if transition:
-                    _LOGGER.info(
+                    _LOGGER.debug(
                         f"Environmental transition detected for {area_id}: {transition} "
                         f"(triggered by {entity_id})"
                     )
@@ -668,7 +668,7 @@ class RuleEngine:
         await asyncio.sleep(DEBOUNCE_SECONDS)
 
         trigger_type = "environmental transition" if is_environmental else entity_id
-        _LOGGER.info(f"Evaluating rule for {area_id} (triggered by {trigger_type})")
+        _LOGGER.debug(f"Evaluating rule for {area_id} (triggered by {trigger_type})")
 
         await self._async_evaluate_and_execute(
             area_id, is_environmental=is_environmental

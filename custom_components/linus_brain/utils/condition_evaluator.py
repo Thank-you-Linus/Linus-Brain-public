@@ -166,14 +166,10 @@ class ConditionEvaluator:
                 f"enabled={occupancy_enabled}, presence_config={presence_config}"
             )
             if device_class == "occupancy" and not occupancy_enabled:
-                _LOGGER.warning(
-                    f"❌ Skipping occupancy condition (disabled in config): {condition}"
+                _LOGGER.debug(
+                    f"Skipping occupancy condition (disabled in config): {condition}"
                 )
                 return False
-            elif device_class == "occupancy":
-                _LOGGER.info(
-                    f"✅ Occupancy detection enabled, will evaluate condition: {condition}"
-                )
 
         # If domain is media_player, check media_playing config
         elif domain == "media_player":
