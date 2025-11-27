@@ -216,7 +216,9 @@ class RuleEngine:
                     "is_default": True,
                 }
 
-                if coordinator:
+                # NOTE: Cloud assignment sync is disabled until save_area_assignment is implemented
+                # Assignments are managed locally via switches and stored in app_storage
+                if coordinator and False:  # Disabled for now
                     try:
                         instance_id = await coordinator.get_or_create_instance_id()
                         await coordinator.supabase_client.save_area_assignment(

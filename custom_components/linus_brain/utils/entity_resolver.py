@@ -64,12 +64,16 @@ class EntityResolver:
         )
 
         matching_entities = []
+        all_entities_in_domain = []
+        area_mismatch_entities = []
 
         for entity in self._entity_registry.entities.values():
             entity_domain = entity.domain
 
             if entity_domain != domain:
                 continue
+
+            all_entities_in_domain.append(entity.entity_id)
 
             if (
                 device_class
@@ -81,18 +85,24 @@ class EntityResolver:
             entity_area_id = self._get_entity_area_id(entity)
 
             if entity_area_id != area_id:
+                area_mismatch_entities.append(
+                    f"{entity.entity_id} (area={entity_area_id})"
+                )
                 continue
 
             matching_entities.append(entity.entity_id)
 
         if not matching_entities:
-            _LOGGER.debug(
-                f"No entities found for domain={domain}, "
-                f"device_class={device_class}, area={area_id}"
+            _LOGGER.warning(
+                f"No entities found for domain={domain}, device_class={device_class}, area={area_id}. "
+                f"Found {len(all_entities_in_domain)} entities in domain '{domain}': {all_entities_in_domain[:5]}... "
+                f"Found {len(area_mismatch_entities)} entities in other areas: {area_mismatch_entities[:5]}..."
             )
             return None
 
-        _LOGGER.debug(f"Found {len(matching_entities)} entities: {matching_entities}")
+        _LOGGER.info(
+            f"✅ Resolved {len(matching_entities)} entities for domain={domain}, area={area_id}: {matching_entities}"
+        )
 
         if strategy == "first":
             return matching_entities[0]

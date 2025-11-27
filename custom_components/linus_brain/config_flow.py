@@ -245,9 +245,8 @@ class LinusBrainOptionsFlow(config_entries.OptionsFlow):
     This allows users to modify configuration after initial setup.
     """
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
+    # NOTE: No custom __init__ needed - config_entry is automatically available
+    # from parent OptionsFlow class. Setting it manually is deprecated in HA 2025.12.
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> Any:
         """

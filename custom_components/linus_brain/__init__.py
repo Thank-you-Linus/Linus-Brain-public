@@ -369,7 +369,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator.area_manager._insights_manager = insights_manager
 
     # Now do the first refresh - ActivityTracker will have activities available
-    await coordinator.async_config_entry_first_refresh()
+    # Use async_refresh() instead of async_config_entry_first_refresh() to support reloads
+    # (async_config_entry_first_refresh only works during SETUP_IN_PROGRESS state)
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except RuntimeError as err:
+        # During reload, entry is already LOADED, use async_refresh instead
+        _LOGGER.debug(
+            f"async_config_entry_first_refresh failed (likely during reload): {err}, using async_refresh instead"
+        )
+        await coordinator.async_refresh()
 
     light_learning = LightLearning(hass, coordinator)
 
@@ -460,7 +469,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await async_migrate_device_areas(hass, entry)
 
     # Forward the setup to sensor platform
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _LOGGER.info(f"Loading platforms: {PLATFORMS}")
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        _LOGGER.info("All platforms loaded successfully")
+    except Exception as err:
+        _LOGGER.error(f"Failed to load platforms: {err}", exc_info=True)
+        raise
 
     # Register options update listener
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
