@@ -140,7 +140,7 @@ class LinusBrainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
-        return LinusBrainOptionsFlow(config_entry)
+        return LinusBrainOptionsFlow()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> Any:
         """
