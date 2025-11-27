@@ -237,15 +237,31 @@ class EventListener:
         area = self.coordinator.area_manager.get_entity_area(entity_id)
 
         if not area:
-            _LOGGER.debug(f"Entity {entity_id} has no associated area, skipping")
+            # Get device class for better logging
+            device_class = None
+            if new_state and new_state.attributes:
+                device_class = new_state.attributes.get("device_class")
+
+            _LOGGER.warning(
+                f"⚠️ Entity {entity_id} (device_class={device_class}) has no associated area, skipping. "
+                f"Please assign this entity to an area in Home Assistant."
+            )
             return
 
+        # Get device class for logging
+        device_class = None
+        if new_state and new_state.attributes:
+            device_class = new_state.attributes.get("device_class")
+
         if self._should_debounce(area, entity_id, new_state):
-            _LOGGER.debug(f"Debouncing update for area {area}")
+            _LOGGER.debug(
+                f"Debouncing update for area {area} from {entity_id} (device_class={device_class})"
+            )
             return
 
         _LOGGER.info(
-            f"Triggering update for area {area} due to {entity_id} state change"
+            f"✅ Triggering update for area {area} from {entity_id} "
+            f"(domain={domain}, device_class={device_class}, state={new_state.state})"
         )
 
         task = self.hass.async_create_task(
