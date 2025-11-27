@@ -464,6 +464,48 @@ class AreaLightGroup(LightEntity):
         return self._color_temp_kelvin
 
     @property  # type: ignore[override]
+    def min_color_temp_kelvin(self) -> int:
+        """
+        Return minimum color temperature in Kelvin.
+        
+        Aggregates from member lights to find the warmest temperature supported.
+        Falls back to 2000K (warm white) if no member lights support color temperature.
+        """
+        if not self._light_entity_ids:
+            return 2000  # Default warm white
+        
+        min_temps = []
+        for entity_id in self._light_entity_ids:
+            state = self.hass.states.get(entity_id)
+            if state:
+                min_kelvin = state.attributes.get("min_color_temp_kelvin")
+                if min_kelvin:
+                    min_temps.append(min_kelvin)
+        
+        return min(min_temps) if min_temps else 2000
+
+    @property  # type: ignore[override]
+    def max_color_temp_kelvin(self) -> int:
+        """
+        Return maximum color temperature in Kelvin.
+        
+        Aggregates from member lights to find the coolest temperature supported.
+        Falls back to 6535K (cool white) if no member lights support color temperature.
+        """
+        if not self._light_entity_ids:
+            return 6535  # Default cool white
+        
+        max_temps = []
+        for entity_id in self._light_entity_ids:
+            state = self.hass.states.get(entity_id)
+            if state:
+                max_kelvin = state.attributes.get("max_color_temp_kelvin")
+                if max_kelvin:
+                    max_temps.append(max_kelvin)
+        
+        return max(max_temps) if max_temps else 6535
+
+    @property  # type: ignore[override]
     def effect(self) -> str | None:
         """Return the current effect."""
         return self._effect
@@ -518,18 +560,77 @@ class AreaLightGroup(LightEntity):
         # Trigger initial update
         self.async_schedule_update_ha_state(force_refresh=True)
 
+    def _compute_valid_color_modes(self, all_modes: list[ColorMode | str]) -> set[ColorMode | str]:
+        """
+        Compute valid color modes according to Home Assistant rules.
+        
+        Home Assistant does NOT allow combining BRIGHTNESS with color modes like XY or COLOR_TEMP.
+        Valid combinations:
+        - ONOFF only
+        - BRIGHTNESS only
+        - Color modes (XY, RGB, HS, COLOR_TEMP, etc.) - can be combined
+        - But NOT: BRIGHTNESS + XY/RGB/COLOR_TEMP
+        
+        Priority: Color modes > BRIGHTNESS > ONOFF
+        
+        Args:
+            all_modes: List of all color modes from member lights
+            
+        Returns:
+            Set of valid color modes for the group
+        """
+        if not all_modes:
+            return {ColorMode.ONOFF}
+        
+        modes_set = set(all_modes)
+        
+        # Remove ONOFF from consideration (always implied as fallback)
+        modes_set.discard(ColorMode.ONOFF)
+        
+        # Define color modes (higher priority than BRIGHTNESS)
+        color_modes = {
+            ColorMode.XY,
+            ColorMode.RGB,
+            ColorMode.RGBW,
+            ColorMode.RGBWW,
+            ColorMode.HS,
+            ColorMode.COLOR_TEMP,
+        }
+        
+        # Check what we have
+        has_color = bool(modes_set & color_modes)
+        has_brightness = ColorMode.BRIGHTNESS in modes_set
+        
+        if has_color:
+            # Use color modes only, exclude BRIGHTNESS
+            # Color modes can be combined together (e.g., XY + COLOR_TEMP is valid)
+            result = modes_set & color_modes
+            _LOGGER.debug(
+                "%s: Using color modes %s (excluding BRIGHTNESS to avoid invalid combination)",
+                self.entity_id if hasattr(self, "entity_id") else "light_group",
+                result
+            )
+            return result
+        elif has_brightness:
+            # Only BRIGHTNESS (no colors available)
+            return {ColorMode.BRIGHTNESS}
+        else:
+            # Fallback to ONOFF
+            return {ColorMode.ONOFF}
+
     def _detect_features_from_members(self) -> None:
         """
         Detect supported features from member lights.
 
         Strategy:
         - supported_features: Intersection (only features ALL lights support)
-        - supported_color_modes: Union (any color mode any light supports)
+        - supported_color_modes: Valid combination (respecting HA rules)
         - effect_list: Union (all unique effects from all lights)
 
         This ensures:
         - Basic features work on all lights
         - Advanced features (color, effects) available when possible
+        - Color modes follow Home Assistant validation rules
         """
         if not self._light_entity_ids:
             self._supported_features = LightEntityFeature(0)
@@ -579,10 +680,8 @@ class AreaLightGroup(LightEntity):
 
         self._supported_features = LightEntityFeature(common_features)
 
-        # Compute union of color modes (any light supports)
-        self._supported_color_modes = (
-            set(all_color_modes) if all_color_modes else {ColorMode.ONOFF}
-        )
+        # Compute valid color modes (respecting Home Assistant rules)
+        self._supported_color_modes = self._compute_valid_color_modes(all_color_modes)
 
         # Compute unique effects
         self._effect_list = sorted(list(set(all_effects))) if all_effects else []
