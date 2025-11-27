@@ -56,13 +56,18 @@ class EntityResolver:
         """
         Resolve generic selector to entity_id(s).
 
+        IMPORTANT: For light domain actions (strategy="all"), this resolver returns
+        the area light group entity (light.linus_brain_all_lights_{area_id}) instead
+        of individual lights. This centralizes all light control logic in the light group,
+        which handles smart filtering (only adjust ON lights) automatically.
+
         Args:
             domain: Entity domain (binary_sensor, sensor, light, etc.)
             area_id: Target area ID
             device_class: Optional device class filter (motion, illuminance, etc.)
             strategy: Resolution strategy:
                 - "first": Return first matching entity (default)
-                - "all": Return list of all matching entities
+                - "all": Return list of all matching entities (or light group for lights)
                 - "any": Return any active entity
 
         Returns:
@@ -73,6 +78,23 @@ class EntityResolver:
         _LOGGER.debug(
             f"Resolving entity: domain={domain}, area_id={area_id}, device_class={device_class}, strategy={strategy}"
         )
+
+        # Special case: For light domain with strategy="all", return the area light group
+        # This centralizes light control logic and enables smart filtering
+        if domain == "light" and strategy == "all" and not device_class:
+            light_group_entity = f"light.linus_brain_all_lights_{area_id}"
+            
+            # Check if light group exists
+            if self.hass.states.get(light_group_entity):
+                _LOGGER.debug(
+                    f"✅ Resolved light domain to area light group: {light_group_entity}"
+                )
+                return light_group_entity
+            
+            # Fallback to individual lights if group doesn't exist yet
+            _LOGGER.debug(
+                f"⚠️ Light group {light_group_entity} not found, falling back to individual lights"
+            )
 
         matching_entities = []
         all_entities_in_domain = []

@@ -32,7 +32,7 @@ from .utils.rule_engine import RuleEngine
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.SENSOR, Platform.SWITCH]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.LIGHT, Platform.SENSOR, Platform.SWITCH]
 
 
 async def async_migrate_device_areas(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -186,6 +186,8 @@ async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> N
         "presence_detection": "presence_detection",
         # Switch entities (per-area feature switches use pattern: feature_{feature_id}_{area_id})
         "feature_automatic_lighting": "feature_automatic_lighting",
+        # Light entities (per-area light groups use pattern: all_lights_{area_id})
+        "area_lights": "all_lights",
     }
 
     migrations_needed = []
@@ -254,6 +256,17 @@ async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> N
             ):
                 app_id = entity_entry.unique_id.replace("linus_brain_app_", "")
                 expected_name = f"linus_brain_app_{app_id}"
+            else:
+                continue
+
+        elif translation_key == "area_lights":
+            # Light groups: light.linus_brain_all_lights_{area_id}
+            # Extract area_id from unique_id which is: linus_brain_all_lights_{area_id}
+            if entity_entry.unique_id and entity_entry.unique_id.startswith(
+                "linus_brain_all_lights_"
+            ):
+                area_id = entity_entry.unique_id.replace("linus_brain_all_lights_", "")
+                expected_name = f"linus_brain_all_lights_{area_id}"
             else:
                 continue
 

@@ -116,20 +116,37 @@ class ActionExecutor:
         if entity_id:
             service_data["entity_id"] = entity_id
 
+        # Handle entity state filtering
+        # IMPORTANT: Skip filtering for Linus Brain light groups - they handle smart filtering internally
         if "filter_entities_by_state" in action:
             required_state = action["filter_entities_by_state"]
-            filtered_entities = self._filter_entities_by_state(
-                service_data.get("entity_id", []), required_state
+            entity_id_val = service_data.get("entity_id", [])
+            
+            # Check if this is a Linus Brain light group (single entity starting with light.linus_brain_all_lights_)
+            is_light_group = (
+                isinstance(entity_id_val, str) and 
+                entity_id_val.startswith("light.linus_brain_all_lights_")
             )
-            if not filtered_entities:
+            
+            if is_light_group:
+                # Light group handles smart filtering internally - don't apply external filter
                 _LOGGER.debug(
-                    f"Skipping action: no entities in state '{required_state}'"
+                    f"Skipping filter_entities_by_state for light group {entity_id_val} - group handles filtering internally"
                 )
-                return
-            service_data["entity_id"] = filtered_entities
-            _LOGGER.debug(
-                f"Filtered entities: {len(filtered_entities)} in state '{required_state}'"
-            )
+            else:
+                # Apply filtering for non-light-group entities
+                filtered_entities = self._filter_entities_by_state(
+                    entity_id_val, required_state
+                )
+                if not filtered_entities:
+                    _LOGGER.debug(
+                        f"Skipping action: no entities in state '{required_state}'"
+                    )
+                    return
+                service_data["entity_id"] = filtered_entities
+                _LOGGER.debug(
+                    f"Filtered entities: {len(filtered_entities)} in state '{required_state}'"
+                )
 
         _LOGGER.debug(
             f"Calling service {domain}.{service_name} with data: {service_data}"

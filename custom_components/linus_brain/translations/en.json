@@ -63,6 +63,11 @@
         "name": "Presence Detection {area_name}"
       }
     },
+    "light": {
+      "area_lights": {
+        "name": "All Lights - {area_name}"
+      }
+    },
     "button": {
       "sync": {
         "name": "Sync Now"
