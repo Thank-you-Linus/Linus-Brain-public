@@ -12,12 +12,14 @@ Key responsibilities:
 
 CRITICAL PATTERN - Entity Filtering:
 When iterating over entity_registry.entities.values(), ALWAYS filter out:
-1. Disabled entities (entity.disabled_by is not None)
-2. Entities without state (hass.states.get(entity_id) is None)
+1. Linus Brain's own entities (entity.platform == DOMAIN)
+2. Disabled entities (entity.disabled_by is not None)
+3. Entities without state (hass.states.get(entity_id) is None)
 
 The entity registry contains ALL entities ever created, including deleted/disabled ones.
 Failing to filter will cause obsolete entities to be included in results, leading to
-incorrect evaluations and false negatives.
+incorrect evaluations, false negatives, and circular dependencies (e.g., presence
+detection binary sensors including themselves).
 """
 
 import logging
@@ -34,6 +36,7 @@ from ..const import (
     DEFAULT_DARK_THRESHOLD_LUX,
     DEFAULT_DARK_THRESHOLD_SUN_ELEVATION,
     DEFAULT_PRESENCE_DETECTION_CONFIG,
+    DOMAIN,
     MONITORED_DOMAINS,
     PRESENCE_DETECTION_DOMAINS,
 )
@@ -208,6 +211,11 @@ class AreaManager:
             domain = entity.domain
 
             if domain not in monitored_domains:
+                continue
+
+            # IMPORTANT: Skip Linus Brain's own entities to prevent self-inclusion
+            # This prevents presence detection binary sensors from including themselves
+            if entity.platform == DOMAIN:
                 continue
 
             # IMPORTANT: Skip entities that are disabled or don't have a state
@@ -511,6 +519,10 @@ class AreaManager:
             # Skip disabled entities
             entity = self._entity_registry.async_get(entity_id)
             if not entity or entity.disabled_by is not None:
+                continue
+
+            # Skip Linus Brain's own entities to prevent self-inclusion
+            if entity.platform == DOMAIN:
                 continue
 
             # Skip entities without state
