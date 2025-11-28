@@ -14,6 +14,7 @@ Main responsibilities:
 """
 
 import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -21,6 +22,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import area_registry
 from homeassistant.helpers import entity_registry as er
+
+if TYPE_CHECKING:
+    from homeassistant.helpers.entity_registry import RegistryEntry
 
 from .const import CONF_SUPABASE_KEY, CONF_SUPABASE_URL, DOMAIN
 from .coordinator import LinusBrainCoordinator
@@ -113,22 +117,28 @@ async def async_migrate_device_areas(hass: HomeAssistant, entry: ConfigEntry) ->
 
     migrated_count = 0
     for migration in migrations_needed:
-        device = migration["device"]
-        target_area = migration["target_area"]
+        device_entry = migration["device"]
+        target_area_id = migration["target_area"]
         area_name = migration["area_name"]
+        
+        # Type assertions: validate types from migration dict
+        assert isinstance(target_area_id, str)
+        if not hasattr(device_entry, 'id'):
+            _LOGGER.error(f"Invalid device entry in migration: {device_entry}")
+            continue
 
         try:
             # Update device area using device_registry
-            device_reg.async_update_device(device.id, area_id=target_area)
+            device_reg.async_update_device(device_entry.id, area_id=target_area_id)  # type: ignore[union-attr]
 
             _LOGGER.info(
-                f"Migrated device '{device.name}' to area '{area_name}' ({target_area})"
+                f"Migrated device '{device_entry.name}' to area '{area_name}' ({target_area_id})"  # type: ignore[union-attr]
             )
             migrated_count += 1
 
         except Exception as err:
             _LOGGER.error(
-                f"Failed to migrate device '{device.name}' to area '{area_name}': {err}"
+                f"Failed to migrate device '{device_entry.name}' to area '{area_name}': {err}"  # type: ignore[union-attr]
             )
 
     if migrated_count > 0:
@@ -314,9 +324,9 @@ async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> N
 
     migrated_count = 0
     for migration in migrations_needed:
-        entity_entry = migration["entity_entry"]
-        current_id = migration["current"]
-        expected_id = migration["expected"]
+        entity_reg_entry: "RegistryEntry" = migration["entity_entry"]  # type: ignore[assignment]
+        current_id: str = migration["current"]  # type: ignore[assignment]
+        expected_id: str = migration["expected"]  # type: ignore[assignment]
 
         try:
             # Check if target entity_id already exists
@@ -328,7 +338,7 @@ async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> N
 
             # Perform the migration
             entity_reg.async_update_entity(
-                entity_entry.entity_id, new_entity_id=expected_id
+                entity_reg_entry.entity_id, new_entity_id=expected_id
             )
 
             _LOGGER.info(f"Migrated: {current_id} → {expected_id}")

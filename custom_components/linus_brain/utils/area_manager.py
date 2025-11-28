@@ -95,6 +95,9 @@ def get_monitored_domains() -> dict[str, list[str]]:
     # 1. Extract from activity detection conditions
     for activity in DEFAULT_ACTIVITY_TYPES.values():
         conditions = activity.get("detection_conditions", [])
+        # Ensure conditions is a list before passing to extraction function
+        if not isinstance(conditions, list):
+            continue
         extracted = _extract_domains_from_conditions(conditions)
         for domain, device_classes in extracted.items():
             if domain not in domains:
@@ -102,20 +105,26 @@ def get_monitored_domains() -> dict[str, list[str]]:
             domains[domain].update(device_classes)
 
     # 2. Extract from app conditions (e.g., automatic_lighting)
-    for activity_actions in DEFAULT_AUTOLIGHT_APP["activity_actions"].values():
-        conditions = activity_actions.get("conditions", [])
-        extracted = _extract_domains_from_conditions(conditions)
-        for domain, device_classes in extracted.items():
-            if domain not in domains:
-                domains[domain] = set()
-            domains[domain].update(device_classes)
+    activity_actions = DEFAULT_AUTOLIGHT_APP.get("activity_actions", {})
+    if isinstance(activity_actions, dict):
+        for activity_action in activity_actions.values():
+            conditions = activity_action.get("conditions", [])
+            # Ensure conditions is a list before passing to extraction function
+            if not isinstance(conditions, list):
+                continue
+            extracted = _extract_domains_from_conditions(conditions)
+            for domain, device_classes in extracted.items():
+                if domain not in domains:
+                    domains[domain] = set()
+                domains[domain].update(device_classes)
 
     # 3. Add base sensors for insights (illuminance, temperature, humidity, presence)
     # These are always monitored from MONITORED_DOMAINS constant
-    for domain, device_classes in MONITORED_DOMAINS.items():
+    for domain, device_classes_list in MONITORED_DOMAINS.items():  # type: ignore[attr-defined]
         if domain not in domains:
             domains[domain] = set()
-        domains[domain].update(device_classes)
+        if isinstance(device_classes_list, list):
+            domains[domain].update(device_classes_list)
 
     # Convert sets to lists (empty list means monitor all entities in that domain)
     result = {}
@@ -141,6 +150,9 @@ def get_presence_detection_domains() -> dict[str, list[str]]:
         activity = DEFAULT_ACTIVITY_TYPES.get(activity_id)
         if activity:
             conditions = activity.get("detection_conditions", [])
+            # Ensure conditions is a list before passing to extraction function
+            if not isinstance(conditions, list):
+                continue
             extracted = _extract_domains_from_conditions(conditions)
             for domain, device_classes in extracted.items():
                 if domain not in domains:
@@ -149,10 +161,11 @@ def get_presence_detection_domains() -> dict[str, list[str]]:
 
     # 2. Add base presence detection domains (e.g., 'presence' device class)
     # These are always monitored from PRESENCE_DETECTION_DOMAINS constant
-    for domain, device_classes in PRESENCE_DETECTION_DOMAINS.items():
+    for domain, device_classes_list in PRESENCE_DETECTION_DOMAINS.items():  # type: ignore[attr-defined]
         if domain not in domains:
             domains[domain] = set()
-        domains[domain].update(device_classes)
+        if isinstance(device_classes_list, list):
+            domains[domain].update(device_classes_list)
 
     # Convert sets to lists
     result = {}
@@ -364,9 +377,10 @@ class AreaManager:
 
         # Priority 3: Hardcoded Defaults
         _LOGGER.debug("Using hardcoded default presence detection config")
+        default_config: dict[str, dict[str, Any]] = DEFAULT_PRESENCE_DETECTION_CONFIG  # type: ignore[assignment]
         return {
             key: config["enabled"]
-            for key, config in DEFAULT_PRESENCE_DETECTION_CONFIG.items()
+            for key, config in default_config.items()
         }
 
     async def get_area_state(self, area_id: str) -> dict[str, Any] | None:
@@ -504,7 +518,7 @@ class AreaManager:
                 "media": [entity_ids...],
             }
         """
-        result = {
+        result: dict[str, list[str]] = {
             "motion": [],
             "presence": [],
             "occupancy": [],

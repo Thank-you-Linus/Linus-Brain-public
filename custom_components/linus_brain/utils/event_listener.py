@@ -338,7 +338,7 @@ class EventListener:
                     })
         
         # Log summary by area
-        by_area = {}
+        by_area: dict[str, list[dict[str, Any]]] = {}
         for entity_info in monitored_entities:
             area = entity_info["area"]
             if area not in by_area:

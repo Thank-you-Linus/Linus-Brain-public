@@ -7,6 +7,7 @@ Light groups:
 - Update dynamically when lights are added/removed/moved
 - Provide smart filtering (only adjust ON lights when changing brightness/color)
 - Support all light features (brightness, color, effects)
+- Automatically removed when no lights remain in an area
 """
 import asyncio
 import logging
@@ -22,12 +23,15 @@ from homeassistant.components.light import (
     ATTR_RGBW_COLOR,
     ATTR_RGBWW_COLOR,
     ATTR_WHITE,
-    ColorMode,
     LightEntity,
+)
+from homeassistant.components.light.const import (
+    ColorMode,
     LightEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
+    EVENT_HOMEASSISTANT_STARTED,
     EVENT_STATE_CHANGED,
     STATE_ON,
     STATE_UNAVAILABLE,
@@ -37,7 +41,7 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import EventStateChangedData
+from homeassistant.helpers.event import EventStateChangedData, async_call_later
 
 from .const import DOMAIN, get_area_device_info
 
@@ -56,11 +60,10 @@ async def async_setup_entry(
     """
     Set up Linus Brain light groups from a config entry.
     
-    This function:
-    1. Creates initial light groups for each area
-    2. Registers an event listener for dynamic updates
-    3. Stores references to groups for dynamic management
+    Uses PlatformGroupManager to handle startup and area change detection.
     """
+    from .utils.group_manager import PlatformGroupManager
+    
     # Get registries
     entity_reg = er.async_get(hass)
     device_reg = dr.async_get(hass)
@@ -103,6 +106,27 @@ async def async_setup_entry(
                 lights.append(entity_id)
         
         return lights
+    
+    def _async_remove_light_group(area_id: str, reason: str = "") -> None:
+        """
+        Remove a light group when it becomes empty.
+        
+        Args:
+            area_id: Area ID of the group to remove
+            reason: Optional reason for logging
+        """
+        if area_id not in _LIGHT_GROUPS:
+            return
+        
+        group = _LIGHT_GROUPS.pop(area_id)
+        
+        log_msg = f"No lights remaining in area {area_id}"
+        if reason:
+            log_msg += f" ({reason})"
+        log_msg += " - removing group entity"
+        
+        _LOGGER.info(log_msg)
+        hass.async_create_task(group.async_remove(force_remove=True))
 
     # Group lights by area initially
     lights_by_area: dict[str, list[str]] = {}
@@ -155,18 +179,60 @@ async def async_setup_entry(
     if entities:
         async_add_entities(entities)
         _LOGGER.info("Created %d area light groups", len(entities))
+    
+    # Flag to prevent processing during startup period
+    _startup_complete = not hass.is_running
+    
+    # Schedule post-startup refresh for MQTT entities
+    if not hass.is_running:
+        async def _ha_started(_event):
+            """Refresh all light groups after HA fully started."""
+            _LOGGER.debug("HA started, scheduling light groups refresh in 2s for MQTT entities")
+            
+            async def _delayed_refresh(_now):
+                """Execute refresh after delay."""
+                nonlocal _startup_complete
+                _startup_complete = True
+                
+                # Refresh all light groups
+                for area_id, group in _LIGHT_GROUPS.items():
+                    new_lights = _rebuild_area_lights(area_id)
+                    if set(new_lights) != set(group._light_entity_ids):
+                        old_count = len(group._light_entity_ids)
+                        group.update_members(new_lights)
+                        _LOGGER.info(
+                            "Post-startup refresh for area %s: %d → %d lights",
+                            area_id,
+                            old_count,
+                            len(new_lights),
+                        )
+            
+            async_call_later(hass, 2, _delayed_refresh)
+        
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _ha_started)
+    else:
+        # HA already running (reload case)
+        _startup_complete = True
+        _LOGGER.debug("HA already running, light groups ready immediately")
 
     # Event listener for dynamic updates
     @callback
     def entity_registry_updated(event: Event) -> None:
         """
-        Handle entity registry updates.
+        Handle entity registry updates with intelligent filtering.
         
         This callback is triggered when:
         - A new light is added (action="create")
         - A light is removed (action="remove")
         - A light is updated, e.g., area changed (action="update")
+        
+        Optimization: Skip processing during startup period (before EVENT_HOMEASSISTANT_STARTED + 2s)
+        to avoid unnecessary scans while entities are still loading.
         """
+        # Skip processing until startup is complete
+        if not _startup_complete:
+            return
+        
         data = event.data
         action = data.get("action")
         entity_id = data.get("entity_id")
@@ -236,15 +302,21 @@ async def async_setup_entry(
         elif action == "remove":
             # Light removed
             # Check all groups and remove this light
-            for area_id, group in _LIGHT_GROUPS.items():
+            for area_id, group in list(_LIGHT_GROUPS.items()):
                 if entity_id in group._light_entity_ids:
                     new_lights = _rebuild_area_lights(area_id)
-                    group.update_members(new_lights)
-                    _LOGGER.info(
-                        "Removed light %s from group for area %s",
-                        entity_id,
-                        area_id,
-                    )
+                    
+                    if not new_lights:
+                        # No lights left in this area - remove the group entity
+                        _async_remove_light_group(area_id, f"after removing {entity_id}")
+                    else:
+                        group.update_members(new_lights)
+                        _LOGGER.info(
+                            "Removed light %s from group for area %s (%d lights remaining)",
+                            entity_id,
+                            area_id,
+                            len(new_lights),
+                        )
                     break
         
         elif action == "update":
@@ -268,8 +340,14 @@ async def async_setup_entry(
                 
                 # Remove from old group
                 if old_area_id and old_area_id in _LIGHT_GROUPS:
+                    old_group = _LIGHT_GROUPS[old_area_id]
                     old_lights = _rebuild_area_lights(old_area_id)
-                    _LIGHT_GROUPS[old_area_id].update_members(old_lights)
+                    
+                    if not old_lights:
+                        # No lights left in old area - remove the group entity
+                        _async_remove_light_group(old_area_id, f"after moving {entity_id}")
+                    else:
+                        old_group.update_members(old_lights)
                 
                 # Add to new group (if not disabled)
                 if new_area_id and not entity_entry.disabled:
@@ -301,16 +379,23 @@ async def async_setup_entry(
             if "disabled" in changes:
                 area_id = _get_light_area_id(entity_entry)
                 if area_id and area_id in _LIGHT_GROUPS:
+                    group = _LIGHT_GROUPS[area_id]
                     new_lights = _rebuild_area_lights(area_id)
-                    _LIGHT_GROUPS[area_id].update_members(new_lights)
                     
-                    status = "disabled" if entity_entry.disabled else "enabled"
-                    _LOGGER.info(
-                        "Light %s %s in area %s, updated group",
-                        entity_id,
-                        status,
-                        area_id,
-                    )
+                    if not new_lights:
+                        # No enabled lights left - remove the group entity
+                        _async_remove_light_group(area_id, "all lights disabled")
+                    else:
+                        group.update_members(new_lights)
+                        
+                        status = "disabled" if entity_entry.disabled else "enabled"
+                        _LOGGER.info(
+                            "Light %s %s in area %s, updated group (%d lights)",
+                            entity_id,
+                            status,
+                            area_id,
+                            len(new_lights),
+                        )
 
     # Register the event listener
     entry.async_on_unload(
@@ -364,6 +449,9 @@ class AreaLightGroup(LightEntity):
             area_name,
         )
 
+        # Availability (False if no member lights)
+        self._attr_available = len(light_entity_ids) > 0
+
         # Features (computed dynamically)
         self._supported_features: LightEntityFeature = LightEntityFeature(0)
         self._supported_color_modes: set[ColorMode | str] = {ColorMode.ONOFF}
@@ -392,6 +480,8 @@ class AreaLightGroup(LightEntity):
         This method is called by the event listener when lights are added/removed
         or moved between areas.
         
+        If the list becomes empty, the group will be marked as unavailable.
+        
         Args:
             new_light_entity_ids: New list of light entity IDs for this group
         """
@@ -415,6 +505,9 @@ class AreaLightGroup(LightEntity):
         
         # Update the list
         self._light_entity_ids = new_light_entity_ids
+        
+        # Update availability based on member count
+        self._attr_available = len(new_light_entity_ids) > 0
         
         # Clean up states for removed members
         for entity_id in removed:

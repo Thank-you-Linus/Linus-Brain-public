@@ -11,18 +11,21 @@ Key Features:
 - Aggregates motion, presence, occupancy, and media sensors
 - Respects user's presence detection configuration
 - Automatically tracks member entity changes (via GroupEntity)
+- Dynamically updates when new entities are added (solves MQTT startup race condition)
 - Shows member entities in Home Assistant UI (more-info dialog)
 - Complements the activity sensor (doesn't replace it)
+- Automatically removed when no presence entities remain in an area
 
 Architecture Notes:
 - binary_sensor.presence_detection → Simple presence aggregation (on/off)
 - sensor.activity → Contextual activity detection (empty/movement/occupied/etc.)
 - Automatic lighting uses sensor.activity for timeout-based control
 - This binary sensor is for visibility and debugging purposes
+- Entity registry listener ensures late-loading integrations (MQTT, etc.) are included
 """
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -35,6 +38,9 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, get_area_device_info
+
+if TYPE_CHECKING:
+    from .utils.group_manager import GroupManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -197,6 +203,7 @@ class PresenceDetectionBinarySensor(GroupEntity, BinarySensorEntity):
         self._area_name = area_name
         self._entry_id = entry_id
         self._entity_ids = entity_ids
+        self._group_manager: "GroupManager | None" = None  # Will be set in async_added_to_hass
 
         # Unique ID format: linus_brain_presence_detection_{area_id}
         self._attr_unique_id = f"{DOMAIN}_presence_detection_{area_id}"
@@ -221,6 +228,102 @@ class PresenceDetectionBinarySensor(GroupEntity, BinarySensorEntity):
             f"Initialized presence detection binary sensor for area: {area_name} ({area_id}) "
             f"with {len(entity_ids)} entities: {entity_ids}"
         )
+
+    async def async_added_to_hass(self) -> None:
+        """
+        Setup entity refresh triggers using GroupManager.
+        
+        Delegates startup, area change detection, and automatic removal to GroupManager.
+        """
+        await super().async_added_to_hass()
+        
+        from .utils.group_manager import GroupManager
+        
+        # Create and setup group manager with removal support
+        self._group_manager = GroupManager(
+            hass=self.hass,
+            refresh_callback=self._async_refresh_entity_list,
+            monitored_domains=["binary_sensor", "media_player"],
+            startup_delay=2.0,
+            log_prefix=f"PresenceDetection[{self._area_name}]",
+            removal_callback=self._async_remove_self,
+            check_empty_callback=self._is_empty,
+        )
+        
+        assert self._group_manager is not None  # for type checker
+        await self._group_manager.async_setup()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Called when entity is being removed from hass."""
+        await super().async_will_remove_from_hass()
+        
+        # Cleanup group manager
+        if self._group_manager:
+            self._group_manager.cleanup()
+            self._group_manager = None
+    
+    def _is_empty(self) -> bool:
+        """Check if the group has no members."""
+        return len(self._entity_ids) == 0
+    
+    async def _async_remove_self(self) -> None:
+        """Remove this entity from Home Assistant."""
+        _LOGGER.info(
+            f"No presence entities remaining for {self._area_name} - removing binary sensor entity"
+        )
+        await self.async_remove(force_remove=True)
+    
+    async def _async_refresh_entity_list(self) -> None:
+        """
+        Refresh the list of presence entities for this area.
+        
+        This is called when new entities are added to Home Assistant,
+        ensuring MQTT and other late-loading entities are included.
+        
+        GroupManager handles automatic removal if the list becomes empty.
+        """
+        try:
+            area_manager = self.hass.data[DOMAIN][self._entry_id].get("area_manager")
+            if not area_manager:
+                return
+            
+            from homeassistant.config_entries import ConfigEntry
+            
+            # Get config entry to access presence detection config
+            entry = None
+            for config_entry in self.hass.config_entries.async_entries(DOMAIN):
+                if config_entry.entry_id == self._entry_id:
+                    entry = config_entry
+                    break
+            
+            if not entry:
+                return
+            
+            # Get updated list of presence entities
+            new_entity_ids = await _async_get_presence_entities(
+                self.hass, entry, area_manager, self._area_id
+            )
+            
+            # Only update if the list has changed
+            if set(new_entity_ids) != set(self._entity_ids):
+                old_count = len(self._entity_ids)
+                self._entity_ids = new_entity_ids
+                
+                _LOGGER.info(
+                    f"Updated presence detection entities for {self._area_name}: "
+                    f"{old_count} → {len(new_entity_ids)} entities"
+                )
+                
+                # Update the group state with new entity list
+                # Note: GroupManager will handle removal if list is now empty
+                self.async_update_group_state()
+                self.async_write_ha_state()
+        
+        except Exception as err:
+            _LOGGER.error(
+                f"Failed to refresh entity list for {self._area_name}: {err}",
+                exc_info=True
+            )
 
     @callback
     def async_update_group_state(self) -> None:
