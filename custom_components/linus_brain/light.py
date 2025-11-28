@@ -902,16 +902,41 @@ class AreaLightGroup(LightEntity):
         else:
             self._effect = None
 
-        # Determine color mode
-        if self._rgbww_color is not None:
+        # Determine color mode (must be in supported_color_modes)
+        # Priority: RGBWW > RGBW > HS/RGB > XY > COLOR_TEMP > BRIGHTNESS > ONOFF
+        if self._rgbww_color is not None and ColorMode.RGBWW in self._supported_color_modes:
             self._color_mode = ColorMode.RGBWW
-        elif self._rgbw_color is not None:
+        elif self._rgbw_color is not None and ColorMode.RGBW in self._supported_color_modes:
             self._color_mode = ColorMode.RGBW
-        elif self._rgb_color is not None or self._hs_color is not None:
-            self._color_mode = ColorMode.HS
-        elif self._color_temp_kelvin is not None:
+        elif (self._rgb_color is not None or self._hs_color is not None):
+            # Prefer HS if supported, otherwise try RGB, then XY
+            if ColorMode.HS in self._supported_color_modes:
+                self._color_mode = ColorMode.HS
+            elif ColorMode.RGB in self._supported_color_modes:
+                self._color_mode = ColorMode.RGB
+            elif ColorMode.XY in self._supported_color_modes:
+                self._color_mode = ColorMode.XY
+                _LOGGER.debug(
+                    "%s: Using XY color mode (HS/RGB not supported, falling back from RGB/HS)",
+                    self.entity_id
+                )
+            elif ColorMode.COLOR_TEMP in self._supported_color_modes:
+                # Fall back to color temp if color not supported
+                self._color_mode = ColorMode.COLOR_TEMP
+                _LOGGER.debug(
+                    "%s: Using COLOR_TEMP mode (color modes not supported)",
+                    self.entity_id
+                )
+            else:
+                self._color_mode = ColorMode.BRIGHTNESS if self._brightness is not None else ColorMode.ONOFF
+                _LOGGER.debug(
+                    "%s: Using %s mode (no color support)",
+                    self.entity_id,
+                    self._color_mode
+                )
+        elif self._color_temp_kelvin is not None and ColorMode.COLOR_TEMP in self._supported_color_modes:
             self._color_mode = ColorMode.COLOR_TEMP
-        elif self._brightness is not None:
+        elif self._brightness is not None and ColorMode.BRIGHTNESS in self._supported_color_modes:
             self._color_mode = ColorMode.BRIGHTNESS
         else:
             self._color_mode = ColorMode.ONOFF

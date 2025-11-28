@@ -22,7 +22,11 @@ from .state_validator import is_state_valid
 from .timeout_manager import TimeoutManager
 
 if TYPE_CHECKING:
+    from ..coordinator import LinusBrainCoordinator
     from .light_learning import LightLearning
+
+# Type alias for JSON-like dictionaries (stats, debug info, etc.)
+JsonDict = dict[str, Any]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,7 +48,7 @@ class EventListener:
     def __init__(
         self,
         hass: HomeAssistant,
-        coordinator: Any,
+        coordinator: "LinusBrainCoordinator",
         light_learning: "LightLearning | None" = None,
     ) -> None:
         """
@@ -338,9 +342,12 @@ class EventListener:
                     })
         
         # Log summary by area
-        by_area: dict[str, list[dict[str, Any]]] = {}
+        by_area: dict[str, list[JsonDict]] = {}
         for entity_info in monitored_entities:
             area = entity_info["area"]
+            # Type guard: area should always be a string from entity_info
+            if not isinstance(area, str):
+                continue
             if area not in by_area:
                 by_area[area] = []
             by_area[area].append(entity_info)
@@ -373,7 +380,7 @@ class EventListener:
 
         _LOGGER.info("Event listener stopped successfully")
 
-    def get_stats(self) -> dict[str, Any]:
+    def get_stats(self) -> JsonDict:
         """
         Get statistics about the event listener.
 

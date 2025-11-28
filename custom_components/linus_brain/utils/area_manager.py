@@ -24,10 +24,17 @@ detection binary sensors including themselves).
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant, State, split_entity_id
 from homeassistant.helpers import area_registry, device_registry, entity_registry
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from ..utils.insights_manager import InsightsManager
+
+# Type alias for JSON-like dictionaries (API payloads, etc.)
+JsonDict = dict[str, Any]
 
 from ..const import (
     CONF_PRESENCE_DETECTION_CONFIG,
@@ -189,8 +196,8 @@ class AreaManager:
     def __init__(
         self,
         hass: HomeAssistant,
-        insights_manager: Any = None,
-        config_entry: Any = None,
+        insights_manager: "InsightsManager | None" = None,
+        config_entry: "ConfigEntry | None" = None,
     ) -> None:
         """
         Initialize the area manager.
@@ -299,7 +306,7 @@ class AreaManager:
             "device_class"
         )
 
-    def _compute_presence_detected(self, entity_states: dict[str, Any]) -> bool:
+    def _compute_presence_detected(self, entity_states: dict[str, str | float]) -> bool:
         """
         Compute binary presence detection based on entity states and configuration.
 
@@ -377,13 +384,13 @@ class AreaManager:
 
         # Priority 3: Hardcoded Defaults
         _LOGGER.debug("Using hardcoded default presence detection config")
-        default_config: dict[str, dict[str, Any]] = DEFAULT_PRESENCE_DETECTION_CONFIG  # type: ignore[assignment]
+        default_config: dict[str, JsonDict] = DEFAULT_PRESENCE_DETECTION_CONFIG  # type: ignore[assignment]
         return {
             key: config["enabled"]
             for key, config in default_config.items()
         }
 
-    async def get_area_state(self, area_id: str) -> dict[str, Any] | None:
+    async def get_area_state(self, area_id: str) -> JsonDict | None:
         """
         Get the current state for a specific area.
 
@@ -408,7 +415,7 @@ class AreaManager:
             return None
 
         # Collect entity states
-        entity_states: dict[str, Any] = {}
+        entity_states: dict[str, str | float] = {}
         active_presence_entities: list[str] = []
 
         for entity_id in entity_ids:
@@ -465,7 +472,7 @@ class AreaManager:
 
         return payload
 
-    async def get_all_area_states(self) -> list[dict[str, Any]]:
+    async def get_all_area_states(self) -> list[JsonDict]:
         """
         Get current states for all areas with monitored entities.
 
@@ -777,7 +784,7 @@ class AreaManager:
 
     def get_area_presence_binary(
         self, area_id: str, presence_sensors: list[str] | None = None
-    ) -> dict[str, Any]:
+    ) -> JsonDict:
         """
         Get binary presence detection for an area.
 
@@ -939,7 +946,7 @@ class AreaManager:
 
     def get_area_environmental_state(
         self, area_id: str, instance_id: str | None = None
-    ) -> dict[str, Any]:
+    ) -> JsonDict:
         """
         Get the complete area environmental state for an area.
 
