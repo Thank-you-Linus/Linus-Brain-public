@@ -219,15 +219,31 @@ class LinusBrainSyncSensor(CoordinatorEntity, SensorEntity):
         self._attr_icon = "mdi:cloud-sync"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_device_info = get_integration_device_info(entry.entry_id)  # type: ignore[assignment]
+        
+        _LOGGER.warning(
+            "🔧 [ENTITY DEBUG] LinusBrainSyncSensor.__init__ called. "
+            "coordinator.data = %s",
+            "None" if coordinator.data is None else f"dict with {len(coordinator.data)} keys"
+        )
         self._update_from_coordinator()
 
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
+        _LOGGER.warning(
+            "🔧 [ENTITY DEBUG] LinusBrainSyncSensor._handle_coordinator_update called. "
+            "coordinator.data = %s",
+            "None" if self.coordinator.data is None else f"dict with {len(self.coordinator.data)} keys"
+        )
         self._update_from_coordinator()
         super()._handle_coordinator_update()
 
     def _update_from_coordinator(self) -> None:
         """Update sensor attributes from coordinator data."""
+        _LOGGER.debug(
+            "🔧 [ENTITY DEBUG] LinusBrainSyncSensor._update_from_coordinator called. "
+            "coordinator.data = %s",
+            "None" if self.coordinator.data is None else f"dict with {len(self.coordinator.data)} keys"
+        )
         from .utils.area_manager import (
             get_monitored_domains,
             get_presence_detection_domains,

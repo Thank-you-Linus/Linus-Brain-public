@@ -430,17 +430,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Pass insights_manager to area_manager for AI-learned thresholds
     coordinator.area_manager._insights_manager = insights_manager
 
-    # Now do the first refresh - ActivityTracker will have activities available
-    # Use async_refresh() instead of async_config_entry_first_refresh() to support reloads
-    # (async_config_entry_first_refresh only works during SETUP_IN_PROGRESS state)
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except RuntimeError as err:
-        # During reload, entry is already LOADED, use async_refresh instead
-        _LOGGER.debug(
-            f"async_config_entry_first_refresh failed (likely during reload): {err}, using async_refresh instead"
-        )
-        await coordinator.async_refresh()
+    # DON'T do the first refresh here - wait until after platforms are loaded
+    # This prevents race conditions where entities try to access coordinator.data before it exists
+    _LOGGER.warning(
+        "🔧 [STARTUP DEBUG] Deferring first coordinator refresh until after platforms are loaded. "
+        "coordinator.data is currently: %s",
+        "None" if coordinator.data is None else f"dict with {len(coordinator.data)} keys"
+    )
 
     light_learning = LightLearning(hass, coordinator)
 
@@ -534,13 +530,52 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await async_migrate_device_areas(hass, entry)
 
     # Forward the setup to sensor platform
-    _LOGGER.info(f"Loading platforms: {PLATFORMS}")
+    _LOGGER.warning("🔧 [STARTUP DEBUG] Loading platforms: %s", PLATFORMS)
+    _LOGGER.warning(
+        "🔧 [STARTUP DEBUG] coordinator.data before platform load: %s",
+        "None" if coordinator.data is None else f"dict with {len(coordinator.data)} keys"
+    )
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-        _LOGGER.info("All platforms loaded successfully")
+        _LOGGER.warning("🔧 [STARTUP DEBUG] All platforms loaded successfully")
     except Exception as err:
         _LOGGER.error(f"Failed to load platforms: {err}", exc_info=True)
         raise
+
+    # NOW do the first refresh - all entities are created and can handle the data
+    # This prevents race conditions where entities try to access coordinator.data before it exists
+    _LOGGER.warning("🔧 [STARTUP DEBUG] Performing first coordinator refresh (after platforms loaded)")
+    _LOGGER.warning(
+        "🔧 [STARTUP DEBUG] coordinator.data before refresh: %s",
+        "None" if coordinator.data is None else f"dict with {len(coordinator.data)} keys"
+    )
+    
+    import time
+    refresh_start = time.time()
+    
+    try:
+        await coordinator.async_config_entry_first_refresh()
+        _LOGGER.warning("🔧 [STARTUP DEBUG] async_config_entry_first_refresh succeeded")
+    except RuntimeError as err:
+        # During reload, entry is already LOADED, use async_refresh instead
+        _LOGGER.warning(
+            "🔧 [STARTUP DEBUG] async_config_entry_first_refresh failed (likely during reload): %s, using async_refresh instead",
+            err
+        )
+        await coordinator.async_refresh()
+    
+    refresh_duration = time.time() - refresh_start
+    _LOGGER.warning(
+        "🔧 [STARTUP DEBUG] First coordinator refresh completed in %.3f seconds. "
+        "coordinator.data is now: %s",
+        refresh_duration,
+        "None" if coordinator.data is None else f"dict with {len(coordinator.data)} keys"
+    )
+    
+    # Trigger entity updates explicitly to ensure they get the data
+    _LOGGER.warning("🔧 [STARTUP DEBUG] Triggering entity updates with coordinator.async_update_listeners()")
+    coordinator.async_update_listeners()
+    _LOGGER.warning("🔧 [STARTUP DEBUG] Entity updates triggered")
 
     # Register options update listener
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
