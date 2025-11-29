@@ -143,6 +143,7 @@ AVAILABLE_FEATURES = {
         "name": "Automatic Lighting",
         "description": "Allume automatiquement les lumières en cas de mouvement",
         "default_enabled": False,  # OFF par défaut comme demandé
+        "required_domains": ["light"],  # Only create switch for areas with lights
     }
 }
 
