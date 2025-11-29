@@ -24,6 +24,7 @@ Area Context Sensors:
 - Created for ALL areas with presence detection capability
 - Independent from light automation (no light entities required)
 - Displays: activity level, illuminance, sun elevation, area state (is_dark)
+- DynamicEntityManager ensures late-loading integrations (MQTT, Zigbee) are included
 """
 
 import json
@@ -39,8 +40,13 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, get_area_device_info, get_integration_device_info
 from .coordinator import LinusBrainCoordinator
+from .utils.dynamic_entity_manager import DynamicEntityManager
 
 _LOGGER = logging.getLogger(__name__)
+
+# Module-level storage for dynamic entity managers
+_ACTIVITY_DYNAMIC_MANAGER: DynamicEntityManager | None = None
+_INSIGHT_DYNAMIC_MANAGER: DynamicEntityManager | None = None
 
 
 def _format_activity_summary(activity_data: dict[str, Any]) -> str:
@@ -107,6 +113,8 @@ async def async_setup_entry(
         entry: Config entry
         async_add_entities: Callback to add entities
     """
+    global _ACTIVITY_DYNAMIC_MANAGER, _INSIGHT_DYNAMIC_MANAGER
+    
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     area_manager = hass.data[DOMAIN][entry.entry_id].get("area_manager")
     activity_tracker = hass.data[DOMAIN][entry.entry_id].get("activity_tracker")
@@ -135,28 +143,62 @@ async def async_setup_entry(
     if rule_engine:
         sensors.append(LinusBrainRuleEngineStatsSensor(coordinator, rule_engine, entry))
 
+    # Create area context sensors (initially for areas with presence detection already available)
+    area_context_sensors = []
     if area_manager and activity_tracker:
         eligible_areas = area_manager.get_activity_tracking_areas()
         _LOGGER.info(
-            f"Creating area context sensors for {len(eligible_areas)} areas "
+            f"Creating area context sensors initially for {len(eligible_areas)} areas "
             f"(rule_engine={'available' if rule_engine else 'not available'})"
         )
         for area_id, area_name in eligible_areas.items():
             _LOGGER.debug(f"Creating area context sensor for {area_name}")
-            sensors.append(
-                LinusAreaContextSensor(
-                    coordinator,
-                    area_manager,
-                    activity_tracker,
-                    insights_manager,
-                    rule_engine,
-                    area_id,
-                    area_name,
-                    entry,
-                )
+            sensor = LinusAreaContextSensor(
+                coordinator,
+                area_manager,
+                activity_tracker,
+                insights_manager,
+                rule_engine,
+                area_id,
+                area_name,
+                entry,
             )
+            area_context_sensors.append(sensor)
+            sensors.append(sensor)
+        
+        # Setup dynamic entity manager for area context sensors
+        async def _create_activity_sensors(area_id: str, area_name: str) -> list[Any]:
+            """Create area context sensor for an area."""
+            return [LinusAreaContextSensor(
+                coordinator,
+                area_manager,
+                activity_tracker,
+                insights_manager,
+                rule_engine,
+                area_id,
+                area_name,
+                entry,
+            )]
+        
+        _ACTIVITY_DYNAMIC_MANAGER = DynamicEntityManager(
+            hass=hass,
+            entry=entry,
+            async_add_entities=async_add_entities,
+            platform_name="area_context_sensors",
+            monitored_domains=["binary_sensor", "media_player"],
+            monitored_device_classes=["motion", "presence", "occupancy"],
+            should_create_for_area_callback=lambda area_id: area_manager.has_presence_detection(area_id),
+            create_entities_callback=_create_activity_sensors,
+            startup_delay=2.0,
+        )
+        
+        # Mark areas we already created as tracked
+        for sensor in area_context_sensors:
+            if _ACTIVITY_DYNAMIC_MANAGER:
+                _ACTIVITY_DYNAMIC_MANAGER.mark_area_tracked(sensor._area_id)
 
-    # Add insight sensors for each area
+    # Create insight sensors (initially for areas with presence detection already available)
+    insight_sensors_by_area: dict[str, list[Any]] = {}
     if area_manager and insights_manager:
         from .const import ENABLED_INSIGHT_SENSORS
 
@@ -168,25 +210,58 @@ async def async_setup_entry(
 
         if enabled_types:
             _LOGGER.info(
-                f"Creating insight sensors for {len(eligible_areas)} areas "
+                f"Creating insight sensors initially for {len(eligible_areas)} areas "
                 f"and {len(enabled_types)} enabled insight types: {enabled_types}"
             )
 
             for area_id, area_name in eligible_areas.items():
+                insight_sensors_by_area[area_id] = []
                 for insight_type in enabled_types:
                     _LOGGER.debug(
                         f"Creating insight sensor: {insight_type} for {area_name}"
                     )
-                    sensors.append(
-                        LinusInsightSensor(
-                            coordinator,
-                            insights_manager,
-                            area_id,
-                            area_name,
-                            insight_type,
-                            entry,
-                        )
+                    sensor = LinusInsightSensor(
+                        coordinator,
+                        insights_manager,
+                        area_id,
+                        area_name,
+                        insight_type,
+                        entry,
                     )
+                    insight_sensors_by_area[area_id].append(sensor)
+                    sensors.append(sensor)
+            
+            # Setup dynamic entity manager for insight sensors
+            async def _create_insight_sensors(area_id: str, area_name: str) -> list[Any]:
+                """Create insight sensors for an area."""
+                result = []
+                for insight_type in enabled_types:
+                    result.append(LinusInsightSensor(
+                        coordinator,
+                        insights_manager,
+                        area_id,
+                        area_name,
+                        insight_type,
+                        entry,
+                    ))
+                return result
+            
+            _INSIGHT_DYNAMIC_MANAGER = DynamicEntityManager(
+                hass=hass,
+                entry=entry,
+                async_add_entities=async_add_entities,
+                platform_name="insight_sensors",
+                monitored_domains=["binary_sensor", "media_player"],
+                monitored_device_classes=["motion", "presence", "occupancy"],
+                should_create_for_area_callback=lambda area_id: area_manager.has_presence_detection(area_id),
+                create_entities_callback=_create_insight_sensors,
+                startup_delay=2.0,
+            )
+            
+            # Mark areas we already created as tracked
+            for area_id in insight_sensors_by_area:
+                if _INSIGHT_DYNAMIC_MANAGER:
+                    _INSIGHT_DYNAMIC_MANAGER.mark_area_tracked(area_id)
         else:
             _LOGGER.info(
                 "No enabled insight types found. "
@@ -194,7 +269,16 @@ async def async_setup_entry(
             )
 
     async_add_entities(sensors)
-    _LOGGER.info(f"Added {len(sensors)} Linus Brain sensor entities")
+    _LOGGER.info(f"Added {len(sensors)} Linus Brain sensor entities initially")
+    
+    # Setup dynamic entity managers for late-loading integrations
+    if _ACTIVITY_DYNAMIC_MANAGER:
+        await _ACTIVITY_DYNAMIC_MANAGER.async_setup()
+        _LOGGER.info("Dynamic entity manager setup complete for area context sensors")
+    
+    if _INSIGHT_DYNAMIC_MANAGER:
+        await _INSIGHT_DYNAMIC_MANAGER.async_setup()
+        _LOGGER.info("Dynamic entity manager setup complete for insight sensors")
 
 
 class LinusBrainSyncSensor(CoordinatorEntity, SensorEntity):

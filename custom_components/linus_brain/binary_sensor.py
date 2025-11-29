@@ -21,7 +21,7 @@ Architecture Notes:
 - sensor.activity → Contextual activity detection (empty/movement/occupied/etc.)
 - Automatic lighting uses sensor.activity for timeout-based control
 - This binary sensor is for visibility and debugging purposes
-- Entity registry listener ensures late-loading integrations (MQTT, etc.) are included
+- DynamicEntityManager ensures late-loading integrations (MQTT, Zigbee) are included
 """
 
 import logging
@@ -38,11 +38,15 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, get_area_device_info
+from .utils.dynamic_entity_manager import DynamicEntityManager
 
 if TYPE_CHECKING:
     from .utils.group_manager import GroupManager
 
 _LOGGER = logging.getLogger(__name__)
+
+# Module-level storage for created sensors (used by DynamicEntityManager)
+_DYNAMIC_MANAGER: DynamicEntityManager | None = None
 
 
 async def async_setup_entry(
@@ -54,21 +58,23 @@ async def async_setup_entry(
     Set up binary sensor entities for Linus Brain.
 
     Creates one PresenceDetectionBinarySensor per area with presence capability.
+    Uses DynamicEntityManager to handle late-loading integrations (MQTT, Zigbee).
 
     Args:
         hass: Home Assistant instance
         entry: Config entry
         async_add_entities: Callback to add entities
     """
+    global _DYNAMIC_MANAGER
+    
     area_manager = hass.data[DOMAIN][entry.entry_id].get("area_manager")
     
     if not area_manager:
         _LOGGER.error("area_manager not found, cannot create binary sensors")
         return
 
+    # Create sensors for areas with presence detection already available
     entities = []
-
-    # Get areas eligible for activity tracking (same as area context sensors)
     eligible_areas = area_manager.get_activity_tracking_areas()
 
     for area_id, area_name in eligible_areas.items():
@@ -79,28 +85,67 @@ async def async_setup_entry(
         
         if not presence_entities:
             _LOGGER.debug(
-                f"No presence entities found for area {area_name}, skipping binary sensor"
+                f"No presence entities found for area {area_name}, skipping for now (may be created later)"
             )
             continue
 
-        entities.append(
-            PresenceDetectionBinarySensor(
-                hass=hass,
-                area_id=area_id,
-                area_name=area_name,
-                entry_id=entry.entry_id,
-                entity_ids=presence_entities,
-            )
+        sensor = PresenceDetectionBinarySensor(
+            hass=hass,
+            area_id=area_id,
+            area_name=area_name,
+            entry_id=entry.entry_id,
+            entity_ids=presence_entities,
         )
+        entities.append(sensor)
 
     if entities:
         async_add_entities(entities)
         _LOGGER.info(
-            f"Created {len(entities)} presence detection binary sensors for areas: "
-            f"{[e.name for e in entities]}"
+            f"Created {len(entities)} presence detection binary sensors initially for areas: "
+            f"{[e._area_name for e in entities]}"
         )
     else:
-        _LOGGER.warning("No areas with presence entities found")
+        _LOGGER.info("No presence sensors created initially (late-loading integrations may add them later)")
+
+    # Setup dynamic entity manager for late-loading integrations
+    async def _create_entities_for_area(area_id: str, area_name: str) -> list[Any]:
+        """Create presence sensor entities for an area."""
+        presence_entities = await _async_get_presence_entities(hass, entry, area_manager, area_id)
+        
+        if not presence_entities:
+            return []
+        
+        sensor = PresenceDetectionBinarySensor(
+            hass=hass,
+            area_id=area_id,
+            area_name=area_name,
+            entry_id=entry.entry_id,
+            entity_ids=presence_entities,
+        )
+        return [sensor]
+    
+    _DYNAMIC_MANAGER = DynamicEntityManager(
+        hass=hass,
+        entry=entry,
+        async_add_entities=async_add_entities,
+        platform_name="presence_detection",
+        monitored_domains=["binary_sensor", "media_player"],
+        monitored_device_classes=["motion", "presence", "occupancy"],
+        should_create_for_area_callback=lambda area_id: area_manager.has_presence_detection(area_id),
+        create_entities_callback=_create_entities_for_area,
+        startup_delay=2.0,
+    )
+    
+    # Mark areas we already created as tracked
+    for entity in entities:
+        if _DYNAMIC_MANAGER:
+            _DYNAMIC_MANAGER.mark_area_tracked(entity._area_id)
+    
+    # Setup the dynamic manager (will listen for new entities and do post-startup refresh)
+    if _DYNAMIC_MANAGER:
+        await _DYNAMIC_MANAGER.async_setup()
+    
+    _LOGGER.info("Dynamic entity manager setup complete for presence sensors")
 
 
 async def _async_get_presence_entities(
