@@ -131,7 +131,7 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
             UpdateFailed: If data update fails
         """
         try:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "🔧 [COORDINATOR DEBUG] _async_update_data called. "
                 "Current self.data = %s",
                 "None" if self.data is None else f"dict with {len(self.data)} keys"
