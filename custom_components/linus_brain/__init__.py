@@ -432,9 +432,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # DON'T do the first refresh here - wait until after platforms are loaded
     # This prevents race conditions where entities try to access coordinator.data before it exists
-    _LOGGER.warning(
-        "🔧 [STARTUP DEBUG] Deferring first coordinator refresh until after platforms are loaded. "
-        "coordinator.data is currently: %s",
+    _LOGGER.debug(
+        "Deferring first coordinator refresh until after platforms are loaded. "
+        "coordinator.data is: %s",
         "None" if coordinator.data is None else f"dict with {len(coordinator.data)} keys"
     )
 
@@ -530,23 +530,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await async_migrate_device_areas(hass, entry)
 
     # Forward the setup to sensor platform
-    _LOGGER.warning("🔧 [STARTUP DEBUG] Loading platforms: %s", PLATFORMS)
-    _LOGGER.warning(
-        "🔧 [STARTUP DEBUG] coordinator.data before platform load: %s",
+    _LOGGER.debug("Loading platforms: %s", PLATFORMS)
+    _LOGGER.debug(
+        "coordinator.data before platform load: %s",
         "None" if coordinator.data is None else f"dict with {len(coordinator.data)} keys"
     )
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-        _LOGGER.warning("🔧 [STARTUP DEBUG] All platforms loaded successfully")
+        _LOGGER.debug("All platforms loaded successfully")
     except Exception as err:
         _LOGGER.error(f"Failed to load platforms: {err}", exc_info=True)
         raise
 
     # NOW do the first refresh - all entities are created and can handle the data
     # This prevents race conditions where entities try to access coordinator.data before it exists
-    _LOGGER.warning("🔧 [STARTUP DEBUG] Performing first coordinator refresh (after platforms loaded)")
-    _LOGGER.warning(
-        "🔧 [STARTUP DEBUG] coordinator.data before refresh: %s",
+    _LOGGER.debug("Performing first coordinator refresh (after platforms loaded)")
+    _LOGGER.debug(
+        "coordinator.data before refresh: %s",
         "None" if coordinator.data is None else f"dict with {len(coordinator.data)} keys"
     )
     
@@ -555,27 +555,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     try:
         await coordinator.async_config_entry_first_refresh()
-        _LOGGER.warning("🔧 [STARTUP DEBUG] async_config_entry_first_refresh succeeded")
+        _LOGGER.debug("async_config_entry_first_refresh succeeded")
     except RuntimeError as err:
         # During reload, entry is already LOADED, use async_refresh instead
-        _LOGGER.warning(
-            "🔧 [STARTUP DEBUG] async_config_entry_first_refresh failed (likely during reload): %s, using async_refresh instead",
+        _LOGGER.debug(
+            "async_config_entry_first_refresh failed (likely during reload): %s, using async_refresh instead",
             err
         )
         await coordinator.async_refresh()
     
     refresh_duration = time.time() - refresh_start
-    _LOGGER.warning(
-        "🔧 [STARTUP DEBUG] First coordinator refresh completed in %.3f seconds. "
+    _LOGGER.debug(
+        "First coordinator refresh completed in %.3f seconds. "
         "coordinator.data is now: %s",
         refresh_duration,
         "None" if coordinator.data is None else f"dict with {len(coordinator.data)} keys"
     )
     
     # Trigger entity updates explicitly to ensure they get the data
-    _LOGGER.warning("🔧 [STARTUP DEBUG] Triggering entity updates with coordinator.async_update_listeners()")
+    _LOGGER.debug("Triggering entity updates with coordinator.async_update_listeners()")
     coordinator.async_update_listeners()
-    _LOGGER.warning("🔧 [STARTUP DEBUG] Entity updates triggered")
+    _LOGGER.debug("Entity updates triggered")
 
     # Register options update listener
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
