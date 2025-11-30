@@ -190,47 +190,6 @@ async def async_setup_entry(
     else:
         _LOGGER.warning("No feature switches created initially - no qualifying areas")
 
-    # Set up dynamic entity manager to create switches when new entities appear
-    async def _create_switch_callback(area_id: str, entity_ids: set[str]) -> None:
-        """
-        Callback to create switches for a newly qualifying area.
-        
-        Args:
-            area_id: Area ID that now qualifies
-            entity_ids: Set of entity_ids that triggered this (unused, for compatibility)
-        """
-        # Check which features now qualify for this area
-        new_switches = []
-        
-        for feature_id, feature_def in feature_definitions.items():
-            switch_key = f"{area_id}_{feature_id}"
-            
-            # Skip if switch already exists
-            if switch_key in switches_by_key:
-                continue
-            
-            # Check if area now meets requirements
-            if not _area_meets_requirements(area_id, feature_def):
-                continue
-            
-            # Create switch
-            area = area_reg.async_get_area(area_id)
-            area_name = area.name if area else area_id
-            
-            _LOGGER.info(
-                f"Creating {feature_id} switch for area '{area_name}' ({area_id}) - "
-                f"required domains now available"
-            )
-            
-            switch = LinusBrainFeatureSwitch(
-                hass, entry, area_id, feature_id, feature_def
-            )
-            new_switches.append(switch)
-            switches_by_key[switch_key] = switch
-        
-        if new_switches:
-            async_add_entities(new_switches)
-
     # Collect all domains that any feature requires
     all_required_domains = set()
     for feature_def in feature_definitions.values():
@@ -241,14 +200,42 @@ async def async_setup_entry(
         # Set up dynamic entity manager to monitor required domains
         monitored_domains = list(all_required_domains)
         
+        # Callback to check if area should have switches created
+        def _should_create_for_area(area_id: str) -> bool:
+            """Check if any feature qualifies for this area."""
+            for feature_id, feature_def in feature_definitions.items():
+                switch_key = f"{area_id}_{feature_id}"
+                if switch_key in switches_by_key:
+                    continue  # Already exists
+                if _area_meets_requirements(area_id, feature_def):
+                    return True
+            return False
+        
+        # Callback to create switches for an area
+        def _create_entities_for_area(area_id: str, area_name: str) -> list[Any]:
+            """Create all qualifying switches for an area."""
+            new_switches = []
+            for feature_id, feature_def in feature_definitions.items():
+                switch_key = f"{area_id}_{feature_id}"
+                if switch_key in switches_by_key:
+                    continue
+                if _area_meets_requirements(area_id, feature_def):
+                    switch = LinusBrainFeatureSwitch(
+                        hass, entry, area_id, feature_id, feature_def
+                    )
+                    new_switches.append(switch)
+                    switches_by_key[switch_key] = switch
+            return new_switches
+        
         dynamic_manager = DynamicEntityManager(
             hass=hass,
-            entity_reg=entity_reg,
-            device_reg=device_reg,
-            area_reg=area_reg,
-            name="feature_switches",
+            entry=entry,
+            async_add_entities=async_add_entities,
+            platform_name="feature_switches",
             monitored_domains=monitored_domains,
-            create_entity_callback=_create_switch_callback,
+            monitored_device_classes=None,  # Monitor all entities in these domains
+            should_create_for_area_callback=_should_create_for_area,
+            create_entities_callback=_create_entities_for_area,
         )
         
         await dynamic_manager.async_setup()

@@ -304,7 +304,7 @@ class LinusBrainSyncSensor(CoordinatorEntity, SensorEntity):
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_device_info = get_integration_device_info(entry.entry_id)  # type: ignore[assignment]
         
-        _LOGGER.warning(
+        _LOGGER.debug(
             "🔧 [ENTITY DEBUG] LinusBrainSyncSensor.__init__ called. "
             "coordinator.data = %s",
             "None" if coordinator.data is None else f"dict with {len(coordinator.data)} keys"
@@ -313,7 +313,7 @@ class LinusBrainSyncSensor(CoordinatorEntity, SensorEntity):
 
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        _LOGGER.warning(
+        _LOGGER.debug(
             "🔧 [ENTITY DEBUG] LinusBrainSyncSensor._handle_coordinator_update called. "
             "coordinator.data = %s",
             "None" if self.coordinator.data is None else f"dict with {len(self.coordinator.data)} keys"
