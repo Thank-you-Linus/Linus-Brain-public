@@ -36,7 +36,7 @@ from .utils.rule_engine import RuleEngine
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.LIGHT, Platform.SENSOR, Platform.SWITCH]
+PLATFORMS = [Platform.BUTTON, Platform.SENSOR, Platform.SWITCH]
 
 
 async def async_migrate_device_areas(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -192,12 +192,8 @@ async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> N
         "dark_threshold": "dark_threshold",
         "bright_threshold": "bright_threshold",
         "default_brightness": "default_brightness",
-        # Binary sensor entities (per-area presence detection use pattern: presence_detection_{area_id})
-        "presence_detection": "presence_detection",
         # Switch entities (per-area feature switches use pattern: feature_{feature_id}_{area_id})
         "feature_automatic_lighting": "feature_automatic_lighting",
-        # Light entities (per-area light groups use pattern: all_lights_{area_id})
-        "area_lights": "all_lights",
     }
 
     migrations_needed = []
@@ -222,17 +218,6 @@ async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> N
             ):
                 area_id = entity_entry.unique_id.replace("linus_brain_activity_", "")
                 expected_name = f"linus_brain_activity_{area_id}"
-            else:
-                continue
-
-        elif translation_key == "presence_detection":
-            # Presence detection binary sensors: binary_sensor.linus_brain_presence_detection_{area_id}
-            # Extract area_id from unique_id which is: linus_brain_presence_detection_{area_id}
-            if entity_entry.unique_id and entity_entry.unique_id.startswith(
-                "linus_brain_presence_detection_"
-            ):
-                area_id = entity_entry.unique_id.replace("linus_brain_presence_detection_", "")
-                expected_name = f"linus_brain_presence_detection_{area_id}"
             else:
                 continue
 
@@ -266,17 +251,6 @@ async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> N
             ):
                 app_id = entity_entry.unique_id.replace("linus_brain_app_", "")
                 expected_name = f"linus_brain_app_{app_id}"
-            else:
-                continue
-
-        elif translation_key == "area_lights":
-            # Light groups: light.linus_brain_all_lights_{area_id}
-            # Extract area_id from unique_id which is: linus_brain_all_lights_{area_id}
-            if entity_entry.unique_id and entity_entry.unique_id.startswith(
-                "linus_brain_all_lights_"
-            ):
-                area_id = entity_entry.unique_id.replace("linus_brain_all_lights_", "")
-                expected_name = f"linus_brain_all_lights_{area_id}"
             else:
                 continue
 
@@ -353,6 +327,32 @@ async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> N
         )
     else:
         _LOGGER.warning("Entity ID migration complete: No entities could be migrated")
+
+
+async def async_cleanup_orphaned_group_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """
+    Remove leftover binary_sensor.linus_brain_presence_detection_*/
+    light.linus_brain_all_lights_* entity_registry entries from installs
+    predating their removal (superseded by Linus Dashboard's own native
+    presence/light-group entities — see that integration's PR for the
+    rationale). PLATFORMS no longer includes BINARY_SENSOR/LIGHT, so these
+    entities never get recreated and would otherwise sit in the registry
+    forever as permanently "unavailable".
+    """
+    entity_reg = er.async_get(hass)
+    orphaned = [
+        entity_entry.entity_id
+        for entity_entry in list(entity_reg.entities.values())
+        if entity_entry.config_entry_id == entry.entry_id
+        and entity_entry.unique_id
+        and (
+            entity_entry.unique_id.startswith("linus_brain_presence_detection_")
+            or entity_entry.unique_id.startswith("linus_brain_all_lights_")
+        )
+    ]
+    for entity_id in orphaned:
+        entity_reg.async_remove(entity_id)
+        _LOGGER.info("Removed orphaned group entity: %s", entity_id)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -528,6 +528,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # This ensures area-specific devices are assigned to the right areas
     # without using suggested_area (which causes duplicate areas with hash IDs)
     await async_migrate_device_areas(hass, entry)
+
+    # Clean up presence/light-group entities orphaned by their removal
+    # (superseded by Linus Dashboard's own native equivalents)
+    await async_cleanup_orphaned_group_entities(hass, entry)
 
     # Forward the setup to sensor platform
     _LOGGER.debug("Loading platforms: %s", PLATFORMS)
