@@ -13,9 +13,7 @@ Pattern:
 3. Entity registry listener: React to new prerequisite entities being created
 
 Used by:
-- binary_sensor.py (PresenceDetectionBinarySensor)
 - sensor.py (LinusAreaContextSensor, LinusInsightSensor)
-- light.py (AreaLightGroup) - already has its own implementation
 """
 import asyncio
 import inspect

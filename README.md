@@ -14,6 +14,14 @@
 
 Linus Brain agit comme un **pont IA** entre votre Home Assistant et un système d'apprentissage cloud (Supabase). Il collecte automatiquement les signaux de présence de votre maison, les analyse, et génère des règles d'automatisation intelligentes basées sur vos patterns de vie.
 
+> **Note** : les entités groupe "mécaniques" (détection de présence par zone,
+> groupe de toutes les lumières d'une zone) ont été retirées de Brain — elles
+> ne dépendaient d'aucune logique IA et sont désormais fournies nativement par
+> [Linus Dashboard](https://github.com/Thank-you-Linus/Linus-Dashboard), sans
+> nécessiter Brain. Le moteur de règles de Brain continue de fonctionner
+> normalement : il résout ses cibles directement via son AreaManager interne,
+> pas via ces entités publiques.
+
 ### 🌟 Fonctionnalités principales
 
 - 🏠 **Détection automatique** des capteurs de présence, mouvement, média et luminosité
@@ -43,7 +51,6 @@ Linus Brain agit comme un **pont IA** entre votre Home Assistant et un système 
 - **[Architecture](docs/ARCHITECTURE.md)** - Architecture détaillée du système
 
 ### Guides Techniques
-- **[Binary Sensor: Presence Detection](docs/BINARY_SENSOR_PRESENCE.md)** - Capteurs de présence par zone
 - **[Code source](custom_components/linus_brain/)** - Commenté et documenté pour faciliter la compréhension
 - **[CLAUDE.md](CLAUDE.md)** - Guide de développement pour contribuer au projet
 
