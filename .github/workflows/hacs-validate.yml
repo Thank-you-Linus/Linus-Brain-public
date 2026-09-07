@@ -38,3 +38,11 @@ jobs:
         uses: hacs/action@main
         with:
           category: integration
+        env:
+          # `hacs/action` interroge l'API GitHub pour charger le dépôt. Sans
+          # jeton il le fait en anonyme, et le premier run a échoué en
+          # « Not Found / Repository not loaded properly in HACS »
+          # (run 34148457990, 2026-09-07) — avant même d'atteindre le moindre
+          # check. Le jeton fourni automatiquement par Actions suffit, et
+          # c'est l'usage documenté de l'action.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
