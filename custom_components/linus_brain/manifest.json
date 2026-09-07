@@ -1,14 +1,18 @@
 {
   "domain": "linus_brain",
   "name": "Linus Brain",
-  "version": "0.4.0",
-  "documentation": "https://github.com/Thank-you-Linus/Linus-Brain-public",
-  "issue_tracker": "https://github.com/Thank-you-Linus/Linus-Brain-public/issues",
-  "requirements": ["aiohttp>=3.8.0"],
-  "codeowners": ["@Thank-you-Linus"],
-  "iot_class": "cloud_push",
-  "integration_type": "hub",
+  "after_dependencies": [],
+  "codeowners": [
+    "@Thank-you-Linus"
+  ],
   "config_flow": true,
   "dependencies": [],
-  "after_dependencies": []
+  "documentation": "https://github.com/Thank-you-Linus/Linus-Brain-public",
+  "integration_type": "hub",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/Thank-you-Linus/Linus-Brain-public/issues",
+  "requirements": [
+    "aiohttp>=3.8.0"
+  ],
+  "version": "0.4.0"
 }

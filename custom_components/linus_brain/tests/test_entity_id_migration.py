@@ -113,8 +113,11 @@ async def test_migration_renames_french_entities(hass, mock_entity_registry):
     )
 
     # Patch both er.async_get and er.async_entries_for_config_entry
-    with patch("linus_brain.er.async_get", return_value=mock_entity_registry), patch(
-        "linus_brain.er.async_entries_for_config_entry", return_value=mock_entities
+    with (
+        patch("linus_brain.er.async_get", return_value=mock_entity_registry),
+        patch(
+            "linus_brain.er.async_entries_for_config_entry", return_value=mock_entities
+        ),
     ):
         await async_migrate_entity_ids(hass, mock_entry)
 

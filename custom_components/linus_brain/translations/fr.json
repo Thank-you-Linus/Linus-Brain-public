@@ -121,38 +121,5 @@
         "name": "Lumière automatique - {area_name}"
       }
     }
-  },
-  "rule_display": {
-    "conditions": {
-      "motion_detected": "mouvement détecté",
-      "low_light": "luminosité inférieure à {value} lux",
-      "sun_below": "élévation soleil inférieure à {value}°",
-      "state_on": "{entity} activé",
-      "state_off": "{entity} désactivé",
-      "time_after": "après {time}",
-      "time_before": "avant {time}"
-    },
-    "actions": {
-      "turn_on_lights": "Allumer les lumières",
-      "turn_off_lights": "Éteindre les lumières",
-      "with_brightness": "à {value}% de luminosité",
-      "with_transition": "avec transition de {value}s"
-    },
-    "connectors": {
-      "when": "quand",
-      "and": "et",
-      "or": "ou",
-      "if": "si"
-    },
-    "generic_selectors": {
-      "motion_sensor": "capteur de mouvement",
-      "illuminance_sensor": "capteur de luminosité",
-      "in_area": "dans la zone"
-    },
-    "activity_labels": {
-      "empty": "Vide",
-      "movement": "Mouvement",
-      "occupied": "Occupé"
-    }
   }
 }

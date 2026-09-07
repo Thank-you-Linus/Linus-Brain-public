@@ -31,10 +31,8 @@ from homeassistant.helpers import area_registry, device_registry, entity_registr
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
-    from ..utils.insights_manager import InsightsManager
 
-# Type alias for JSON-like dictionaries (API payloads, etc.)
-JsonDict = dict[str, Any]
+    from ..utils.insights_manager import InsightsManager
 
 from ..const import (
     CONF_PRESENCE_DETECTION_CONFIG,
@@ -48,6 +46,9 @@ from ..const import (
     PRESENCE_DETECTION_DOMAINS,
 )
 from .state_validator import is_state_valid
+
+# Type alias for JSON-like dictionaries (API payloads, etc.)
+JsonDict = dict[str, Any]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -242,7 +243,7 @@ class AreaManager:
             # This prevents including obsolete/deleted entities
             if entity.disabled_by is not None:
                 continue
-            
+
             # Check if entity exists in hass.states (entity must be loaded and available)
             state = self.hass.states.get(entity.entity_id)
             if state is None:
@@ -385,10 +386,7 @@ class AreaManager:
         # Priority 3: Hardcoded Defaults
         _LOGGER.debug("Using hardcoded default presence detection config")
         default_config: dict[str, JsonDict] = DEFAULT_PRESENCE_DETECTION_CONFIG  # type: ignore[assignment]
-        return {
-            key: config["enabled"]
-            for key, config in default_config.items()
-        }
+        return {key: config["enabled"] for key, config in default_config.items()}
 
     async def get_area_state(self, area_id: str) -> JsonDict | None:
         """

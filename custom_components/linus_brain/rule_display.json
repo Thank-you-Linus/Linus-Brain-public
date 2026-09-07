@@ -1,0 +1,68 @@
+{
+  "en": {
+    "conditions": {
+      "motion_detected": "motion detected",
+      "low_light": "light level below {value} lux",
+      "sun_below": "sun elevation below {value}°",
+      "state_on": "{entity} is on",
+      "state_off": "{entity} is off",
+      "time_after": "after {time}",
+      "time_before": "before {time}"
+    },
+    "actions": {
+      "turn_on_lights": "Turn on lights",
+      "turn_off_lights": "Turn off lights",
+      "with_brightness": "at {value}% brightness",
+      "with_transition": "with {value}s transition"
+    },
+    "connectors": {
+      "when": "when",
+      "and": "and",
+      "or": "or",
+      "if": "if"
+    },
+    "generic_selectors": {
+      "motion_sensor": "motion sensor",
+      "illuminance_sensor": "light sensor",
+      "in_area": "in area"
+    },
+    "activity_labels": {
+      "empty": "Empty",
+      "movement": "Movement",
+      "occupied": "Occupied"
+    }
+  },
+  "fr": {
+    "conditions": {
+      "motion_detected": "mouvement détecté",
+      "low_light": "luminosité inférieure à {value} lux",
+      "sun_below": "élévation soleil inférieure à {value}°",
+      "state_on": "{entity} activé",
+      "state_off": "{entity} désactivé",
+      "time_after": "après {time}",
+      "time_before": "avant {time}"
+    },
+    "actions": {
+      "turn_on_lights": "Allumer les lumières",
+      "turn_off_lights": "Éteindre les lumières",
+      "with_brightness": "à {value}% de luminosité",
+      "with_transition": "avec transition de {value}s"
+    },
+    "connectors": {
+      "when": "quand",
+      "and": "et",
+      "or": "ou",
+      "if": "si"
+    },
+    "generic_selectors": {
+      "motion_sensor": "capteur de mouvement",
+      "illuminance_sensor": "capteur de luminosité",
+      "in_area": "dans la zone"
+    },
+    "activity_labels": {
+      "empty": "Vide",
+      "movement": "Mouvement",
+      "occupied": "Occupé"
+    }
+  }
+}

@@ -134,7 +134,7 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
             _LOGGER.debug(
                 "🔧 [COORDINATOR DEBUG] _async_update_data called. "
                 "Current self.data = %s",
-                "None" if self.data is None else f"dict with {len(self.data)} keys"
+                "None" if self.data is None else f"dict with {len(self.data)} keys",
             )
             _LOGGER.debug("Starting periodic data update (heartbeat)")
 

@@ -84,6 +84,7 @@ class EventListener:
             True if entity should be processed, False otherwise
         """
         from homeassistant.helpers import entity_registry as er
+
         from .area_manager import get_monitored_domains
 
         domain = split_entity_id(entity_id)[0]
@@ -107,14 +108,18 @@ class EventListener:
             return True
 
         # Try to get device_class from state attributes first, then from entity_registry
-        device_class = state.attributes.get("original_device_class") or state.attributes.get("device_class")
-        
+        device_class = state.attributes.get(
+            "original_device_class"
+        ) or state.attributes.get("device_class")
+
         # If no device_class in state, check entity_registry (for entities with original_device_class set)
         if not device_class:
             ent_reg = er.async_get(self.hass)
             entity_entry = ent_reg.async_get(entity_id)
             if entity_entry:
-                device_class = entity_entry.original_device_class or entity_entry.device_class
+                device_class = (
+                    entity_entry.original_device_class or entity_entry.device_class
+                )
 
         if device_class in MONITORED_DEVICE_CLASSES:
             return True
@@ -169,9 +174,7 @@ class EventListener:
             "occupancy",
         ):
             if new_state.state == "off":
-                _LOGGER.debug(
-                    f"Sensor {entity_id} OFF, bypassing debounce"
-                )
+                _LOGGER.debug(f"Sensor {entity_id} OFF, bypassing debounce")
                 self._last_update_times[area] = time.time()
                 self._debounce_manager.cancel(area)
                 return False
@@ -256,17 +259,17 @@ class EventListener:
 
         if not area:
             # Get device class for logging
-            device_class = new_state.attributes.get("device_class") or new_state.attributes.get("original_device_class")
-            
+            device_class = new_state.attributes.get(
+                "device_class"
+            ) or new_state.attributes.get("original_device_class")
+
             _LOGGER.debug(
                 f"Entity {entity_id} (device_class={device_class}) has no associated area, skipping"
             )
             return
 
         if self._should_debounce(area, entity_id, new_state):
-            _LOGGER.debug(
-                f"Debouncing update for area {area} from {entity_id}"
-            )
+            _LOGGER.debug(f"Debouncing update for area {area} from {entity_id}")
             return
 
         _LOGGER.debug(
@@ -304,43 +307,53 @@ class EventListener:
 
         # Log monitored entities summary
         from homeassistant.helpers import entity_registry as er
+
         from .area_manager import get_monitored_domains
-        
+
         monitored_domains = get_monitored_domains()
         ent_reg = er.async_get(self.hass)
-        
+
         monitored_entities = []
-        
+
         for state in self.hass.states.async_all():
             entity_id = state.entity_id
-            
+
             # Skip Linus Brain's own entities
-            if entity_id.startswith("sensor.linus_brain_") or entity_id.startswith("switch.linus_brain_"):
+            if entity_id.startswith("sensor.linus_brain_") or entity_id.startswith(
+                "switch.linus_brain_"
+            ):
                 continue
-                
+
             domain = split_entity_id(entity_id)[0]
-            
+
             # Check if domain is monitored
             if domain not in monitored_domains:
                 continue
-            
+
             # Check if would be processed
             if self._should_process_entity(entity_id, state):
                 area = self.coordinator.area_manager.get_entity_area(entity_id)
                 if area:
-                    device_class = state.attributes.get("original_device_class") or state.attributes.get("device_class")
+                    device_class = state.attributes.get(
+                        "original_device_class"
+                    ) or state.attributes.get("device_class")
                     if not device_class:
                         entity_entry = ent_reg.async_get(entity_id)
                         if entity_entry:
-                            device_class = entity_entry.original_device_class or entity_entry.device_class
-                    
-                    monitored_entities.append({
-                        "entity_id": entity_id,
-                        "domain": domain,
-                        "device_class": device_class,
-                        "area": area
-                    })
-        
+                            device_class = (
+                                entity_entry.original_device_class
+                                or entity_entry.device_class
+                            )
+
+                    monitored_entities.append(
+                        {
+                            "entity_id": entity_id,
+                            "domain": domain,
+                            "device_class": device_class,
+                            "area": area,
+                        }
+                    )
+
         # Log summary by area
         by_area: dict[str, list[JsonDict]] = {}
         for entity_info in monitored_entities:
@@ -351,8 +364,10 @@ class EventListener:
             if area not in by_area:
                 by_area[area] = []
             by_area[area].append(entity_info)
-        
-        _LOGGER.info(f"Monitoring {len(monitored_entities)} entities across {len(by_area)} areas")
+
+        _LOGGER.info(
+            f"Monitoring {len(monitored_entities)} entities across {len(by_area)} areas"
+        )
         for area, entities in sorted(by_area.items()):
             _LOGGER.debug(f"  {area}: {len(entities)} entities")
 

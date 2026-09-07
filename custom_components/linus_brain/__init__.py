@@ -120,10 +120,10 @@ async def async_migrate_device_areas(hass: HomeAssistant, entry: ConfigEntry) ->
         device_entry = migration["device"]
         target_area_id = migration["target_area"]
         area_name = migration["area_name"]
-        
+
         # Type assertions: validate types from migration dict
         assert isinstance(target_area_id, str)
-        if not hasattr(device_entry, 'id'):
+        if not hasattr(device_entry, "id"):
             _LOGGER.error(f"Invalid device entry in migration: {device_entry}")
             continue
 
@@ -221,17 +221,29 @@ async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> N
             else:
                 continue
 
-        elif translation_key in ["dark_threshold", "bright_threshold", "default_brightness"]:
+        elif translation_key in [
+            "dark_threshold",
+            "bright_threshold",
+            "default_brightness",
+        ]:
             # Insight sensors: sensor.linus_brain_{insight_type}_{area_id}
             # Extract area_id from unique_id which is: linus_brain_insight_{insight_type}_{area_id}
-            if entity_entry.unique_id and entity_entry.unique_id.startswith("linus_brain_insight_"):
+            if entity_entry.unique_id and entity_entry.unique_id.startswith(
+                "linus_brain_insight_"
+            ):
                 # unique_id format: linus_brain_insight_{insight_type}_{area_id}
-                parts = entity_entry.unique_id.split("_", 3)  # Split into ["linus", "brain", "insight", "{type}_{area}"]
+                parts = entity_entry.unique_id.split(
+                    "_", 3
+                )  # Split into ["linus", "brain", "insight", "{type}_{area}"]
                 if len(parts) >= 4:
                     # parts[3] is "{insight_type}_{area_id}"
                     type_and_area = parts[3]
                     # Find the insight type
-                    for insight_type in ["dark_threshold", "bright_threshold", "default_brightness"]:
+                    for insight_type in [
+                        "dark_threshold",
+                        "bright_threshold",
+                        "default_brightness",
+                    ]:
                         if type_and_area.startswith(insight_type + "_"):
                             area_id = type_and_area.replace(insight_type + "_", "")
                             expected_name = f"linus_brain_{insight_type}_{area_id}"
@@ -329,7 +341,9 @@ async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> N
         _LOGGER.warning("Entity ID migration complete: No entities could be migrated")
 
 
-async def async_cleanup_orphaned_group_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def async_cleanup_orphaned_group_entities(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
     """
     Remove leftover binary_sensor.linus_brain_presence_detection_*/
     light.linus_brain_all_lights_* entity_registry entries from installs
@@ -435,7 +449,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.debug(
         "Deferring first coordinator refresh until after platforms are loaded. "
         "coordinator.data is: %s",
-        "None" if coordinator.data is None else f"dict with {len(coordinator.data)} keys"
+        (
+            "None"
+            if coordinator.data is None
+            else f"dict with {len(coordinator.data)} keys"
+        ),
     )
 
     light_learning = LightLearning(hass, coordinator)
@@ -537,7 +555,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.debug("Loading platforms: %s", PLATFORMS)
     _LOGGER.debug(
         "coordinator.data before platform load: %s",
-        "None" if coordinator.data is None else f"dict with {len(coordinator.data)} keys"
+        (
+            "None"
+            if coordinator.data is None
+            else f"dict with {len(coordinator.data)} keys"
+        ),
     )
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -551,12 +573,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.debug("Performing first coordinator refresh (after platforms loaded)")
     _LOGGER.debug(
         "coordinator.data before refresh: %s",
-        "None" if coordinator.data is None else f"dict with {len(coordinator.data)} keys"
+        (
+            "None"
+            if coordinator.data is None
+            else f"dict with {len(coordinator.data)} keys"
+        ),
     )
-    
+
     import time
+
     refresh_start = time.time()
-    
+
     try:
         await coordinator.async_config_entry_first_refresh()
         _LOGGER.debug("async_config_entry_first_refresh succeeded")
@@ -564,18 +591,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # During reload, entry is already LOADED, use async_refresh instead
         _LOGGER.debug(
             "async_config_entry_first_refresh failed (likely during reload): %s, using async_refresh instead",
-            err
+            err,
         )
         await coordinator.async_refresh()
-    
+
     refresh_duration = time.time() - refresh_start
     _LOGGER.debug(
         "First coordinator refresh completed in %.3f seconds. "
         "coordinator.data is now: %s",
         refresh_duration,
-        "None" if coordinator.data is None else f"dict with {len(coordinator.data)} keys"
+        (
+            "None"
+            if coordinator.data is None
+            else f"dict with {len(coordinator.data)} keys"
+        ),
     )
-    
+
     # Trigger entity updates explicitly to ensure they get the data
     _LOGGER.debug("Triggering entity updates with coordinator.async_update_listeners()")
     coordinator.async_update_listeners()

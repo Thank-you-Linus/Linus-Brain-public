@@ -96,7 +96,7 @@ class EntityResolver:
             # This prevents returning obsolete/deleted entities
             if entity.disabled_by is not None:
                 continue
-            
+
             # Check if entity exists in hass.states (entity must be loaded and available)
             state = self.hass.states.get(entity.entity_id)
             if state is None:
@@ -158,10 +158,10 @@ class EntityResolver:
         IMPORTANT: When multiple entities match a generic selector (domain + device_class + area),
         this method automatically expands to an OR condition with all matching entities.
         This ensures that "at least one" sensor being ON triggers the condition.
-        
+
         Example:
             Input:  {"condition": "state", "domain": "binary_sensor", "device_class": "occupancy", "state": "on"}
-            
+
             If 5 occupancy sensors exist in the area, output will be:
             {
                 "condition": "or",
@@ -173,7 +173,7 @@ class EntityResolver:
                     {"condition": "state", "entity_id": "binary_sensor.occupancy_5", "state": "on"}
                 ]
             }
-            
+
             This ensures ANY of the 5 sensors being ON will trigger the condition,
             instead of only checking the first one.
 
@@ -236,16 +236,16 @@ class EntityResolver:
         if len(matching_entities) == 1:
             resolved_condition = condition.copy()
             resolved_condition["entity_id"] = matching_entities[0]
-            
+
             # Cleanup generic selectors
             for key in ["domain", "device_class", "area"]:
                 resolved_condition.pop(key, None)
-            
+
             _LOGGER.debug(
                 f"Resolved condition: domain={domain}, device_class={device_class} "
                 f"→ entity_id={matching_entities[0]}"
             )
-            
+
             return resolved_condition
 
         # Multiple entities found: expand to OR condition (at least one must match)
@@ -260,18 +260,15 @@ class EntityResolver:
         for entity_id in matching_entities:
             entity_condition = condition.copy()
             entity_condition["entity_id"] = entity_id
-            
+
             # Cleanup generic selectors
             for key in ["domain", "device_class", "area"]:
                 entity_condition.pop(key, None)
-            
+
             expanded_conditions.append(entity_condition)
 
         # Return OR condition wrapping all entity conditions
-        return {
-            "condition": "or",
-            "conditions": expanded_conditions
-        }
+        return {"condition": "or", "conditions": expanded_conditions}
 
     def resolve_nested_conditions(
         self,
