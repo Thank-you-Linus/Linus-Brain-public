@@ -1,0 +1,40 @@
+# Validation HACS.
+#
+# Elle vit ici, et pas dans le dépôt privé Linus-Brain, parce que `hacs/action`
+# valide un dépôt tel que HACS le consomme : c'est ce dépôt-ci qui est publié,
+# pas celui de développement. Sur le privé, elle échouait sur 3 checks /9 dont
+# `brands`, structurellement impossible à satisfaire pour un dépôt de dev.
+#
+# ⚠️ Le check `brands` échouera aussi ici tant que l'intégration ne sera pas
+# référencée dans le dépôt `home-assistant/brands` (vérifié le 2026-09-07 :
+# `custom_integrations/linus_brain` n'y existe pas). C'est une soumission à
+# faire une fois, en amont, avec l'icône et le logo — voir
+# https://github.com/home-assistant/brands. Les 8 autres checks, eux, ont du
+# sens dès maintenant.
+#
+# Le contenu de ce dépôt est synchronisé depuis Linus-Brain par son workflow
+# `export_to_public.yml`, qui ne recopie que `custom_components/`, `hacs.json`,
+# `info.md`, `README.md` et `LICENSE` : ce fichier de workflow ne sera donc
+# jamais écrasé par un export.
+
+name: HACS Validation
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  hacs:
+    runs-on: ubuntu-latest
+    name: HACS validation
+    steps:
+      - uses: actions/checkout@v4
+      - name: HACS validation
+        uses: hacs/action@main
+        with:
+          category: integration
