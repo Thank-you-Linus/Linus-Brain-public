@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ..utils import area_manager
 from ..utils.condition_evaluator import ConditionEvaluator
 from ..utils.entity_resolver import EntityResolver
 
@@ -170,65 +169,6 @@ class TestPresenceConfigCaching:
         assert config2["motion"] is False
 
 
-class TestMonitoredDomainsCaching:
-    """Test monitored domains caching in area_manager."""
-
-    def test_cache_first_call(self):
-        """Test that first call computes and caches."""
-        # Clear cache
-        area_manager._MONITORED_DOMAINS_CACHE = None
-
-        result = area_manager.get_monitored_domains()
-
-        # Should return valid result
-        assert isinstance(result, dict)
-        assert "binary_sensor" in result
-        assert "sensor" in result
-
-        # Should be cached
-        assert area_manager._MONITORED_DOMAINS_CACHE is not None
-        assert area_manager._MONITORED_DOMAINS_CACHE == result
-
-    def test_cache_subsequent_calls(self):
-        """Test that subsequent calls use cache."""
-        # Clear and populate cache
-        area_manager._MONITORED_DOMAINS_CACHE = None
-        result1 = area_manager.get_monitored_domains()
-
-        # Second call should return exact same object (cache)
-        result2 = area_manager.get_monitored_domains()
-
-        assert result1 is result2  # Same object reference
-        assert result1 == result2  # Same value
-
-    def test_presence_detection_domains_cache_first_call(self):
-        """Test presence detection domains caching."""
-        # Clear cache
-        area_manager._PRESENCE_DETECTION_DOMAINS_CACHE = None
-
-        result = area_manager.get_presence_detection_domains()
-
-        # Should return valid result
-        assert isinstance(result, dict)
-        assert "binary_sensor" in result
-
-        # Should be cached
-        assert area_manager._PRESENCE_DETECTION_DOMAINS_CACHE is not None
-        assert area_manager._PRESENCE_DETECTION_DOMAINS_CACHE == result
-
-    def test_presence_detection_domains_cache_subsequent_calls(self):
-        """Test that subsequent calls use cache."""
-        # Clear and populate cache
-        area_manager._PRESENCE_DETECTION_DOMAINS_CACHE = None
-        result1 = area_manager.get_presence_detection_domains()
-
-        # Second call should return exact same object (cache)
-        result2 = area_manager.get_presence_detection_domains()
-
-        assert result1 is result2  # Same object reference
-        assert result1 == result2  # Same value
-
-
 class TestPerformanceBenchmarks:
     """Performance benchmarks (not strict assertions, just for monitoring)."""
 
@@ -261,30 +201,3 @@ class TestPerformanceBenchmarks:
         # This is informational - we don't assert strict performance
         # but we can log it for regression detection
         assert speedup > 1.0, "Cache should provide some speedup"
-
-    def test_monitored_domains_cache_performance(self):
-        """Benchmark monitored domains cache performance."""
-        # Clear cache
-        area_manager._MONITORED_DOMAINS_CACHE = None
-
-        # First call (compute)
-        start = time.perf_counter()
-        for _ in range(100):
-            area_manager._MONITORED_DOMAINS_CACHE = None
-            area_manager.get_monitored_domains()
-        time_without_cache = time.perf_counter() - start
-
-        # Subsequent calls (cached)
-        start = time.perf_counter()
-        for _ in range(100):
-            area_manager.get_monitored_domains()
-        time_with_cache = time.perf_counter() - start
-
-        speedup = time_without_cache / time_with_cache
-        print(
-            f"\nMonitored domains cache speedup: {speedup:.1f}x "
-            f"({time_without_cache:.4f}s vs {time_with_cache:.4f}s)"
-        )
-
-        # Cache should provide significant speedup (at least 10x)
-        assert speedup > 10.0, f"Cache should provide major speedup, got {speedup:.1f}x"

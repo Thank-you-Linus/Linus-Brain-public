@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import area_registry as ar
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from .. import button, sensor, switch
@@ -397,6 +398,11 @@ class TestSwitchTranslations:
                 "rule_engine": None,
             }
         }
+
+        # switch.async_setup_entry lit le registre d'areas de Home Assistant
+        # (et non plus area_manager) : sans area enregistree, aucune area ne
+        # qualifie pour la feature et aucun switch n'est cree.
+        ar.async_get(hass).async_create("Test Area")
 
         entities = []
 

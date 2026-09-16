@@ -144,8 +144,25 @@ def integrated_system(mock_hass, app_storage_with_data):
 
     condition_evaluator.activity_tracker = activity_tracker
 
+    # RuleEngine interroge area_manager pour resoudre les entites de presence
+    # d'une area (_get_presence_entities). Sans lui, il journalise
+    # "No area_manager available for presence entity lookup", suit 0 entite de
+    # presence, et aucune action n'est declenchee.
+    area_manager = MagicMock()
+    area_manager.get_area_entities = MagicMock(
+        side_effect=lambda area_id, domain=None, device_class=None: (
+            {"binary_sensor.motion_kitchen"}
+            if area_id == "kitchen" and domain == "binary_sensor"
+            else set()
+        )
+    )
+
     rule_engine = RuleEngine(
-        mock_hass, "test_entry", activity_tracker, app_storage_with_data
+        mock_hass,
+        "test_entry",
+        activity_tracker,
+        app_storage_with_data,
+        area_manager,
     )
 
     return {
@@ -172,11 +189,19 @@ class TestIntegrationFullFlow:
         mock_lux_state = MagicMock()
         mock_lux_state.state = "50"
 
+        # Le moteur de regles exige que le switch de feature de l'area soit "on"
+        # (rule_engine._async_evaluate_and_execute) : absent, il sort en debug
+        # sans rien executer.
+        mock_switch_state = MagicMock()
+        mock_switch_state.state = "on"
+
         def get_state_side_effect(entity_id):
             if entity_id == "binary_sensor.motion_kitchen":
                 return mock_motion_state
             elif entity_id == "sensor.lux":
                 return mock_lux_state
+            elif entity_id.startswith("switch.linus_brain_feature_"):
+                return mock_switch_state
             return None
 
         system["hass"].states.get.side_effect = get_state_side_effect
@@ -294,11 +319,19 @@ class TestIntegrationConditionEvaluation:
         mock_lux_state = MagicMock()
         mock_lux_state.state = "200"
 
+        # Le moteur de regles exige que le switch de feature de l'area soit "on"
+        # (rule_engine._async_evaluate_and_execute) : absent, il sort en debug
+        # sans rien executer.
+        mock_switch_state = MagicMock()
+        mock_switch_state.state = "on"
+
         def get_state_side_effect(entity_id):
             if entity_id == "binary_sensor.motion_kitchen":
                 return mock_motion_state
             elif entity_id == "sensor.lux":
                 return mock_lux_state
+            elif entity_id.startswith("switch.linus_brain_feature_"):
+                return mock_switch_state
             return None
 
         system["hass"].states.get.side_effect = get_state_side_effect
@@ -325,11 +358,19 @@ class TestIntegrationConditionEvaluation:
         mock_lux_state = MagicMock()
         mock_lux_state.state = "50"
 
+        # Le moteur de regles exige que le switch de feature de l'area soit "on"
+        # (rule_engine._async_evaluate_and_execute) : absent, il sort en debug
+        # sans rien executer.
+        mock_switch_state = MagicMock()
+        mock_switch_state.state = "on"
+
         def get_state_side_effect(entity_id):
             if entity_id == "binary_sensor.motion_kitchen":
                 return mock_motion_state
             elif entity_id == "sensor.lux":
                 return mock_lux_state
+            elif entity_id.startswith("switch.linus_brain_feature_"):
+                return mock_switch_state
             return None
 
         system["hass"].states.get.side_effect = get_state_side_effect

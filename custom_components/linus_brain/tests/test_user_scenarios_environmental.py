@@ -195,8 +195,8 @@ class TestUserScenarioCloudyDay:
         await asyncio.sleep(2.5)
 
         assert rule_engine.action_executor.execute_actions.call_count == 1
-        assert "living_room_env_enter" in rule_engine._last_triggered
-        enter_time = rule_engine._last_triggered["living_room_env_enter"]
+        assert "enter" in rule_engine._last_environmental_action.get("living_room", {})
+        enter_time = rule_engine._last_environmental_action["living_room"]["enter"]
 
         # Reset counter
         rule_engine.action_executor.execute_actions.reset_mock()
@@ -209,8 +209,8 @@ class TestUserScenarioCloudyDay:
         await asyncio.sleep(2.5)
 
         assert rule_engine.action_executor.execute_actions.call_count == 1
-        assert "living_room_env_exit" in rule_engine._last_triggered
-        exit_time = rule_engine._last_triggered["living_room_env_exit"]
+        assert "exit" in rule_engine._last_environmental_action.get("living_room", {})
+        exit_time = rule_engine._last_environmental_action["living_room"]["exit"]
 
         # Reset counter
         rule_engine.action_executor.execute_actions.reset_mock()
@@ -238,8 +238,12 @@ class TestUserScenarioCloudyDay:
         rule_engine.action_executor.execute_actions.assert_not_called()
 
         # Vérifier que les timestamps de cooldown n'ont pas changé
-        assert rule_engine._last_triggered["living_room_env_enter"] == enter_time
-        assert rule_engine._last_triggered["living_room_env_exit"] == exit_time
+        assert (
+            rule_engine._last_environmental_action["living_room"]["enter"] == enter_time
+        )
+        assert (
+            rule_engine._last_environmental_action["living_room"]["exit"] == exit_time
+        )
 
 
 class TestUserScenarioTwilight:
@@ -298,7 +302,7 @@ class TestUserScenarioTwilight:
         await asyncio.sleep(2.5)
 
         assert rule_engine.action_executor.execute_actions.call_count == 1
-        assert "living_room_env_enter" in rule_engine._last_triggered
+        assert "enter" in rule_engine._last_environmental_action.get("living_room", {})
 
         # 18h35: Continue à diminuer (2 lux) - toujours sombre
         rule_engine.action_executor.execute_actions.reset_mock()
@@ -359,8 +363,8 @@ class TestUserScenarioDailyUsage:
         await asyncio.sleep(2.5)
 
         assert rule_engine.action_executor.execute_actions.call_count == 1
-        assert "living_room_env_exit" in rule_engine._last_triggered
-        rule_engine._last_triggered["living_room_env_exit"]
+        assert "exit" in rule_engine._last_environmental_action.get("living_room", {})
+        rule_engine._last_environmental_action["living_room"]["exit"]
 
         # 12h00: Plein jour (1000 lux) - pas de changement
         rule_engine.action_executor.execute_actions.reset_mock()
@@ -375,9 +379,9 @@ class TestUserScenarioDailyUsage:
 
         # 19h00: Coucher du soleil → sombre (5 lux) → lumières ON
         # Le cooldown exit de 08h00 est expiré (> 5 minutes)
-        rule_engine._last_triggered["living_room_env_exit"] = (
-            dt_util.utcnow() - timedelta(hours=11)
-        )
+        rule_engine._last_environmental_action["living_room"][
+            "exit"
+        ] = dt_util.utcnow() - timedelta(hours=11)
 
         mock_area_manager.get_area_environmental_state = MagicMock(
             return_value={"is_dark": True, "illuminance": 5}
@@ -386,7 +390,7 @@ class TestUserScenarioDailyUsage:
         await asyncio.sleep(2.5)
 
         assert rule_engine.action_executor.execute_actions.call_count == 1
-        assert "living_room_env_enter" in rule_engine._last_triggered
+        assert "enter" in rule_engine._last_environmental_action.get("living_room", {})
 
 
 class TestUserScenarioSunnyDayWithClouds:
@@ -458,8 +462,12 @@ class TestUserScenarioSunnyDayWithClouds:
         rule_engine.action_executor.execute_actions.assert_not_called()
 
         # Vérifier qu'aucun cooldown n'a été créé
-        assert "living_room_env_enter" not in rule_engine._last_triggered
-        assert "living_room_env_exit" not in rule_engine._last_triggered
+        assert "enter" not in rule_engine._last_environmental_action.get(
+            "living_room", {}
+        )
+        assert "exit" not in rule_engine._last_environmental_action.get(
+            "living_room", {}
+        )
 
 
 class TestUserScenarioRoomTransition:
@@ -508,7 +516,7 @@ class TestUserScenarioRoomTransition:
         await asyncio.sleep(2.5)
 
         assert rule_engine.action_executor.execute_actions.call_count == 1
-        assert "living_room_env_enter" in rule_engine._last_triggered
+        assert "enter" in rule_engine._last_environmental_action.get("living_room", {})
 
         # Reset
         rule_engine.action_executor.execute_actions.reset_mock()
@@ -527,7 +535,7 @@ class TestUserScenarioRoomTransition:
         assert rule_engine.action_executor.execute_actions.call_count == 1
 
         # Le cooldown environnemental ne doit PAS être affecté
-        assert "living_room_env_enter" in rule_engine._last_triggered
+        assert "enter" in rule_engine._last_environmental_action.get("living_room", {})
         # Le cooldown d'activité est différent du cooldown environnemental
         assert "living_room_empty" in rule_engine._last_triggered
 

@@ -331,6 +331,11 @@ class AppStorage:
         Returns:
             True if sync succeeded, False otherwise
         """
+        # Une erreur cloud rattrapee plus bas degrade vers le cache ou const.py,
+        # mais reste un echec de synchronisation du point de vue de l'appelant :
+        # meme etat final qu'un timeout, donc meme valeur de retour.
+        cloud_failed = False
+
         try:
             _LOGGER.info("Attempting cloud sync (timeout 10s)")
 
@@ -370,6 +375,7 @@ class AppStorage:
 
                 except Exception as err:
                     # Cloud fetch failed - check if we have cached data
+                    cloud_failed = True
                     cached_activities = self._data.get("activities", {})
                     if cached_activities:
                         # PRIORITY 2: Use existing cache if cloud fails
@@ -421,6 +427,7 @@ class AppStorage:
 
                 except Exception as err:
                     # Cloud failed - check cache
+                    cloud_failed = True
                     cached_apps = self._data.get("apps", {})
                     if cached_apps.get("automatic_lighting"):
                         apps = cached_apps
@@ -461,7 +468,7 @@ class AppStorage:
                     f"{len(self._data.get('apps', {}))} apps ({apps_source})"
                 )
 
-                return True
+                return not cloud_failed
 
         except asyncio.TimeoutError:
             _LOGGER.warning("Cloud sync timeout (10s) - keeping existing local data")

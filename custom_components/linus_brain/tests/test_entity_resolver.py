@@ -12,9 +12,18 @@ from ..utils.entity_resolver import EntityResolver
 
 
 @pytest.fixture
-def mock_hass():
-    """Create a mock Home Assistant instance."""
+def mock_hass(mock_states, mock_registry_entry_factory):
+    """Create a mock Home Assistant instance.
+
+    Registry entries come from the shared ``mock_registry_entry_factory``
+    fixture (conftest), which sets ``disabled_by``/``platform`` and registers a
+    state for each entity. ``entity_resolver.py`` skips entries whose
+    ``disabled_by`` is not ``None`` or whose ``hass.states.get()`` is ``None``
+    (same contract as ``area_manager.py``'s "CRITICAL PATTERN - Entity
+    Filtering"), so entries built by hand get silently discarded.
+    """
     hass = MagicMock()
+    hass.states = mock_states
 
     entity_reg = MagicMock()
     device_reg = MagicMock()
@@ -36,33 +45,28 @@ def mock_hass():
     living_room_device.id = "living_room_device_id"
     living_room_device.area_id = "living_room_area_id"
 
-    motion_entity = MagicMock()
-    motion_entity.entity_id = "binary_sensor.kitchen_motion"
-    motion_entity.domain = "binary_sensor"
-    motion_entity.device_class = "motion"
-    motion_entity.device_id = "kitchen_device_id"
-    motion_entity.area_id = None
+    motion_entity = mock_registry_entry_factory(
+        "binary_sensor.kitchen_motion",
+        device_id="kitchen_device_id",
+        original_device_class="motion",
+    )
 
-    illuminance_entity = MagicMock()
-    illuminance_entity.entity_id = "sensor.kitchen_illuminance"
-    illuminance_entity.domain = "sensor"
-    illuminance_entity.device_class = "illuminance"
-    illuminance_entity.device_id = "kitchen_device_id"
-    illuminance_entity.area_id = None
+    illuminance_entity = mock_registry_entry_factory(
+        "sensor.kitchen_illuminance",
+        device_id="kitchen_device_id",
+        original_device_class="illuminance",
+        state="42",
+    )
 
-    light1_entity = MagicMock()
-    light1_entity.entity_id = "light.kitchen_light_1"
-    light1_entity.domain = "light"
-    light1_entity.device_class = None
-    light1_entity.device_id = "kitchen_device_id"
-    light1_entity.area_id = None
+    light1_entity = mock_registry_entry_factory(
+        "light.kitchen_light_1",
+        device_id="kitchen_device_id",
+    )
 
-    light2_entity = MagicMock()
-    light2_entity.entity_id = "light.kitchen_light_2"
-    light2_entity.domain = "light"
-    light2_entity.device_class = None
-    light2_entity.device_id = "kitchen_device_id"
-    light2_entity.area_id = None
+    light2_entity = mock_registry_entry_factory(
+        "light.kitchen_light_2",
+        device_id="kitchen_device_id",
+    )
 
     entity_reg.entities.values.return_value = [
         motion_entity,

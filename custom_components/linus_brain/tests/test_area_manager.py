@@ -21,11 +21,16 @@ from ..utils.area_manager import AreaManager
 
 
 @pytest.fixture
-def hass():
-    """Mock Home Assistant instance."""
+def hass(mock_states):
+    """Mock Home Assistant instance backed by the shared state machine stub.
+
+    ``mock_states`` is populated by ``mock_registry_entry_factory`` (conftest),
+    so every mocked entity has a real state and survives the entity-filtering
+    contract of ``area_manager.py``. Tests are free to replace
+    ``hass.states.get`` with their own stub to shape a specific scenario.
+    """
     hass_mock = MagicMock()
-    hass_mock.states = MagicMock()
-    hass_mock.states.get = MagicMock(return_value=None)
+    hass_mock.states = mock_states
     return hass_mock
 
 
@@ -65,53 +70,35 @@ def area_registry_mock():
     return registry
 
 
-def _create_mock_entity(entity_id, area_id, device_id, original_device_class):
-    """Helper to create mock entity registry entry."""
-    entity = MagicMock(spec=er.RegistryEntry)
-    entity.entity_id = entity_id
-    entity.domain = entity_id.split(".")[0]
-    entity.area_id = area_id
-    entity.device_id = device_id
-    entity.original_device_class = original_device_class
-    entity.device_class = original_device_class
-    return entity
-
-
 @pytest.fixture
-def entity_registry_mock():
-    """Mock entity registry with test entities."""
+def entity_registry_mock(mock_registry_entry_factory):
+    """Mock entity registry with test entities.
+
+    Entries are built by the shared ``mock_registry_entry_factory`` fixture so
+    they satisfy the "CRITICAL PATTERN - Entity Filtering" contract of
+    ``area_manager.py`` (``disabled_by`` / ``platform`` set, state registered).
+    """
     registry = MagicMock(spec=er.EntityRegistry)
 
+    specs = [
+        ("binary_sensor.living_room_motion", "living_room", "motion"),
+        ("binary_sensor.living_room_presence", "living_room", "presence"),
+        ("sensor.living_room_illuminance", "living_room", "illuminance"),
+        ("light.living_room", "living_room", None),
+        ("media_player.living_room_tv", "living_room", None),
+        ("binary_sensor.bedroom_motion", "bedroom", "motion"),
+        ("sensor.bedroom_temperature", "bedroom", "temperature"),
+        ("sensor.bedroom_humidity", "bedroom", "humidity"),
+        ("light.bedroom", "bedroom", None),
+        ("sensor.kitchen_temperature", "kitchen", "temperature"),
+        ("light.kitchen", "kitchen", None),
+    ]
+
     entities = {
-        "binary_sensor.living_room_motion": _create_mock_entity(
-            "binary_sensor.living_room_motion", "living_room", None, "motion"
-        ),
-        "binary_sensor.living_room_presence": _create_mock_entity(
-            "binary_sensor.living_room_presence", "living_room", None, "presence"
-        ),
-        "sensor.living_room_illuminance": _create_mock_entity(
-            "sensor.living_room_illuminance", "living_room", None, "illuminance"
-        ),
-        "light.living_room": _create_mock_entity(
-            "light.living_room", "living_room", None, None
-        ),
-        "media_player.living_room_tv": _create_mock_entity(
-            "media_player.living_room_tv", "living_room", None, None
-        ),
-        "binary_sensor.bedroom_motion": _create_mock_entity(
-            "binary_sensor.bedroom_motion", "bedroom", None, "motion"
-        ),
-        "sensor.bedroom_temperature": _create_mock_entity(
-            "sensor.bedroom_temperature", "bedroom", None, "temperature"
-        ),
-        "sensor.bedroom_humidity": _create_mock_entity(
-            "sensor.bedroom_humidity", "bedroom", None, "humidity"
-        ),
-        "light.bedroom": _create_mock_entity("light.bedroom", "bedroom", None, None),
-        "sensor.kitchen_temperature": _create_mock_entity(
-            "sensor.kitchen_temperature", "kitchen", None, "temperature"
-        ),
-        "light.kitchen": _create_mock_entity("light.kitchen", "kitchen", None, None),
+        entity_id: mock_registry_entry_factory(
+            entity_id, area_id=area_id, original_device_class=device_class
+        )
+        for entity_id, area_id, device_class in specs
     }
 
     type(registry).entities = PropertyMock(return_value=entities)
@@ -135,12 +122,6 @@ def area_manager(
     hass, area_registry_mock, entity_registry_mock, device_registry_mock, monkeypatch
 ):
     """Create AreaManager instance with mocked registries."""
-    # Clear module-level caches to prevent stale data between tests
-    from ..utils import area_manager as am
-
-    am._MONITORED_DOMAINS_CACHE = None
-    am._PRESENCE_DETECTION_DOMAINS_CACHE = None
-
     monkeypatch.setattr(
         "homeassistant.helpers.area_registry.async_get", lambda h: area_registry_mock
     )
@@ -277,12 +258,14 @@ class TestAreaManagerEnvironmentalState:
         assert result is None
 
     def test_get_area_illuminance_averages_multiple_sensors(
-        self, area_manager, entity_registry_mock, hass
+        self, mock_registry_entry_factory, area_manager, entity_registry_mock, hass
     ):
         """Test that illuminance averages values from multiple sensors."""
         entities = entity_registry_mock.entities.copy()
-        entities["sensor.living_room_illuminance_2"] = _create_mock_entity(
-            "sensor.living_room_illuminance_2", "living_room", None, "illuminance"
+        entities["sensor.living_room_illuminance_2"] = mock_registry_entry_factory(
+            "sensor.living_room_illuminance_2",
+            area_id="living_room",
+            original_device_class="illuminance",
         )
         type(entity_registry_mock).entities = PropertyMock(return_value=entities)
 
@@ -856,12 +839,14 @@ class TestAreaManagerEdgeCases:
         assert result is None
 
     def test_illuminance_averaging_with_one_invalid_sensor(
-        self, area_manager, entity_registry_mock, hass
+        self, mock_registry_entry_factory, area_manager, entity_registry_mock, hass
     ):
         """Test illuminance averaging when one sensor has invalid value."""
         entities = entity_registry_mock.entities.copy()
-        entities["sensor.living_room_illuminance_2"] = _create_mock_entity(
-            "sensor.living_room_illuminance_2", "living_room", None, "illuminance"
+        entities["sensor.living_room_illuminance_2"] = mock_registry_entry_factory(
+            "sensor.living_room_illuminance_2",
+            area_id="living_room",
+            original_device_class="illuminance",
         )
         type(entity_registry_mock).entities = PropertyMock(return_value=entities)
 
@@ -889,6 +874,7 @@ class TestAreaManagerEdgeCases:
 
     def test_illuminance_averaging_with_multiple_valid_sensors(
         self,
+        mock_registry_entry_factory,
         hass,
         area_registry_mock,
         entity_registry_mock,
@@ -898,11 +884,15 @@ class TestAreaManagerEdgeCases:
         """Test illuminance averaging with 3+ valid sensors."""
         # Add more illuminance sensors to living room
         entities = entity_registry_mock.entities.copy()
-        entities["sensor.living_room_illuminance_2"] = _create_mock_entity(
-            "sensor.living_room_illuminance_2", "living_room", None, "illuminance"
+        entities["sensor.living_room_illuminance_2"] = mock_registry_entry_factory(
+            "sensor.living_room_illuminance_2",
+            area_id="living_room",
+            original_device_class="illuminance",
         )
-        entities["sensor.living_room_illuminance_3"] = _create_mock_entity(
-            "sensor.living_room_illuminance_3", "living_room", None, "illuminance"
+        entities["sensor.living_room_illuminance_3"] = mock_registry_entry_factory(
+            "sensor.living_room_illuminance_3",
+            area_id="living_room",
+            original_device_class="illuminance",
         )
         type(entity_registry_mock).entities = PropertyMock(return_value=entities)
 
@@ -949,12 +939,14 @@ class TestAreaManagerEdgeCases:
         assert result == 20.0
 
     def test_humidity_averaging_ignores_invalid_values(
-        self, area_manager, entity_registry_mock, hass
+        self, mock_registry_entry_factory, area_manager, entity_registry_mock, hass
     ):
         """Test humidity averaging ignores invalid sensor values."""
         entities = entity_registry_mock.entities.copy()
-        entities["sensor.bedroom_humidity_2"] = _create_mock_entity(
-            "sensor.bedroom_humidity_2", "bedroom", None, "humidity"
+        entities["sensor.bedroom_humidity_2"] = mock_registry_entry_factory(
+            "sensor.bedroom_humidity_2",
+            area_id="bedroom",
+            original_device_class="humidity",
         )
         type(entity_registry_mock).entities = PropertyMock(return_value=entities)
 
@@ -1006,6 +998,7 @@ class TestAreaManagerDeviceAreaLookup:
 
     def test_entity_without_area_but_with_device(
         self,
+        mock_registry_entry_factory,
         hass,
         area_registry_mock,
         entity_registry_mock,
@@ -1014,8 +1007,10 @@ class TestAreaManagerDeviceAreaLookup:
     ):
         """Test entity lookup when entity has no area but device does."""
         # Create entity with device_id but no area_id
-        test_entity = _create_mock_entity(
-            "sensor.test_sensor", None, "device_123", "temperature"
+        test_entity = mock_registry_entry_factory(
+            "sensor.test_sensor",
+            device_id="device_123",
+            original_device_class="temperature",
         )
 
         # Mock entity registry to return our test entity
@@ -1050,6 +1045,7 @@ class TestAreaManagerDeviceAreaLookup:
 
     def test_entity_without_area_and_device_without_area(
         self,
+        mock_registry_entry_factory,
         hass,
         area_registry_mock,
         entity_registry_mock,
@@ -1058,8 +1054,10 @@ class TestAreaManagerDeviceAreaLookup:
     ):
         """Test entity lookup when neither entity nor device has area."""
         # Create entity with device_id but no area_id
-        test_entity = _create_mock_entity(
-            "sensor.test_sensor", None, "device_123", "temperature"
+        test_entity = mock_registry_entry_factory(
+            "sensor.test_sensor",
+            device_id="device_123",
+            original_device_class="temperature",
         )
 
         # Mock entity registry to return our test entity
@@ -1092,6 +1090,7 @@ class TestAreaManagerDeviceAreaLookup:
 
     def test_entity_without_area_and_without_device(
         self,
+        mock_registry_entry_factory,
         hass,
         area_registry_mock,
         entity_registry_mock,
@@ -1100,8 +1099,8 @@ class TestAreaManagerDeviceAreaLookup:
     ):
         """Test entity lookup when entity has no area and no device."""
         # Create entity without device_id and without area_id
-        test_entity = _create_mock_entity(
-            "sensor.test_sensor", None, None, "temperature"
+        test_entity = mock_registry_entry_factory(
+            "sensor.test_sensor", original_device_class="temperature"
         )
 
         # Mock entity_registry.async_get() to return our test entity
@@ -1133,6 +1132,7 @@ class TestAreaManagerInvalidStates:
 
     def test_presence_with_multiple_motion_sensors_some_unavailable(
         self,
+        mock_registry_entry_factory,
         hass,
         area_registry_mock,
         entity_registry_mock,
@@ -1148,11 +1148,15 @@ class TestAreaManagerInvalidStates:
         """
         # Add 2 more motion sensors to living_room
         entities = entity_registry_mock.entities.copy()
-        entities["binary_sensor.living_room_motion_2"] = _create_mock_entity(
-            "binary_sensor.living_room_motion_2", "living_room", None, "motion"
+        entities["binary_sensor.living_room_motion_2"] = mock_registry_entry_factory(
+            "binary_sensor.living_room_motion_2",
+            area_id="living_room",
+            original_device_class="motion",
         )
-        entities["binary_sensor.living_room_motion_3"] = _create_mock_entity(
-            "binary_sensor.living_room_motion_3", "living_room", None, "motion"
+        entities["binary_sensor.living_room_motion_3"] = mock_registry_entry_factory(
+            "binary_sensor.living_room_motion_3",
+            area_id="living_room",
+            original_device_class="motion",
         )
         type(entity_registry_mock).entities = PropertyMock(return_value=entities)
 
@@ -1195,6 +1199,7 @@ class TestAreaManagerInvalidStates:
 
     def test_presence_with_all_motion_sensors_unavailable(
         self,
+        mock_registry_entry_factory,
         hass,
         area_registry_mock,
         entity_registry_mock,
@@ -1208,11 +1213,15 @@ class TestAreaManagerInvalidStates:
         """
         # Add 2 more motion sensors to living_room
         entities = entity_registry_mock.entities.copy()
-        entities["binary_sensor.living_room_motion_2"] = _create_mock_entity(
-            "binary_sensor.living_room_motion_2", "living_room", None, "motion"
+        entities["binary_sensor.living_room_motion_2"] = mock_registry_entry_factory(
+            "binary_sensor.living_room_motion_2",
+            area_id="living_room",
+            original_device_class="motion",
         )
-        entities["binary_sensor.living_room_motion_3"] = _create_mock_entity(
-            "binary_sensor.living_room_motion_3", "living_room", None, "motion"
+        entities["binary_sensor.living_room_motion_3"] = mock_registry_entry_factory(
+            "binary_sensor.living_room_motion_3",
+            area_id="living_room",
+            original_device_class="motion",
         )
         type(entity_registry_mock).entities = PropertyMock(return_value=entities)
 
@@ -1245,6 +1254,7 @@ class TestAreaManagerInvalidStates:
 
     def test_presence_with_mixed_invalid_states(
         self,
+        mock_registry_entry_factory,
         hass,
         area_registry_mock,
         entity_registry_mock,
@@ -1262,14 +1272,20 @@ class TestAreaManagerInvalidStates:
         """
         # Add 3 more motion sensors to living_room
         entities = entity_registry_mock.entities.copy()
-        entities["binary_sensor.living_room_motion_2"] = _create_mock_entity(
-            "binary_sensor.living_room_motion_2", "living_room", None, "motion"
+        entities["binary_sensor.living_room_motion_2"] = mock_registry_entry_factory(
+            "binary_sensor.living_room_motion_2",
+            area_id="living_room",
+            original_device_class="motion",
         )
-        entities["binary_sensor.living_room_motion_3"] = _create_mock_entity(
-            "binary_sensor.living_room_motion_3", "living_room", None, "motion"
+        entities["binary_sensor.living_room_motion_3"] = mock_registry_entry_factory(
+            "binary_sensor.living_room_motion_3",
+            area_id="living_room",
+            original_device_class="motion",
         )
-        entities["binary_sensor.living_room_motion_4"] = _create_mock_entity(
-            "binary_sensor.living_room_motion_4", "living_room", None, "motion"
+        entities["binary_sensor.living_room_motion_4"] = mock_registry_entry_factory(
+            "binary_sensor.living_room_motion_4",
+            area_id="living_room",
+            original_device_class="motion",
         )
         type(entity_registry_mock).entities = PropertyMock(return_value=entities)
 

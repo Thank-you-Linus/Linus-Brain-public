@@ -6,6 +6,15 @@ Tests the 3-tier storage architecture:
 - Cloud sync with timeout handling
 - Hardcoded fallback loading
 - Data management (activities, apps, assignments)
+
+Note sur `is_fallback` (contrat pose par 99bce8f, 2025-11-24) : l'architecture
+est a trois niveaux — cloud (verite), cache .storage (degradation), const.py
+(peuplement du cache uniquement, PRIORITE 3). `is_fallback` vaut True des
+qu'une partie des donnees a du etre peuplee depuis const.py, y compris quand
+le cloud a repondu normalement mais a vide : le drapeau dit « cette instance
+n'a jamais recu ces donnees du cloud ». Les assertions ci-dessous suivent ce
+contrat ; elles suivaient auparavant la lecture que ce meme commit qualifie
+de « misunderstanding » (const.py comme repli d'execution).
 """
 
 import asyncio
@@ -189,7 +198,7 @@ class TestAppStorageCloudSync:
         assert (
             len(app_storage._data["assignments"]) == 0
         )  # Assignments managed by switches
-        assert app_storage._data["is_fallback"] is False
+        assert app_storage._data["is_fallback"] is True  # activites depuis const.py
 
         # Verify system activities exist (loaded from local)
         assert "movement" in app_storage._data["activities"]
@@ -216,9 +225,11 @@ class TestAppStorageCloudSync:
         assert (
             app_storage._data["assignments"] == {}
         )  # Always empty (managed by switches)
-        assert app_storage.is_fallback_data() is False
-        # Activities are loaded from local const.py (4 activities)
-        assert len(app_storage._data["activities"]) == 4
+        assert app_storage.is_fallback_data() is True  # app depuis const.py
+        # PRIORITE 2 : le cache existant est preserve quand le cloud est vide.
+        # const.py ne peuple que si cache ET cloud sont vides — ce n'est pas le
+        # cas ici, l'activite mise en cache par le test survit donc a la synchro.
+        assert len(app_storage._data["activities"]) == 1
         # automatic_lighting injected as fallback when not in cloud
         assert len(app_storage._data["apps"]) == 1
         assert "automatic_lighting" in app_storage._data["apps"]
@@ -235,7 +246,9 @@ class TestAppStorageCloudSync:
         )
 
         assert result is True
-        assert app_storage.is_fallback_data() is False
+        assert (
+            app_storage.is_fallback_data() is True
+        )  # activites ET app depuis const.py
         # Activities loaded from local const.py (4 system activities)
         assert len(app_storage._data["activities"]) == 4
         # automatic_lighting injected as fallback
@@ -398,7 +411,7 @@ class TestAppStorageInitialize:
     async def test_async_initialize_with_cached_data(
         self, app_storage, mock_supabase, temp_storage_dir
     ):
-        """Test initialization with cached data and cloud sync with system activities."""
+        """Test initialization with cached data: an empty cloud sync preserves it."""
         cache_file = temp_storage_dir / STORAGE_KEY
 
         with open(cache_file, "w") as f:
@@ -421,14 +434,19 @@ class TestAppStorageInitialize:
         )
 
         # Cloud sync clears assignments but system activities are injected
-        assert data["is_fallback"] is False  # Cloud sync succeeded
+        assert (
+            data["is_fallback"] is True
+        )  # activites systeme injectees depuis const.py
         assert data["assignments"] == {}
         # System activities (movement, inactive, occupied, empty) always present
-        assert len(data["activities"]) == 4
+        # Le cache .storage ecrit par ce test ne porte qu'une activite ; le cloud
+        # ayant repondu a vide, la PRIORITE 2 le preserve tel quel au lieu de le
+        # remplacer par les quatre activites systeme de const.py.
+        assert len(data["activities"]) == 1
         assert "movement" in data["activities"]
-        assert "inactive" in data["activities"]
-        assert "occupied" in data["activities"]
-        assert "empty" in data["activities"]
+        assert "inactive" not in data["activities"]
+        assert "occupied" not in data["activities"]
+        assert "empty" not in data["activities"]
 
     @pytest.mark.asyncio
     async def test_empty_cloud_sync_accepts_empty_state(
@@ -446,7 +464,7 @@ class TestAppStorageInitialize:
         )
 
         assert success is True
-        assert app_storage.is_fallback_data() is False
+        assert app_storage.is_fallback_data() is True  # cloud vide -> const.py
 
         # The key assertion: synced_at should be set (cloud sync succeeded)
         sync_time = app_storage.get_sync_time()
