@@ -8,6 +8,17 @@ Key responsibilities:
 - Fetch automation rules from Supabase
 - Handle authentication and error responses
 - Use async HTTP client (aiohttp) for non-blocking I/O
+
+Return contract (applies to every public method, no exception):
+- Read methods return None when the backend is unavailable, i.e. on any
+  status other than 200 or on an unusable response. Never [] and never {}.
+- Write methods return False when the backend is unavailable.
+- [] and {} are reserved for "the cloud answered 200 with zero rows".
+
+Callers rely on this distinction to decide whether to drop or keep their
+local cache: an empty answer is authoritative, an unavailable backend is
+not. A caller must therefore test `is None` BEFORE testing falsiness,
+since {} and [] are falsy too.
 """
 
 import logging
@@ -75,6 +86,7 @@ class SupabaseClient:
         params: dict[str, Any] | None = None,
         timeout: int = 10,
         operation: str = "request",
+        log_errors: bool = True,
     ) -> tuple[int, Any]:
         """
         Execute HTTP GET request with standard error handling.
@@ -84,6 +96,9 @@ class SupabaseClient:
             params: Query parameters
             timeout: Request timeout in seconds
             operation: Description of operation for logging
+            log_errors: Log non-200 responses as errors. Set to False when a
+                non-200 status is a nominal outcome for the caller
+                (e.g. test_connection treats 401/404 as success).
 
         Returns:
             Tuple of (status_code, response_data)
@@ -107,7 +122,8 @@ class SupabaseClient:
                     return (status, data)
                 else:
                     text = await response.text()
-                    _LOGGER.error(f"Failed {operation} (status {status}): {text}")
+                    if log_errors:
+                        _LOGGER.error(f"Failed {operation} (status {status}): {text}")
                     return (status, text)
 
         except aiohttp.ClientError as err:
@@ -224,7 +240,7 @@ class SupabaseClient:
     # Public API Methods
     # ========================================================================
 
-    async def fetch_rules(self) -> list[dict[str, Any]]:
+    async def fetch_rules(self) -> list[dict[str, Any]] | None:
         """
         Fetch automation rules from Supabase.
 
@@ -240,7 +256,8 @@ class SupabaseClient:
         }
 
         Returns:
-            List of rule dictionaries
+            List of rule dictionaries ([] if the cloud has no rule),
+            or None if Supabase is unavailable
 
         Raises:
             Exception: If HTTP request fails
@@ -261,7 +278,7 @@ class SupabaseClient:
             _LOGGER.debug(f"Fetched {len(data)} rules from Supabase")
             return data
         else:
-            return []
+            return None
 
     async def test_connection(self) -> bool:
         """
@@ -275,18 +292,21 @@ class SupabaseClient:
         url = f"{self.rest_url}/"
 
         try:
-            async with self.session.get(
+            # 401/404 are nominal outcomes here, so the helper must not log them
+            status, _ = await self._http_get(
                 url,
-                headers=self.headers,
-                timeout=aiohttp.ClientTimeout(total=5),
-            ) as response:
-                # Any response (even 404) means we can connect and authenticate
-                if response.status in (200, 401, 404):
-                    _LOGGER.info("Supabase connection test successful")
-                    return True
-                else:
-                    _LOGGER.error(f"Supabase connection test failed: {response.status}")
-                    return False
+                timeout=5,
+                operation="test connection",
+                log_errors=False,
+            )
+
+            # Any response (even 404) means we can connect and authenticate
+            if status in (200, 401, 404):
+                _LOGGER.info("Supabase connection test successful")
+                return True
+            else:
+                _LOGGER.error(f"Supabase connection test failed: {status}")
+                return False
 
         except Exception as err:
             _LOGGER.error(f"Supabase connection test failed: {err}")
@@ -304,7 +324,8 @@ class SupabaseClient:
             ha_installation_id: HA core.uuid value
 
         Returns:
-            Instance data dictionary or None if not found
+            Instance data dictionary, {} if no instance exists for this
+            installation, or None if Supabase is unavailable
 
         Raises:
             Exception: If HTTP request fails
@@ -331,7 +352,7 @@ class SupabaseClient:
                 _LOGGER.debug(
                     f"No instance found for HA installation: {ha_installation_id}"
                 )
-                return None
+                return {}
         else:
             return None
 
@@ -348,7 +369,8 @@ class SupabaseClient:
             instance_name: Human-readable name for the instance
 
         Returns:
-            Created instance data or None if creation failed
+            Created instance data, or None if creation failed or Supabase
+            is unavailable
 
         Raises:
             Exception: If HTTP request fails
@@ -361,36 +383,17 @@ class SupabaseClient:
             "p_instance_name": instance_name,
         }
 
-        try:
-            _LOGGER.info(
-                f"Creating new instance for HA installation: {ha_installation_id}"
-            )
+        _LOGGER.info(f"Creating new instance for HA installation: {ha_installation_id}")
 
-            async with self.session.post(
-                url,
-                json=payload,
-                headers=self.headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                if response.status in (200, 201):
-                    instance_id = await response.json()
-                    _LOGGER.info(f"Created instance with ID: {instance_id}")
+        status, data = await self._http_post(url, payload, operation="create instance")
 
-                    # Fetch the full instance data
-                    return await self.get_instance_by_ha_id(ha_installation_id)
-                else:
-                    response_text = await response.text()
-                    _LOGGER.error(
-                        f"Failed to create instance (status {response.status}): {response_text}"
-                    )
-                    return None
+        if status in (200, 201):
+            _LOGGER.info(f"Created instance with ID: {data}")
 
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"HTTP error creating instance: {err}")
-            raise
-        except Exception as err:
-            _LOGGER.error(f"Unexpected error creating instance: {err}")
-            raise
+            # Fetch the full instance data
+            return await self.get_instance_by_ha_id(ha_installation_id)
+        else:
+            return None
 
     async def update_instance_last_seen(self, instance_id: str) -> bool:
         """
@@ -557,7 +560,7 @@ class SupabaseClient:
 
     async def fetch_rules_for_instance(
         self, instance_id: str
-    ) -> dict[str, dict[str, dict[str, Any]]]:
+    ) -> dict[str, dict[str, Any]] | None:
         """
         Fetch automation rules for a specific instance from Supabase.
 
@@ -579,6 +582,8 @@ class SupabaseClient:
                 }
             }
 
+            {} if the instance has no rule, None if Supabase is unavailable.
+
         Raises:
             Exception: If HTTP request fails
         """
@@ -590,41 +595,23 @@ class SupabaseClient:
             "order": "area_id,activity_type",
         }
 
-        try:
-            _LOGGER.debug(f"Fetching rules for instance: {instance_id}")
+        _LOGGER.debug(f"Fetching rules for instance: {instance_id}")
 
-            async with self.session.get(
-                url,
-                params=params,
-                headers=self.headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                if response.status == 200:
-                    rules_list = await response.json()
-                    _LOGGER.debug(
-                        f"Fetched {len(rules_list)} rules for instance {instance_id}"
-                    )
+        status, rules_list = await self._http_get(
+            url, params=params, operation="fetch rules for instance"
+        )
 
-                    local_rules = self._transform_cloud_to_local(rules_list)
+        if status == 200:
+            _LOGGER.debug(f"Fetched {len(rules_list)} rules for instance {instance_id}")
 
-                    _LOGGER.debug(
-                        f"Transformed rules into {len(local_rules)} areas with activity types"
-                    )
-                    return local_rules
+            local_rules = self._transform_cloud_to_local(rules_list)
 
-                else:
-                    response_text = await response.text()
-                    _LOGGER.error(
-                        f"Failed to fetch rules (status {response.status}): {response_text}"
-                    )
-                    return {}
-
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"HTTP error fetching rules: {err}")
-            raise
-        except Exception as err:
-            _LOGGER.error(f"Unexpected error fetching rules: {err}")
-            raise
+            _LOGGER.debug(
+                f"Transformed rules into {len(local_rules)} areas with activity types"
+            )
+            return local_rules
+        else:
+            return None
 
     async def push_rules_for_instance(
         self, instance_id: str, rules: list[dict[str, Any]]
@@ -640,7 +627,9 @@ class SupabaseClient:
             rules: List of local rule dictionaries with activity_rules structure
 
         Returns:
-            True if successful, False otherwise
+            True if every row was pushed (including the "nothing to push"
+            case), False if at least one row failed: a partial push means
+            Supabase is partially unavailable
 
         Raises:
             Exception: If HTTP request fails
@@ -649,57 +638,46 @@ class SupabaseClient:
             _LOGGER.debug("No rules to push")
             return True
 
-        try:
-            _LOGGER.debug(f"Pushing {len(rules)} rules for instance: {instance_id}")
+        _LOGGER.debug(f"Pushing {len(rules)} rules for instance: {instance_id}")
 
-            success_count = 0
-            for local_rule in rules:
-                cloud_rows = self._transform_local_to_cloud(local_rule, instance_id)
+        success_count = 0
+        total_count = 0
+        for local_rule in rules:
+            cloud_rows = self._transform_local_to_cloud(local_rule, instance_id)
 
-                for cloud_row in cloud_rows:
-                    url = f"{self.rest_url}/rpc/create_rule_version"
+            for cloud_row in cloud_rows:
+                total_count += 1
+                url = f"{self.rest_url}/rpc/create_rule_version"
 
-                    payload = {
-                        "p_rule_id": cloud_row["rule_id"],
-                        "p_area_id": cloud_row["area_id"],
-                        "p_area_name": cloud_row["area_name"],
-                        "p_activity_type": cloud_row["activity_type"],
-                        "p_instance_id": cloud_row["instance_id"],
-                        "p_conditions": cloud_row["conditions"],
-                        "p_actions": cloud_row["actions"],
-                        "p_rule_source": "local_default",
-                    }
+                payload = {
+                    "p_rule_id": cloud_row["rule_id"],
+                    "p_area_id": cloud_row["area_id"],
+                    "p_area_name": cloud_row["area_name"],
+                    "p_activity_type": cloud_row["activity_type"],
+                    "p_instance_id": cloud_row["instance_id"],
+                    "p_conditions": cloud_row["conditions"],
+                    "p_actions": cloud_row["actions"],
+                    "p_rule_source": "local_default",
+                }
 
-                    async with self.session.post(
-                        url,
-                        json=payload,
-                        headers=self.headers,
-                        timeout=aiohttp.ClientTimeout(total=15),
-                    ) as response:
-                        if response.status in (200, 201):
-                            success_count += 1
-                            _LOGGER.debug(f"Created version for {cloud_row['rule_id']}")
-                        else:
-                            response_text = await response.text()
-                            _LOGGER.error(
-                                f"Failed to create rule version (status {response.status}): {response_text}"
-                            )
-
-            if success_count > 0:
-                _LOGGER.info(
-                    f"Successfully pushed {success_count} rule versions to Supabase"
+                status, _ = await self._http_post(
+                    url, payload, timeout=15, operation="create rule version"
                 )
-                return True
-            else:
-                _LOGGER.error("Failed to push any rules")
-                return False
 
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"HTTP error pushing rules: {err}")
-            raise
-        except Exception as err:
-            _LOGGER.error(f"Unexpected error pushing rules: {err}")
-            raise
+                if status in (200, 201):
+                    success_count += 1
+                    _LOGGER.debug(f"Created version for {cloud_row['rule_id']}")
+
+        if success_count == total_count:
+            _LOGGER.info(
+                f"Successfully pushed {success_count} rule versions to Supabase"
+            )
+            return True
+        else:
+            _LOGGER.error(
+                f"Pushed only {success_count}/{total_count} rule versions to Supabase"
+            )
+            return False
 
     async def get_rule_for_area(
         self, instance_id: str, area_id: str
@@ -715,7 +693,8 @@ class SupabaseClient:
             area_id: The area identifier
 
         Returns:
-            Rule dictionary or None if not found
+            Rule dictionary, {} if the area has no rule, or None if
+            Supabase is unavailable
 
         Raises:
             Exception: If HTTP request fails
@@ -730,41 +709,26 @@ class SupabaseClient:
             "limit": "1",
         }
 
-        try:
-            _LOGGER.debug(f"Fetching rule for area {area_id} in instance {instance_id}")
+        _LOGGER.debug(f"Fetching rule for area {area_id} in instance {instance_id}")
 
-            async with self.session.get(
-                url,
-                params=params,
-                headers=self.headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                if response.status == 200:
-                    rules = await response.json()
-                    if rules:
-                        rule = rules[0]
-                        _LOGGER.debug(f"Found rule for area {area_id}")
-                        return rule
-                    else:
-                        _LOGGER.debug(f"No rule found for area {area_id}")
-                        return None
-                else:
-                    response_text = await response.text()
-                    _LOGGER.error(
-                        f"Failed to fetch rule (status {response.status}): {response_text}"
-                    )
-                    return None
+        status, rules = await self._http_get(
+            url, params=params, operation="fetch rule for area"
+        )
 
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"HTTP error fetching rule for area: {err}")
-            raise
-        except Exception as err:
-            _LOGGER.error(f"Unexpected error fetching rule for area: {err}")
-            raise
+        if status == 200:
+            if rules:
+                rule = rules[0]
+                _LOGGER.debug(f"Found rule for area {area_id}")
+                return rule
+            else:
+                _LOGGER.debug(f"No rule found for area {area_id}")
+                return {}
+        else:
+            return None
 
     async def fetch_activity_types(
         self, activity_ids: list[str] | None = None
-    ) -> dict[str, dict[str, Any]]:
+    ) -> dict[str, dict[str, Any]] | None:
         """
         Fetch activity types from Supabase.
 
@@ -786,6 +750,8 @@ class SupabaseClient:
                 }
             }
 
+            {} if the cloud has no activity, None if Supabase is unavailable.
+
         Raises:
             Exception: If HTTP request fails
         """
@@ -796,37 +762,19 @@ class SupabaseClient:
         if activity_ids:
             params["activity_id"] = f"in.({','.join(activity_ids)})"
 
-        try:
-            _LOGGER.debug(f"Fetching activity types: {activity_ids or 'all'}")
+        _LOGGER.debug(f"Fetching activity types: {activity_ids or 'all'}")
 
-            async with self.session.get(
-                url,
-                params=params,
-                headers=self.headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                if response.status == 200:
-                    activities_list = await response.json()
+        status, activities_list = await self._http_get(
+            url, params=params, operation="fetch activities"
+        )
 
-                    activities_dict = {
-                        act["activity_id"]: act for act in activities_list
-                    }
+        if status == 200:
+            activities_dict = {act["activity_id"]: act for act in activities_list}
 
-                    _LOGGER.debug(f"Fetched {len(activities_dict)} activity types")
-                    return activities_dict
-                else:
-                    response_text = await response.text()
-                    _LOGGER.error(
-                        f"Failed to fetch activities (status {response.status}): {response_text}"
-                    )
-                    return {}
-
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"HTTP error fetching activities: {err}")
-            raise
-        except Exception as err:
-            _LOGGER.error(f"Unexpected error fetching activities: {err}")
-            raise
+            _LOGGER.debug(f"Fetched {len(activities_dict)} activity types")
+            return activities_dict
+        else:
+            return None
 
     async def fetch_app_with_actions(
         self, app_id: str, version: str | None = None
@@ -861,117 +809,102 @@ class SupabaseClient:
                 }
             }
 
+            {} if the app has no published version in the cloud, None if
+            Supabase is unavailable (including when only the actions
+            sub-fetch fails: an app without its actions is worse than no
+            app at all, it would silently disable the automation).
+
         Raises:
             Exception: If HTTP request fails
         """
-        try:
-            if version:
-                app_url = f"{self.rest_url}/automation_apps"
-                app_params = {
-                    "app_id": f"eq.{app_id}",
-                    "created_at": f"eq.{version}",
-                    "select": "*",
-                    "limit": "1",
-                }
-            else:
-                app_url = f"{self.rest_url}/rpc/get_latest_app_version"
-                _LOGGER.debug(f"Getting latest version for app: {app_id}")
+        if version:
+            app_url = f"{self.rest_url}/automation_apps"
+            app_params = {
+                "app_id": f"eq.{app_id}",
+                "created_at": f"eq.{version}",
+                "select": "*",
+                "limit": "1",
+            }
+        else:
+            app_url = f"{self.rest_url}/rpc/get_latest_app_version"
+            _LOGGER.debug(f"Getting latest version for app: {app_id}")
 
-                async with self.session.post(
-                    app_url,
-                    json={"p_app_id": app_id},
-                    headers=self.headers,
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as response:
-                    if response.status != 200:
-                        _LOGGER.error(f"Failed to get latest version for {app_id}")
-                        return None
-
-                    version_timestamp = await response.json()
-
-                    if not version_timestamp:
-                        _LOGGER.debug(f"No versions found for app: {app_id}")
-                        return None
-
-                    app_url = f"{self.rest_url}/automation_apps"
-                    app_params = {
-                        "app_id": f"eq.{app_id}",
-                        "created_at": f"eq.{version_timestamp}",
-                        "select": "*",
-                        "limit": "1",
-                    }
-
-            _LOGGER.debug(f"Fetching app: {app_id} (version: {version or 'latest'})")
-
-            async with self.session.get(
+            status, version_timestamp = await self._http_post(
                 app_url,
-                params=app_params,
-                headers=self.headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                if response.status != 200:
-                    response_text = await response.text()
-                    _LOGGER.error(
-                        f"Failed to fetch app (status {response.status}): {response_text}"
-                    )
-                    return None
+                {"p_app_id": app_id},
+                operation=f"get latest version for {app_id}",
+            )
 
-                apps = await response.json()
+            if status != 200:
+                return None
 
-                if not apps:
-                    _LOGGER.debug(f"App not found: {app_id}")
-                    return None
+            if not version_timestamp:
+                _LOGGER.debug(f"No versions found for app: {app_id}")
+                return {}
 
-                app_data = apps[0]
-
-            actions_url = f"{self.rest_url}/app_activity_actions"
-            actions_params = {"app_id": f"eq.{app_id}", "select": "*"}
-
-            _LOGGER.debug(f"Fetching actions for app: {app_id}")
-
-            async with self.session.get(
-                actions_url,
-                params=actions_params,
-                headers=self.headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                if response.status != 200:
-                    _LOGGER.warning(f"Failed to fetch actions for {app_id}")
-                    actions_list = []
-                else:
-                    actions_list = await response.json()
-
-            activity_actions = {
-                action["activity_id"]: {
-                    "activity_id": action["activity_id"],
-                    "conditions": action.get("conditions", []),
-                    "actions": action["actions"],
-                    "on_exit": action.get("on_exit"),
-                    "logic": action.get("logic", "and"),
-                    "description": action.get("description"),
-                }
-                for action in actions_list
+            app_url = f"{self.rest_url}/automation_apps"
+            app_params = {
+                "app_id": f"eq.{app_id}",
+                "created_at": f"eq.{version_timestamp}",
+                "select": "*",
+                "limit": "1",
             }
 
-            app_data["activity_actions"] = activity_actions
+        _LOGGER.debug(f"Fetching app: {app_id} (version: {version or 'latest'})")
 
-            _LOGGER.debug(
-                f"Fetched app {app_id} with {len(activity_actions)} activity actions"
-            )
-            return app_data
+        status, apps = await self._http_get(
+            app_url, params=app_params, operation="fetch app"
+        )
 
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"HTTP error fetching app: {err}")
-            raise
-        except Exception as err:
-            _LOGGER.error(f"Unexpected error fetching app: {err}")
-            raise
+        if status != 200:
+            return None
+
+        if not apps:
+            _LOGGER.debug(f"App not found: {app_id}")
+            return {}
+
+        app_data = apps[0]
+
+        actions_url = f"{self.rest_url}/app_activity_actions"
+        actions_params = {"app_id": f"eq.{app_id}", "select": "*"}
+
+        _LOGGER.debug(f"Fetching actions for app: {app_id}")
+
+        status, actions_list = await self._http_get(
+            actions_url, params=actions_params, operation="fetch app actions"
+        )
+
+        if status != 200:
+            # Returning the app without its actions would write a dead
+            # automation into the local cache - report unavailability instead
+            return None
+
+        activity_actions = {
+            action["activity_id"]: {
+                "activity_id": action["activity_id"],
+                "conditions": action.get("conditions", []),
+                "actions": action["actions"],
+                "on_exit": action.get("on_exit"),
+                "logic": action.get("logic", "and"),
+                "description": action.get("description"),
+            }
+            for action in actions_list
+        }
+
+        app_data["activity_actions"] = activity_actions
+
+        _LOGGER.debug(
+            f"Fetched app {app_id} with {len(activity_actions)} activity actions"
+        )
+        return app_data
 
     # NOTE: fetch_area_assignments() and assign_app_to_area() methods removed
     # Assignments are now managed by Home Assistant switches, not Supabase tables
     # See: /docs/APP_ASSIGNMENT_ARCHITECTURE.md
 
-    async def fetch_area_insights(self, instance_id: str) -> list[dict[str, Any]]:
+    async def fetch_area_insights(
+        self, instance_id: str
+    ) -> list[dict[str, Any]] | None:
         """
         Fetch insights for instance + all global defaults.
 
@@ -994,6 +927,8 @@ class SupabaseClient:
                 "updated_at": "2025-10-27T23:30:00Z"
             }
 
+            [] if the cloud has no insight, None if Supabase is unavailable.
+
         Raises:
             Exception: If HTTP request fails
         """
@@ -1005,31 +940,16 @@ class SupabaseClient:
             "order": "instance_id.nullslast,area_id.nullslast,insight_type",
         }
 
-        try:
-            _LOGGER.debug(f"Fetching area insights for instance: {instance_id}")
+        _LOGGER.debug(f"Fetching area insights for instance: {instance_id}")
 
-            async with self.session.get(
-                url,
-                params=params,
-                headers=self.headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                if response.status == 200:
-                    insights = await response.json()
-                    _LOGGER.debug(
-                        f"Fetched {len(insights)} insights for instance {instance_id}"
-                    )
-                    return insights
-                else:
-                    response_text = await response.text()
-                    _LOGGER.error(
-                        f"Failed to fetch insights (status {response.status}): {response_text}"
-                    )
-                    return []
+        status, insights = await self._http_get(
+            url, params=params, operation="fetch insights"
+        )
 
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"HTTP error fetching insights: {err}")
-            raise
-        except Exception as err:
-            _LOGGER.error(f"Unexpected error fetching insights: {err}")
-            raise
+        if status == 200:
+            _LOGGER.debug(
+                f"Fetched {len(insights)} insights for instance {instance_id}"
+            )
+            return insights
+        else:
+            return None

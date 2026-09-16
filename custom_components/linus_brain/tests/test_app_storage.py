@@ -57,10 +57,16 @@ def app_storage(mock_hass_with_storage, temp_storage_dir):
 
 @pytest.fixture
 def mock_supabase():
-    """Mock Supabase client."""
+    """
+    Mock Supabase client - reachable cloud, answering with zero row.
+
+    {} / [] mean "the cloud answered 200 with no data"; None is reserved for
+    "Supabase unavailable". Keep the default at {} so a test that does not
+    explicitly simulate an outage stays in the "cloud reachable" scenario.
+    """
     client = MagicMock()
     client.fetch_area_assignments = AsyncMock(return_value={})
-    client.fetch_app_with_actions = AsyncMock(return_value=None)
+    client.fetch_app_with_actions = AsyncMock(return_value={})
     client.fetch_activity_types = AsyncMock(return_value={})
     return client
 
@@ -215,7 +221,8 @@ class TestAppStorageCloudSync:
         app_storage._data["apps"] = {"autolight": {}}
         app_storage._data["assignments"] = {"kitchen": {"app_id": "autolight"}}
 
-        mock_supabase.fetch_app_with_actions.return_value = None
+        # Cloud reachable, app absent from cloud
+        mock_supabase.fetch_app_with_actions.return_value = {}
 
         result = await app_storage.async_sync_from_cloud(
             mock_supabase, "test-instance", ["kitchen"]
@@ -239,7 +246,8 @@ class TestAppStorageCloudSync:
         self, app_storage, mock_supabase
     ):
         """Test cloud sync with no local data - activities from local const.py."""
-        mock_supabase.fetch_app_with_actions.return_value = None
+        # Cloud reachable, app absent from cloud
+        mock_supabase.fetch_app_with_actions.return_value = {}
 
         result = await app_storage.async_sync_from_cloud(
             mock_supabase, "test-instance", ["kitchen"]
@@ -455,7 +463,7 @@ class TestAppStorageInitialize:
         """Test that empty cloud sync is accepted as valid state with system activities injected."""
         # Mock empty cloud response (no apps, no activities, no assignments)
         mock_supabase.fetch_area_assignments.return_value = {}
-        mock_supabase.fetch_app_with_actions.return_value = None
+        mock_supabase.fetch_app_with_actions.return_value = {}
         mock_supabase.fetch_activity_types.return_value = {}
 
         # Perform cloud sync - should accept empty state without loading fallback
@@ -567,10 +575,8 @@ class TestAppStorageDefensiveFallbacks:
         self, app_storage, mock_supabase
     ):
         """Test that cloud sync injects automatic_lighting fallback when not in cloud."""
-        # Mock cloud returning no app (automatic_lighting missing)
-        mock_supabase.fetch_app_with_actions.return_value = (
-            None  # App not found in cloud
-        )
+        # Mock cloud reachable but returning no app (automatic_lighting missing)
+        mock_supabase.fetch_app_with_actions.return_value = {}
         mock_supabase.fetch_activity_types.return_value = {
             "movement": {"activity_id": "movement"},
             "inactive": {"activity_id": "inactive"},
@@ -591,6 +597,80 @@ class TestAppStorageDefensiveFallbacks:
         # Verify assignments are empty (managed locally by switches, not from cloud)
         assignment = app_storage.get_assignment("kitchen")
         assert assignment is None  # Assignments not fetched from cloud anymore
+
+    @pytest.mark.asyncio
+    async def test_cloud_unavailable_activities_preserves_cache(
+        self, app_storage, mock_supabase
+    ):
+        """Test that an unavailable cloud (None) leaves the cache untouched."""
+        app_storage._data["activities"] = {"movement": {"activity_id": "movement"}}
+        app_storage._data["apps"] = {"automatic_lighting": {"app_id": "cached"}}
+        app_storage._data["assignments"] = {"kitchen": {"app_id": "automatic_lighting"}}
+        app_storage._data["synced_at"] = "2025-01-01T00:00:00+00:00"
+        app_storage._data["is_fallback"] = False
+
+        sync_time_before = app_storage.get_sync_time()
+
+        # None = Supabase unavailable (503), NOT "cloud has no activity"
+        mock_supabase.fetch_activity_types.return_value = None
+
+        result = await app_storage.async_sync_from_cloud(
+            mock_supabase, "test-instance", ["kitchen"]
+        )
+
+        assert result is False
+        assert app_storage.is_fallback_data() is False
+        assert app_storage.get_sync_time() == sync_time_before
+        assert app_storage.get_activities() == {"movement": {"activity_id": "movement"}}
+        assert app_storage.get_apps() == {"automatic_lighting": {"app_id": "cached"}}
+        # Assignments must survive too - rule_engine reads them
+        assert app_storage.get_assignments() == {
+            "kitchen": {"app_id": "automatic_lighting"}
+        }
+
+    @pytest.mark.asyncio
+    async def test_cloud_unavailable_app_preserves_cache(
+        self, app_storage, mock_supabase
+    ):
+        """Test that an unavailable app fetch (None) leaves the cache untouched."""
+        app_storage._data["activities"] = {"movement": {"activity_id": "movement"}}
+        app_storage._data["apps"] = {"automatic_lighting": {"app_id": "cached"}}
+        app_storage._data["synced_at"] = "2025-01-01T00:00:00+00:00"
+        app_storage._data["is_fallback"] = False
+
+        sync_time_before = app_storage.get_sync_time()
+
+        mock_supabase.fetch_activity_types.return_value = {
+            "movement": {"activity_id": "movement"}
+        }
+        # 503 on the app fetch only
+        mock_supabase.fetch_app_with_actions.return_value = None
+
+        result = await app_storage.async_sync_from_cloud(
+            mock_supabase, "test-instance", ["kitchen"]
+        )
+
+        assert result is False
+        assert app_storage.is_fallback_data() is False
+        assert app_storage.get_sync_time() == sync_time_before
+        assert app_storage.get_apps() == {"automatic_lighting": {"app_id": "cached"}}
+
+    @pytest.mark.asyncio
+    async def test_cloud_unavailable_without_cache_loads_fallback(
+        self, app_storage, mock_supabase
+    ):
+        """Test that an unavailable cloud with an empty cache loads const.py."""
+        mock_supabase.fetch_activity_types.return_value = None
+        mock_supabase.fetch_app_with_actions.return_value = None
+
+        result = await app_storage.async_sync_from_cloud(
+            mock_supabase, "test-instance", ["kitchen"]
+        )
+
+        assert result is False
+        assert app_storage.is_fallback_data() is True
+        assert len(app_storage.get_activities()) == len(DEFAULT_ACTIVITY_TYPES)
+        assert "automatic_lighting" in app_storage.get_apps()
 
     @pytest.mark.asyncio
     async def test_cloud_sync_missing_system_activities_injects_fallback(

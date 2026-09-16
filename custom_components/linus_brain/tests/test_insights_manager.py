@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from ..utils.insights_manager import InsightsManager
+from .test_supabase_client import _FakeResponse, _make_client
 
 
 @pytest.fixture
@@ -566,3 +567,33 @@ class TestEdgeCases:
         assert insight is not None
         assert insight["value"]["threshold"] == 200
         assert insight["source"] == "global_default"
+
+
+class TestRealSupabaseClientChain:
+    """Test the real SupabaseClient -> InsightsManager chain on an outage."""
+
+    async def test_503_keeps_the_already_loaded_cache(self, sample_insights):
+        """
+        Test that a 503 leaves the cache intact.
+
+        Runs on a real SupabaseClient (mocked aiohttp session) so the return
+        contract itself is exercised, not a mocked return value.
+        """
+        client = _make_client(
+            gets=[
+                _FakeResponse(200, payload=sample_insights),
+                _FakeResponse(503, text="service unavailable"),
+            ]
+        )
+        manager = InsightsManager(client)
+
+        assert await manager.async_load("inst-123") is True
+        assert len(manager._cache) == 4
+
+        # Supabase goes down: the cache must survive the failed reload
+        assert await manager.async_load("inst-123") is False
+        assert len(manager._cache) == 4
+
+        insight = manager.get_insight("inst-123", "salon", "dark_threshold_lux")
+        assert insight is not None
+        assert insight["value"]["threshold"] == 150

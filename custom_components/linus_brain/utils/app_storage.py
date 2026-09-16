@@ -306,6 +306,32 @@ class AppStorage:
 
         return self._data
 
+    async def _preserve_or_fallback(self, reason: str) -> bool:
+        """
+        Keep the existing local data after a failed sync.
+
+        Loads the hardcoded fallback only when there is no local data at all.
+        Never touches `synced_at`, `is_fallback` or the cached content when a
+        cache exists: a failed sync must leave the cache literally untouched.
+
+        Args:
+            reason: Why the sync did not complete, for logging
+
+        Returns:
+            False - the sync did not happen
+        """
+        _LOGGER.warning(f"{reason} - keeping existing local data")
+
+        # Only load fallback if we have absolutely no local data
+        if self.is_empty():
+            _LOGGER.info("No local data available → loading fallback")
+            self.load_hardcoded_fallback()
+            await self.async_save()
+        else:
+            _LOGGER.info("Preserving existing local cache (graceful degradation)")
+
+        return False
+
     async def async_sync_from_cloud(
         self, supabase_client, instance_id: str, area_ids: list[str]
     ) -> bool:
@@ -344,12 +370,19 @@ class AppStorage:
                 _LOGGER.debug("Fetching activity definitions from cloud")
 
                 activities = None
-                activities_source = None
+                # "" = source not decided (cloud unavailable): never "const"
+                activities_source = ""
+
+                # None from the client means "Supabase unavailable", which is
+                # NOT the same as "cloud answered with zero row" ({} / [])
+                cloud_unavailable = False
 
                 try:
                     cloud_activities = await supabase_client.fetch_activity_types()
 
-                    if cloud_activities:
+                    if cloud_activities is None:
+                        cloud_unavailable = True
+                    elif cloud_activities:
                         activities = cloud_activities
                         activities_source = "cloud"
                         _LOGGER.info(f"Loaded {len(activities)} activities from cloud")
@@ -395,7 +428,7 @@ class AppStorage:
                         activities_source = "const.py (populated cache)"
 
                 apps = {}
-                apps_source = None
+                apps_source = ""
 
                 # Same logic for apps
                 _LOGGER.debug("Fetching automatic_lighting app from cloud")
@@ -403,7 +436,9 @@ class AppStorage:
                     autolight_app = await supabase_client.fetch_app_with_actions(
                         "automatic_lighting", version=None
                     )
-                    if autolight_app:
+                    if autolight_app is None:
+                        cloud_unavailable = True
+                    elif autolight_app:
                         apps["automatic_lighting"] = autolight_app
                         apps_source = "cloud"
                         _LOGGER.info("Loaded automatic_lighting from cloud")
@@ -444,6 +479,13 @@ class AppStorage:
                             f"Failed to fetch app: {err} and no cache, populating from const.py"
                         )
 
+                # Supabase was unreachable: return BEFORE rebuilding self._data,
+                # so synced_at, is_fallback, assignments and the cached content
+                # stay literally untouched (rule_engine reads assignments and
+                # would otherwise fall back to _ensure_default_assignments)
+                if cloud_unavailable:
+                    return await self._preserve_or_fallback("Cloud unavailable")
+
                 # NOTE: We do NOT fetch assignments from cloud anymore
                 # Assignments are managed by local Home Assistant switches
                 # See: /docs/APP_ASSIGNMENT_ARCHITECTURE.md
@@ -471,30 +513,10 @@ class AppStorage:
                 return not cloud_failed
 
         except asyncio.TimeoutError:
-            _LOGGER.warning("Cloud sync timeout (10s) - keeping existing local data")
-
-            # Only load fallback if we have absolutely no local data
-            if self.is_empty():
-                _LOGGER.info("No local data available → loading fallback")
-                self.load_hardcoded_fallback()
-                await self.async_save()
-            else:
-                _LOGGER.info("Preserving existing local cache (graceful degradation)")
-
-            return False
+            return await self._preserve_or_fallback("Cloud sync timeout (10s)")
 
         except Exception as err:
-            _LOGGER.warning(f"Cloud sync failed: {err} - keeping existing local data")
-
-            # Only load fallback if we have absolutely no local data
-            if self.is_empty():
-                _LOGGER.info("No local data available → loading fallback")
-                self.load_hardcoded_fallback()
-                await self.async_save()
-            else:
-                _LOGGER.info("Preserving existing local cache (graceful degradation)")
-
-            return False
+            return await self._preserve_or_fallback(f"Cloud sync failed: {err}")
 
     def get_activities(self) -> dict[str, Any]:
         """Get all activities."""

@@ -283,6 +283,13 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
         try:
             _LOGGER.debug("Fetching automation rules from Supabase")
             rules = await self.supabase_client.fetch_rules()
+
+            # None means Supabase is unavailable (not "no rule") - must be
+            # checked before len(), an empty list is a valid answer
+            if rules is None:
+                _LOGGER.warning("Supabase unavailable - no automation rules retrieved")
+                return []
+
             _LOGGER.info(f"Retrieved {len(rules)} automation rules")
             return rules
         except Exception as err:
@@ -307,6 +314,14 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
             rules_by_area = await self.supabase_client.fetch_rules_for_instance(
                 instance_id
             )
+
+            # None means Supabase is unavailable - checked before falsiness,
+            # since {} ("cloud has no rule") is falsy too
+            if rules_by_area is None:
+                _LOGGER.warning(
+                    "Supabase unavailable - keeping rules already in local storage"
+                )
+                return
 
             if rules_by_area:
                 storage = LocalStorage(self.hass)
@@ -381,6 +396,12 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
             instance_data = await self.supabase_client.get_instance_by_ha_id(
                 self.ha_installation_id
             )
+
+            # None means Supabase is unavailable - creating a new instance here
+            # would duplicate the cloud instance of an already-registered
+            # installation. Only {} ("no instance yet") may create one.
+            if instance_data is None:
+                raise Exception("Supabase unavailable - cannot look up instance")
 
             if instance_data:
                 self.instance_id = instance_data["instance_id"]
