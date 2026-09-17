@@ -555,10 +555,7 @@ class TestEnvironmentalCooldown:
         assert rule_engine._check_environmental_cooldown(area_id, "enter") is False
 
         # Activity trigger should not be affected by environmental cooldown
-        assert (
-            rule_engine._check_cooldown(area_id, activity, is_environmental=False)
-            is True
-        )
+        assert rule_engine._check_cooldown(area_id, activity) is True
 
         # Set activity trigger timestamp 10 seconds ago
         rule_engine._last_triggered[f"{area_id}_{activity}"] = (
@@ -566,10 +563,7 @@ class TestEnvironmentalCooldown:
         )
 
         # Activity should be in cooldown (30 second cooldown)
-        assert (
-            rule_engine._check_cooldown(area_id, activity, is_environmental=False)
-            is False
-        )
+        assert rule_engine._check_cooldown(area_id, activity) is False
 
         # Environmental cooldown should still be in cooldown independently
         assert rule_engine._check_environmental_cooldown(area_id, "enter") is False
@@ -1183,10 +1177,7 @@ class TestEnterExitCooldownSeparation:
         # Verify first ON
         assert rule_engine.action_executor.execute_actions.call_count == 1
 
-        # Simulate cooldown expiration (6 minutes) for both environmental and lux cooldowns
-        rule_engine._last_triggered["salon_env_enter"] = dt_util.utcnow() - timedelta(
-            minutes=6
-        )
+        # Simulate cooldown expiration (6 minutes)
         rule_engine._last_environmental_action["salon"] = {
             "enter": dt_util.utcnow() - timedelta(minutes=6),
             "exit": dt_util.utcnow() - timedelta(minutes=6),

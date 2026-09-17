@@ -791,10 +791,7 @@ class RuleEngine:
                         return
                 else:
                     if not bypass_cooldown and not self._check_cooldown(
-                        area_id,
-                        current_activity,
-                        is_environmental=False,
-                        action_type="enter",
+                        area_id, current_activity
                     ):
                         self._stats["cooldown_blocks"] += 1
                         _LOGGER.debug(
@@ -833,12 +830,7 @@ class RuleEngine:
                         self._update_environmental_cooldown(area_id, "enter")
                     else:
                         # For activity triggers, update last_triggered
-                        self._update_last_triggered(
-                            area_id,
-                            current_activity,
-                            is_environmental=False,
-                            action_type="enter",
-                        )
+                        self._update_last_triggered(area_id, current_activity)
 
                     self._last_actions[area_id] = {
                         "activity": current_activity,
@@ -940,33 +932,26 @@ class RuleEngine:
             )
             self._stats["failed_executions"] += 1
 
-    def _check_cooldown(
-        self,
-        area_id: str,
-        activity_type: str | None = None,
-        is_environmental: bool = False,
-        action_type: str = "enter",
-    ) -> bool:
+    def _check_cooldown(self, area_id: str, activity_type: str | None = None) -> bool:
         """
-        Check if rule is in cooldown period.
+        Check if an activity-based rule is in cooldown period.
 
-        Environmental triggers use separate cooldowns for enter (normal actions) and exit (on_exit actions).
-        This allows quick transitions between turning lights on and off without triggering rapid oscillations.
+        Only activity triggers go through this method: they share a fixed COOLDOWN_SECONDS
+        window keyed on area/activity in `_last_triggered`.
+
+        Environmental triggers do NOT use this method. Their cooldown is tracked in
+        `_last_environmental_action` by `_check_environmental_cooldown()` /
+        `_update_environmental_cooldown()`, which use a configurable interval and keep
+        separate enter/exit timestamps.
 
         Args:
             area_id: Area ID
             activity_type: Optional activity type for activity-based rules
-            is_environmental: True if checking environmental trigger cooldown
-            action_type: Type of action - "enter" for normal actions, "exit" for on_exit actions
 
         Returns:
             True if not in cooldown, False if in cooldown
         """
-        # Use separate cooldown keys for environmental enter/exit actions
-        if is_environmental:
-            cooldown_key = f"{area_id}_env_{action_type}"
-        else:
-            cooldown_key = f"{area_id}_{activity_type}" if activity_type else area_id
+        cooldown_key = f"{area_id}_{activity_type}" if activity_type else area_id
 
         if cooldown_key not in self._last_triggered:
             return True
@@ -1195,26 +1180,19 @@ class RuleEngine:
         return max(0, remaining) if remaining > 0 else None
 
     def _update_last_triggered(
-        self,
-        area_id: str,
-        activity_type: str | None = None,
-        is_environmental: bool = False,
-        action_type: str = "enter",
+        self, area_id: str, activity_type: str | None = None
     ) -> None:
         """
-        Update last triggered timestamp for an area/activity.
+        Update last triggered timestamp for an activity-based area/activity rule.
+
+        Environmental triggers do NOT use this method. Their timestamps live in
+        `_last_environmental_action` and are written by `_update_environmental_cooldown()`.
 
         Args:
             area_id: Area ID
             activity_type: Optional activity type for activity-based rules
-            is_environmental: True if updating environmental trigger timestamp
-            action_type: Type of action - "enter" for normal actions, "exit" for on_exit actions
         """
-        # Use separate cooldown keys for environmental enter/exit actions
-        if is_environmental:
-            cooldown_key = f"{area_id}_env_{action_type}"
-        else:
-            cooldown_key = f"{area_id}_{activity_type}" if activity_type else area_id
+        cooldown_key = f"{area_id}_{activity_type}" if activity_type else area_id
         self._last_triggered[cooldown_key] = dt_util.utcnow()
 
     async def reload_assignments(self) -> int:

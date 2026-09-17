@@ -429,10 +429,7 @@ class TestEnvironmentalCooldownIntegration:
         # Verify first ON
         assert rule_engine.action_executor.execute_actions.call_count == 1
 
-        # Simulate cooldown expiration (40 seconds for both cooldowns)
-        rule_engine._last_triggered["salon_env_enter"] = dt_util.utcnow() - timedelta(
-            seconds=400
-        )
+        # Simulate cooldown expiration (40 seconds)
         rule_engine._last_environmental_action["salon"] = {
             "enter": dt_util.utcnow() - timedelta(seconds=40),
             "exit": dt_util.utcnow() - timedelta(seconds=40),
