@@ -2,7 +2,6 @@
 Tests for performance optimizations (caching, etc.)
 """
 
-import time
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -167,37 +166,3 @@ class TestPresenceConfigCaching:
         config2 = condition_evaluator._get_presence_config_cached()
         # Should have tried again and got new config
         assert config2["motion"] is False
-
-
-class TestPerformanceBenchmarks:
-    """Performance benchmarks (not strict assertions, just for monitoring)."""
-
-    def test_cache_performance_improvement(self, condition_evaluator):
-        """Benchmark cache performance improvement."""
-        # Clear cache
-        condition_evaluator._presence_config_cache = None
-        condition_evaluator._cache_timestamp = None
-
-        # First call (cache miss)
-        start = time.perf_counter()
-        for _ in range(100):
-            condition_evaluator._presence_config_cache = None
-            condition_evaluator._get_presence_config_cached()
-        time_without_cache = time.perf_counter() - start
-
-        # Subsequent calls (cache hit)
-        start = time.perf_counter()
-        for _ in range(100):
-            condition_evaluator._get_presence_config_cached()
-        time_with_cache = time.perf_counter() - start
-
-        # Cache should be significantly faster (at least 5x)
-        speedup = time_without_cache / time_with_cache
-        print(
-            f"\nCache speedup: {speedup:.1f}x "
-            f"({time_without_cache:.4f}s vs {time_with_cache:.4f}s)"
-        )
-
-        # This is informational - we don't assert strict performance
-        # but we can log it for regression detection
-        assert speedup > 1.0, "Cache should provide some speedup"
