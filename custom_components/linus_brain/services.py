@@ -206,7 +206,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             f"Service simulate_activity called: area={area_id}, activity={activity}, duration={duration}s"
         )
 
-        for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
+        for entry_data in hass.data.get(DOMAIN, {}).values():
             activity_tracker = entry_data.get("activity_tracker")
             rule_engine = entry_data.get("rule_engine")
 
@@ -226,7 +226,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         area_id = call.data.get("area_id")
         _LOGGER.info(f"Service load_rule_from_cloud called for area: {area_id}")
 
-        for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
+        for entry_data in hass.data.get(DOMAIN, {}).values():
             coordinator = entry_data.get("coordinator")
             rule_engine = entry_data.get("rule_engine")
             switches = entry_data.get("switches", {})
@@ -271,7 +271,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         _LOGGER.info(f"Service debug_area_status called for area: {area_id}")
 
         # Get coordinator and debugger
-        for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
+        for entry_data in hass.data.get(DOMAIN, {}).values():
             coordinator = entry_data.get("coordinator")
             if coordinator and hasattr(coordinator, "feature_flag_manager"):
                 try:
@@ -300,7 +300,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         _LOGGER.info("Service debug_system_overview called")
 
         # Get coordinator and debugger
-        for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
+        for entry_data in hass.data.get(DOMAIN, {}).values():
             coordinator = entry_data.get("coordinator")
             if coordinator and hasattr(coordinator, "feature_flag_manager"):
                 try:
@@ -326,7 +326,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         _LOGGER.info(f"Service debug_validate_area called for area: {area_id}")
 
         # Get coordinator and feature flag manager
-        for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
+        for entry_data in hass.data.get(DOMAIN, {}).values():
             coordinator = entry_data.get("coordinator")
             if coordinator and coordinator.feature_flag_manager:
                 try:
@@ -370,7 +370,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         )
 
         # Get coordinator and debugger
-        for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
+        for entry_data in hass.data.get(DOMAIN, {}).values():
             coordinator = entry_data.get("coordinator")
             if coordinator and hasattr(coordinator, "feature_flag_manager"):
                 try:
@@ -407,7 +407,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         _LOGGER.info("Service debug_reset_metrics called")
 
         # Get coordinator
-        for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
+        for entry_data in hass.data.get(DOMAIN, {}).values():
             coordinator = entry_data.get("coordinator")
             if coordinator and hasattr(coordinator, "feature_flag_manager"):
                 try:
@@ -429,7 +429,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """
         _LOGGER.info("Service debug_activities called")
 
-        for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
+        for entry_data in hass.data.get(DOMAIN, {}).values():
             coordinator = entry_data.get("coordinator")
             app_storage = entry_data.get("app_storage")
 
@@ -480,7 +480,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 _LOGGER.info(f"Total activities loaded: {len(activities)}")
 
             except Exception as err:
-                _LOGGER.error(f"Failed to debug activities: {err}", exc_info=True)
+                _LOGGER.exception(f"Failed to debug activities: {err}")
 
     async def handle_reset_app_preferences(call: ServiceCall) -> None:
         """
@@ -496,7 +496,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             f"Service reset_app_preferences called for area: {area_id}, app: {app_id or 'current'}"
         )
 
-        for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
+        for entry_data in hass.data.get(DOMAIN, {}).values():
             coordinator = entry_data.get("coordinator")
             app_storage = entry_data.get("app_storage")
 

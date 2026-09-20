@@ -2,10 +2,11 @@
 Tests for performance optimizations (caching, etc.)
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+from homeassistant.util import dt as dt_util
 
 from ..utils.condition_evaluator import ConditionEvaluator
 from ..utils.entity_resolver import EntityResolver
@@ -113,7 +114,7 @@ class TestPresenceConfigCaching:
         assert mock_area_manager._get_presence_detection_config.call_count == 1
 
         # Manually expire cache
-        condition_evaluator._cache_timestamp = datetime.now() - timedelta(seconds=61)
+        condition_evaluator._cache_timestamp = dt_util.utcnow() - timedelta(seconds=61)
 
         # Next call should fetch fresh config
         config2 = condition_evaluator._get_presence_config_cached()

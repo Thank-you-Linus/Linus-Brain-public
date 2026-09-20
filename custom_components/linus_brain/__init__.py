@@ -204,7 +204,7 @@ async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> N
             continue
 
         current_entity_id = entity_entry.entity_id
-        platform, current_name = current_entity_id.split(".", 1)
+        platform, _current_name = current_entity_id.split(".", 1)
 
         # Determine expected entity_id based on translation_key
         translation_key = entity_entry.translation_key
@@ -310,7 +310,7 @@ async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> N
 
     migrated_count = 0
     for migration in migrations_needed:
-        entity_reg_entry: "RegistryEntry" = migration["entity_entry"]  # type: ignore[assignment]
+        entity_reg_entry: RegistryEntry = migration["entity_entry"]  # type: ignore[assignment]
         current_id: str = migration["current"]  # type: ignore[assignment]
         expected_id: str = migration["expected"]  # type: ignore[assignment]
 
@@ -565,7 +565,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         _LOGGER.debug("All platforms loaded successfully")
     except Exception as err:
-        _LOGGER.error(f"Failed to load platforms: {err}", exc_info=True)
+        _LOGGER.exception(f"Failed to load platforms: {err}")
         raise
 
     # NOW do the first refresh - all entities are created and can handle the data

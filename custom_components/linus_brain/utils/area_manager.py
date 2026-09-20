@@ -137,7 +137,7 @@ def get_monitored_domains() -> dict[str, list[str]]:
     # Convert sets to lists (empty list means monitor all entities in that domain)
     result = {}
     for domain, device_classes in domains.items():
-        result[domain] = sorted(list(device_classes)) if device_classes else []
+        result[domain] = sorted(device_classes) if device_classes else []
 
     return result
 
@@ -178,7 +178,7 @@ def get_presence_detection_domains() -> dict[str, list[str]]:
     # Convert sets to lists
     result = {}
     for domain, device_classes in domains.items():
-        result[domain] = sorted(list(device_classes)) if device_classes else []
+        result[domain] = sorted(device_classes) if device_classes else []
 
     return result
 
@@ -480,7 +480,7 @@ class AreaManager:
         area_entities_map = self._get_monitored_entities()
         area_states = []
 
-        for area_id in area_entities_map.keys():
+        for area_id in area_entities_map:
             area_data = await self.get_area_state(area_id)
             if area_data:
                 area_states.append(area_data)
@@ -497,7 +497,7 @@ class AreaManager:
         area_entities_map = self._get_monitored_entities()
         areas = {}
 
-        for area_id in area_entities_map.keys():
+        for area_id in area_entities_map:
             area = self._area_registry.async_get_area(area_id)
             if area:
                 areas[area_id] = area.name
@@ -815,11 +815,10 @@ class AreaManager:
 
             domain = split_entity_id(entity_id)[0]
 
-            # Check binary sensors in "on" state
-            if domain == "binary_sensor" and state.state == "on":
-                detection_reasons.append(entity_id)
-            # Check media players playing
-            elif domain == "media_player" and state.state == "playing":
+            # Count binary sensors in "on" state and media players playing
+            if (domain == "binary_sensor" and state.state == "on") or (
+                domain == "media_player" and state.state == "playing"
+            ):
                 detection_reasons.append(entity_id)
 
         return {

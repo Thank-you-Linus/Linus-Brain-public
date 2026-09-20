@@ -5,7 +5,9 @@ Tests the capture of manual light actions and context collection
 for AI-based learning of lighting preferences.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 from homeassistant.core import Context, HomeAssistant, State
@@ -242,7 +244,7 @@ class TestCaptureLightAction:
         mock_coordinator.area_manager.get_area_illuminance.return_value = 150.0
         mock_coordinator.area_manager.get_sun_elevation.return_value = None
 
-        with patch("linus_brain.utils.light_learning.datetime") as mock_dt:
+        with patch("linus_brain.utils.light_learning.dt_util") as mock_dt:
             mock_now = Mock()
             mock_now.hour = 19
             mock_now.weekday.return_value = 2
@@ -280,7 +282,7 @@ class TestCaptureLightAction:
         mock_coordinator.area_manager.get_area_illuminance.return_value = None
         mock_coordinator.area_manager.get_sun_elevation.return_value = -15.5
 
-        with patch("linus_brain.utils.light_learning.datetime") as mock_dt:
+        with patch("linus_brain.utils.light_learning.dt_util") as mock_dt:
             mock_now = Mock()
             mock_now.hour = 7
             mock_now.weekday.return_value = 0
@@ -310,7 +312,7 @@ class TestCaptureLightAction:
         mock_coordinator.area_manager.get_room_illuminance.return_value = 5.0
         mock_coordinator.area_manager.get_sun_elevation.return_value = None
 
-        with patch("linus_brain.utils.light_learning.datetime") as mock_dt:
+        with patch("linus_brain.utils.light_learning.dt_util") as mock_dt:
             mock_now = Mock()
             mock_now.hour = 22
             mock_now.weekday.return_value = 6
@@ -340,3 +342,41 @@ class TestCaptureLightAction:
         )
 
         mock_coordinator.supabase_client.send_light_action.assert_not_called()
+
+    async def test_timestamp_uses_ha_local_time_not_utc(
+        self, light_learning, mock_coordinator
+    ):
+        """Fige la décision DTZ005 : `hour`/`day_of_week` sont en heure LOCALE HA.
+
+        Ces deux champs partent vers Supabase comme features d'apprentissage.
+        La correction `DTZ005` utilise délibérément `dt_util.now()` (fuseau de
+        Home Assistant) et non `dt_util.utcnow()`, qui décalerait l'heure murale
+        apprise de 1 à 2 h en France — et ici aussi le jour appris.
+        """
+        context = Context(user_id="test-user-123")
+        new_state = State("light.kitchen", "on", {"brightness": 255})
+        old_state = State("light.kitchen", "off", {})
+
+        mock_coordinator.area_manager.get_entity_area.return_value = "kitchen"
+        mock_coordinator.area_manager.get_area_presence_binary.return_value = True
+        mock_coordinator.area_manager.get_area_illuminance.return_value = 10.0
+        mock_coordinator.area_manager.get_sun_elevation.return_value = -20.0
+
+        # Vendredi 2026-09-18 00:30 à Paris = jeudi 2026-09-17 22:30 UTC :
+        # `hour` ET `day_of_week` divergent entre les deux conventions.
+        local_now = datetime(2026, 9, 18, 0, 30, tzinfo=ZoneInfo("Europe/Paris"))
+        assert local_now.astimezone(UTC).hour == 22
+        assert local_now.astimezone(UTC).weekday() == 3
+
+        with patch(
+            "linus_brain.utils.light_learning.dt_util.now", return_value=local_now
+        ):
+            await light_learning.capture_light_action(
+                "light.kitchen", new_state, old_state, context
+            )
+
+        mock_coordinator.supabase_client.send_light_action.assert_called_once()
+        call_args = mock_coordinator.supabase_client.send_light_action.call_args[0][0]
+
+        assert call_args["hour"] == 0
+        assert call_args["day_of_week"] == 4

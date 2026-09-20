@@ -11,10 +11,10 @@ Key responsibilities:
 """
 
 import logging
-from datetime import datetime
 from typing import Any
 
 from homeassistant.core import Context, HomeAssistant, State
+from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -202,8 +202,10 @@ class LightLearning:
 
             sun_elevation = self.coordinator.area_manager.get_sun_elevation()
 
-            # Get timestamp info
-            now = datetime.now()
+            # Get timestamp info — heure LOCALE de Home Assistant : `hour` et
+            # `day_of_week` partent vers Supabase comme features d'apprentissage,
+            # `dt_util.utcnow()` décalerait l'heure murale apprise de 1 à 2 h en France.
+            now = dt_util.now()
             hour = now.hour
             day_of_week = now.weekday()
 

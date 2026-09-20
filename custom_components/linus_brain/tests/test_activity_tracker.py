@@ -8,7 +8,7 @@ Tests the new architecture:
 - State tracking and transitions
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -162,9 +162,7 @@ class TestActivityTrackerEvaluation:
         await activity_tracker.async_initialize()
 
         async def evaluate_side_effect(conditions, area_id, logic="and"):
-            if len(conditions) == 1:
-                return True
-            return False
+            return len(conditions) == 1
 
         mock_condition_evaluator.evaluate_conditions.side_effect = evaluate_side_effect
 
@@ -372,7 +370,7 @@ class TestActivityTrackerGetDuration:
         """Test duration calculation for active area."""
         await activity_tracker.async_initialize()
 
-        start_time = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        start_time = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
 
         with freeze_time(start_time) as frozen_time:
             activity_tracker._area_states["kitchen"] = {
@@ -399,9 +397,7 @@ class TestActivityTrackerMultipleAreas:
         await activity_tracker.async_initialize()
 
         async def evaluate_side_effect(conditions, area_id, logic="and"):
-            if area_id == "kitchen":
-                return True
-            return False
+            return area_id == "kitchen"
 
         mock_condition_evaluator.evaluate_conditions.side_effect = evaluate_side_effect
 

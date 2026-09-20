@@ -288,9 +288,7 @@ class ActivityTracker:
             )
             raise  # Re-raise to properly handle cancellation
         except Exception as err:
-            _LOGGER.error(
-                f"[TIMEOUT] {area_id}: Error in timeout handler: {err}", exc_info=True
-            )
+            _LOGGER.exception(f"[TIMEOUT] {area_id}: Error in timeout handler: {err}")
 
     async def async_evaluate_activity(self, area_id: str) -> str:
         """

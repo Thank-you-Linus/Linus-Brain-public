@@ -27,6 +27,8 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from homeassistant.util import dt as dt_util
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -120,7 +122,7 @@ class InsightsManager:
                     "updated_at": insight.get("updated_at"),
                 }
 
-            self._last_loaded = datetime.now()
+            self._last_loaded = dt_util.utcnow()
 
             _LOGGER.info(
                 f"Loaded {len(self._cache)} insights from Supabase "
@@ -129,7 +131,7 @@ class InsightsManager:
             return True
 
         except Exception as err:
-            _LOGGER.error(f"Error loading insights: {err}", exc_info=True)
+            _LOGGER.exception(f"Error loading insights: {err}")
             return False
 
     def _determine_source(self, instance_id: str | None, area_id: str | None) -> str:
@@ -239,7 +241,7 @@ class InsightsManager:
 
         # Collect all insight types available
         all_insight_types = set()
-        for _, _, insight_type in self._cache.keys():
+        for _, _, insight_type in self._cache:
             all_insight_types.add(insight_type)
 
         # For each insight type, get the best match for this area
@@ -262,7 +264,7 @@ class InsightsManager:
             ['dark_threshold_lux', 'dark_mode_brightness_pct', ...]
         """
         insight_types = set()
-        for _, _, insight_type in self._cache.keys():
+        for _, _, insight_type in self._cache:
             insight_types.add(insight_type)
         return sorted(insight_types)
 
@@ -288,7 +290,7 @@ class InsightsManager:
         global_area_specific = 0
         global_defaults = 0
 
-        for instance_id, area_id, _ in self._cache.keys():
+        for instance_id, area_id, _ in self._cache:
             if instance_id and area_id:
                 instance_specific += 1
             elif area_id:

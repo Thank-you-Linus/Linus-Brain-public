@@ -61,7 +61,7 @@ async def async_setup_entry(
         )
         raise
     except Exception as err:
-        _LOGGER.error(f"Failed to setup button platform: {err}", exc_info=True)
+        _LOGGER.exception(f"Failed to setup button platform: {err}")
         raise
 
 

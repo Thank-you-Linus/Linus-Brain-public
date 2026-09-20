@@ -31,7 +31,4 @@ def is_state_valid(state: State | None) -> TypeGuard[State]:
         return False
 
     # Check if state value is one of the invalid states
-    if state.state.lower() in INVALID_STATES:
-        return False
-
-    return True
+    return state.state.lower() not in INVALID_STATES

@@ -180,9 +180,9 @@ class TestTimeoutManager:
         # Wait for task to complete
         await asyncio.sleep(0.15)
 
-        # Verify error was logged
-        mock_logger.error.assert_called_once()
-        error_msg = mock_logger.error.call_args[0][0]
+        # Verify error was logged (via .exception(), cf. G201)
+        mock_logger.exception.assert_called_once()
+        error_msg = mock_logger.exception.call_args[0][0]
         assert "Error executing callback" in error_msg
 
     @pytest.mark.asyncio

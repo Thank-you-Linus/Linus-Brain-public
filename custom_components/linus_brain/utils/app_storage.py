@@ -512,7 +512,7 @@ class AppStorage:
 
                 return not cloud_failed
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return await self._preserve_or_fallback("Cloud sync timeout (10s)")
 
         except Exception as err:

@@ -79,7 +79,7 @@ class ConditionEvaluator:
             "media_playing": True,
         }
 
-        now = datetime.now()
+        now = dt_util.utcnow()
 
         # Check if cache is valid
         cache_expired = (
@@ -507,10 +507,7 @@ class ConditionEvaluator:
         if above is not None and value <= float(above):
             return False
 
-        if below is not None and value >= float(below):
-            return False
-
-        return True
+        return below is None or value < float(below)
 
     async def _evaluate_template_condition(
         self,
@@ -582,10 +579,14 @@ class ConditionEvaluator:
         """
         try:
             parts = time_str.split(":")
+            # DTZ007 écarté sur ces deux lignes : un fuseau n'a aucun sens sur
+            # un `time`, `%z` est impossible sur "HH:MM", et l'autre côté de la
+            # comparaison (`dt_util.now().time()`) est un `time` tout aussi naïf —
+            # les deux côtés sont homogènes.
             if len(parts) == 2:
-                return datetime.strptime(time_str, "%H:%M").time()
+                return datetime.strptime(time_str, "%H:%M").time()  # noqa: DTZ007
             elif len(parts) == 3:
-                return datetime.strptime(time_str, "%H:%M:%S").time()
+                return datetime.strptime(time_str, "%H:%M:%S").time()  # noqa: DTZ007
         except Exception as err:
             _LOGGER.error(f"Failed to parse time {time_str}: {err}")
 

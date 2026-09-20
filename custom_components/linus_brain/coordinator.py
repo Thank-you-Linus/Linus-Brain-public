@@ -13,6 +13,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .utils.activity_tracker import ActivityTracker
 from .utils.app_storage import AppStorage
@@ -176,9 +177,7 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
             success_count = len(area_states)
 
             # Update statistics
-            from datetime import datetime
-
-            self.last_sync_time = datetime.utcnow().isoformat()
+            self.last_sync_time = dt_util.utcnow().isoformat()
             self.sync_count += 1
 
             _LOGGER.info(

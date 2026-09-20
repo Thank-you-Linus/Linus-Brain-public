@@ -130,7 +130,7 @@ class RuleEngine:
             )
             await self._ensure_default_assignments()
 
-        for area_id in self._assignments.keys():
+        for area_id in self._assignments:
             assignment = self._assignments[area_id]
             if assignment.get("enabled", True):
                 await self.enable_area(area_id)
@@ -148,7 +148,7 @@ class RuleEngine:
         """
         _LOGGER.info("Shutting down rule engine")
 
-        for area_id in self._assignments.keys():
+        for area_id in self._assignments:
             await self.disable_area(area_id)
 
         for task in self._debounce_tasks.values():
@@ -187,11 +187,13 @@ class RuleEngine:
 
                 # Ensure required activities exist (movement, inactive, empty)
                 for activity_id in ["movement", "inactive", "empty"]:
-                    if not self.app_storage.get_activity(activity_id):
-                        if activity_id in DEFAULT_ACTIVITY_TYPES:
-                            self.app_storage.set_activity(
-                                activity_id, DEFAULT_ACTIVITY_TYPES[activity_id]
-                            )
+                    if (
+                        not self.app_storage.get_activity(activity_id)
+                        and activity_id in DEFAULT_ACTIVITY_TYPES
+                    ):
+                        self.app_storage.set_activity(
+                            activity_id, DEFAULT_ACTIVITY_TYPES[activity_id]
+                        )
 
                 await self.app_storage.async_save()
                 _LOGGER.info(
@@ -218,7 +220,7 @@ class RuleEngine:
 
                 # NOTE: Cloud assignment sync is disabled until save_area_assignment is implemented
                 # Assignments are managed locally via switches and stored in app_storage
-                if coordinator and False:  # Disabled for now
+                if coordinator and False:  # noqa: SIM223  # Disabled for now
                     try:
                         instance_id = await coordinator.get_or_create_instance_id()
                         await coordinator.supabase_client.save_area_assignment(
@@ -468,7 +470,7 @@ class RuleEngine:
         uses_area_state = False
         activity_actions = app.get("activity_actions", {})
         if activity_actions:
-            for activity_id, action_config in activity_actions.items():
+            for action_config in activity_actions.values():
                 conditions = action_config.get("conditions", [])
 
                 # Check if any condition uses area_state
@@ -559,7 +561,7 @@ class RuleEngine:
             return
 
         affected_areas = []
-        for area_id in self._assignments.keys():
+        for area_id in self._assignments:
             assignment = self._assignments.get(area_id, {})
             app_id = assignment.get("app_id")
 
@@ -582,7 +584,7 @@ class RuleEngine:
             if not is_tracked:
                 activity_actions = app.get("activity_actions", {})
                 if activity_actions:
-                    for activity_id, action_config in activity_actions.items():
+                    for action_config in activity_actions.values():
                         conditions = action_config.get("conditions", [])
                         condition_entities = (
                             self.condition_evaluator.get_referenced_entities(
@@ -997,7 +999,7 @@ class RuleEngine:
                     stored_cooldown, (int, float)
                 ):
                     cooldown_seconds = int(stored_cooldown)
-            except Exception:
+            except Exception:  # noqa: S110 - silence délibérée, cf. commentaire
                 # Fall back to default if retrieval fails
                 pass
 

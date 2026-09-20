@@ -13,7 +13,8 @@ Key features:
 
 import asyncio
 import logging
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -142,9 +143,8 @@ class TimeoutManager:
             raise  # Re-raise to mark task as cancelled
 
         except Exception as err:
-            self._logger.error(
-                f"{self._logger_prefix} {key}: Error executing callback: {err}",
-                exc_info=True,
+            self._logger.exception(
+                f"{self._logger_prefix} {key}: Error executing callback: {err}"
             )
 
         finally:

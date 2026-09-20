@@ -13,7 +13,8 @@ Key responsibilities:
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.core import Event, HomeAssistant, State, callback, split_entity_id
@@ -91,9 +92,7 @@ class EventListener:
 
         # IMPORTANT: Ignore Linus Brain's own entities to prevent feedback loops
         # Our sensors (context, insights, stats, etc.) should not trigger area updates
-        if entity_id.startswith("sensor.linus_brain_") or entity_id.startswith(
-            "switch.linus_brain_"
-        ):
+        if entity_id.startswith(("sensor.linus_brain_", "switch.linus_brain_")):
             return False
 
         # Get dynamic monitored domains (includes base + activity detection_conditions)
@@ -121,10 +120,7 @@ class EventListener:
                     entity_entry.original_device_class or entity_entry.device_class
                 )
 
-        if device_class in MONITORED_DEVICE_CLASSES:
-            return True
-
-        return False
+        return device_class in MONITORED_DEVICE_CLASSES
 
     async def _deferred_area_update(self, area: str) -> None:
         """
@@ -287,7 +283,7 @@ class EventListener:
         except asyncio.CancelledError:
             _LOGGER.debug("Task was cancelled")
         except Exception as err:
-            _LOGGER.error(f"Task raised exception: {err}", exc_info=True)
+            _LOGGER.exception(f"Task raised exception: {err}")
 
     async def async_start_listening(self) -> None:
         """
@@ -319,9 +315,7 @@ class EventListener:
             entity_id = state.entity_id
 
             # Skip Linus Brain's own entities
-            if entity_id.startswith("sensor.linus_brain_") or entity_id.startswith(
-                "switch.linus_brain_"
-            ):
+            if entity_id.startswith(("sensor.linus_brain_", "switch.linus_brain_")):
                 continue
 
             domain = split_entity_id(entity_id)[0]
