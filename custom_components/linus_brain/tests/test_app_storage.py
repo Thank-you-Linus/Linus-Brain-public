@@ -65,7 +65,6 @@ def mock_supabase():
     explicitly simulate an outage stays in the "cloud reachable" scenario.
     """
     client = MagicMock()
-    client.fetch_area_assignments = AsyncMock(return_value={})
     client.fetch_app_with_actions = AsyncMock(return_value={})
     client.fetch_activity_types = AsyncMock(return_value={})
     return client
@@ -379,9 +378,6 @@ class TestAppStorageInitialize:
     @pytest.mark.asyncio
     async def test_async_initialize_cloud_success(self, app_storage, mock_supabase):
         """Test initialization with successful cloud sync."""
-        mock_supabase.fetch_area_assignments.return_value = {
-            "kitchen": {"app_id": "autolight"}
-        }
         mock_supabase.fetch_app_with_actions.return_value = {
             "id": "autolight",
             "activity_actions": {"presence": {}},
@@ -435,8 +431,6 @@ class TestAppStorageInitialize:
                 f,
             )
 
-        mock_supabase.fetch_area_assignments.return_value = {}
-
         data = await app_storage.async_initialize(
             mock_supabase, "test-instance", ["kitchen"]
         )
@@ -461,8 +455,7 @@ class TestAppStorageInitialize:
         self, app_storage, mock_supabase
     ):
         """Test that empty cloud sync is accepted as valid state with system activities injected."""
-        # Mock empty cloud response (no apps, no activities, no assignments)
-        mock_supabase.fetch_area_assignments.return_value = {}
+        # Mock empty cloud response (no apps, no activities)
         mock_supabase.fetch_app_with_actions.return_value = {}
         mock_supabase.fetch_activity_types.return_value = {}
 
@@ -677,10 +670,7 @@ class TestAppStorageDefensiveFallbacks:
         self, app_storage, mock_supabase
     ):
         """Test that cloud sync injects system activities if missing."""
-        # Mock cloud returning assignments but missing system activities
-        mock_supabase.fetch_area_assignments.return_value = {
-            "kitchen": {"app_id": "automatic_lighting"}
-        }
+        # Mock cloud returning an app but missing system activities
         mock_supabase.fetch_app_with_actions.return_value = DEFAULT_AUTOLIGHT_APP
         # Only return one activity, others missing
         mock_supabase.fetch_activity_types.return_value = {

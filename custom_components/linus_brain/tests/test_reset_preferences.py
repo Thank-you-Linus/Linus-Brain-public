@@ -4,6 +4,7 @@ Tests for reset_app_preferences service.
 This service resets config_overrides for area assignments to default values.
 """
 
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -11,6 +12,7 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.linus_brain.const import DOMAIN
 from custom_components.linus_brain.services import async_setup_services
+from custom_components.linus_brain.utils.supabase_client import SupabaseClient
 
 
 @pytest.fixture
@@ -18,8 +20,7 @@ def mock_coordinator():
     """Create a mock coordinator."""
     coordinator = MagicMock()
     coordinator.get_or_create_instance_id = AsyncMock(return_value="test-instance-id")
-    coordinator.supabase_client = MagicMock()
-    coordinator.supabase_client.assign_app_to_area = AsyncMock(return_value=True)
+    coordinator.supabase_client = MagicMock(spec=SupabaseClient)
     return coordinator
 
 
@@ -88,12 +89,6 @@ async def test_reset_preferences_success(
 
     # Verify: Local storage was saved
     assert mock_app_storage.async_save.called
-
-    # Verify: Cloud sync was attempted
-    assert mock_coordinator.supabase_client.assign_app_to_area.called
-    cloud_call = mock_coordinator.supabase_client.assign_app_to_area.call_args
-    assert cloud_call[1]["area_id"] == "kitchen"
-    assert cloud_call[1]["config_overrides"] == {}
 
 
 @pytest.mark.asyncio
@@ -168,10 +163,16 @@ async def test_reset_preferences_with_app_id_mismatch(
 
 
 @pytest.mark.asyncio
-async def test_reset_preferences_cloud_sync_failure(
-    hass, setup_service, mock_app_storage, mock_coordinator
+async def test_reset_preferences_emits_no_cloud_sync(
+    hass, setup_service, mock_app_storage, mock_coordinator, caplog
 ):
-    """Test that local reset succeeds even if cloud sync fails."""
+    """Test that the reset is purely local and never attempts a cloud sync.
+
+    Assignments are managed by Home Assistant switches, not by Supabase tables.
+    The supabase_client mock is built with ``spec=SupabaseClient`` so that any
+    call to a method that no longer exists raises ``AttributeError`` instead of
+    being silently fabricated by an unconstrained mock.
+    """
     # Setup: Area has assignment
     mock_app_storage.get_assignment.return_value = {
         "area_id": "kitchen",
@@ -180,22 +181,29 @@ async def test_reset_preferences_cloud_sync_failure(
         "enabled": True,
     }
 
-    # Setup: Cloud sync fails
-    mock_coordinator.supabase_client.assign_app_to_area.side_effect = Exception(
-        "Network error"
-    )
+    with caplog.at_level(logging.INFO, logger="custom_components.linus_brain.services"):
+        await hass.services.async_call(
+            DOMAIN,
+            "reset_app_preferences",
+            {"area_id": "kitchen"},
+            blocking=True,
+        )
 
-    # Call service (should not raise error)
-    await hass.services.async_call(
-        DOMAIN,
-        "reset_app_preferences",
-        {"area_id": "kitchen"},
-        blocking=True,
-    )
-
-    # Verify: Local storage was still updated
+    # Verify: the local reset completed
     assert mock_app_storage.set_assignment.called
+    call_args = mock_app_storage.set_assignment.call_args[0]
+    assert call_args[0] == "kitchen"
+    assert call_args[1]["config_overrides"] == {}
     assert mock_app_storage.async_save.called
+
+    # Positive assertion: the real success message is captured, which proves
+    # caplog is wired to this logger and the two absence checks below are
+    # meaningful rather than vacuously true.
+    assert "Reset preferences for area kitchen" in caplog.text
+
+    # Verify: no cloud sync is mentioned, neither a success nor a failure
+    assert "Synced reset preferences to cloud" not in caplog.text
+    assert "Failed to sync reset preferences to cloud" not in caplog.text
 
 
 @pytest.mark.asyncio

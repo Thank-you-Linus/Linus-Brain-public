@@ -530,26 +530,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     f"Reset preferences for area {area_id} (app: {assignment_app_id})"
                 )
 
-                # Sync to cloud if available
-                try:
-                    await coordinator.supabase_client.assign_app_to_area(
-                        area_id=area_id,
-                        app_id=assignment_app_id,
-                        app_version=assignment.get("app_version"),
-                        config_overrides={},
-                        global_conditions=assignment.get("global_conditions", []),
-                        enabled=assignment.get("enabled", True),
-                        changed_by="service",
-                        change_reason="Reset preferences to defaults",
-                    )
-                    _LOGGER.info(
-                        f"Synced reset preferences to cloud for area {area_id}"
-                    )
-                except Exception as cloud_err:
-                    _LOGGER.warning(
-                        f"Failed to sync reset preferences to cloud for {area_id}: {cloud_err}"
-                    )
-
             except Exception as err:
                 _LOGGER.error(f"Failed to reset preferences for area {area_id}: {err}")
 
