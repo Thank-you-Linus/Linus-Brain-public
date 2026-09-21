@@ -333,7 +333,7 @@ class AppStorage:
         return False
 
     async def async_sync_from_cloud(
-        self, supabase_client, instance_id: str, area_ids: list[str]
+        self, supabase_client, instance_id: str | None, area_ids: list[str]
     ) -> bool:
         """
         Sync data from cloud (Supabase).
@@ -681,7 +681,7 @@ class AppStorage:
         return True
 
     async def async_initialize(
-        self, supabase_client, instance_id: str, area_ids: list[str]
+        self, supabase_client, instance_id: str | None, area_ids: list[str]
     ) -> dict[str, Any]:
         """
         Initialize storage with full load sequence.

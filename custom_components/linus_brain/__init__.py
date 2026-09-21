@@ -404,11 +404,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Initialize app storage with cloud sync BEFORE first refresh
     # This ensures ActivityTracker has activities available when it initializes
-    instance_id = await coordinator.get_or_create_instance_id()
+    # The cloud may be unreachable and no identity persisted yet (first offline
+    # install): setup must still complete with an unknown instance_id rather
+    # than failing to load the integration entirely.
+    try:
+        instance_id = await coordinator.get_or_create_instance_id()
+    except Exception as err:
+        instance_id = None
+        _LOGGER.warning(f"Instance identity unavailable, continuing without it: {err}")
+
     area_ids = [area.id for area in area_registry.async_get(hass).async_list_areas()]
 
     _LOGGER.info(
-        f"Initializing app storage for instance {instance_id} with {len(area_ids)} areas"
+        f"Initializing app storage for instance {instance_id or 'unknown'} "
+        f"with {len(area_ids)} areas"
     )
     await coordinator.app_storage.async_initialize(
         coordinator.supabase_client, instance_id, area_ids

@@ -71,7 +71,7 @@ class InsightsManager:
 
         _LOGGER.info("InsightsManager initialized")
 
-    async def async_load(self, instance_id: str) -> bool:
+    async def async_load(self, instance_id: str | None) -> bool:
         """
         Load all insights from Supabase into memory cache.
 
@@ -86,6 +86,13 @@ class InsightsManager:
         Returns:
             True if successful, False otherwise
         """
+        # Unknown instance: skip the cloud call entirely. Fetching with a None
+        # instance_id would build a meaningless PostgREST filter, and the
+        # existing cache must be preserved (cloud absent != cloud empty).
+        if instance_id is None:
+            _LOGGER.info("No instance identity known, skipping insights load")
+            return False
+
         try:
             _LOGGER.debug(f"Loading insights for instance: {instance_id}")
 
@@ -154,7 +161,7 @@ class InsightsManager:
 
     def get_insight(
         self,
-        instance_id: str,
+        instance_id: str | None,
         area_id: str | None,
         insight_type: str,
         default: Any = None,
@@ -307,7 +314,7 @@ class InsightsManager:
             "last_loaded": self._last_loaded.isoformat() if self._last_loaded else None,
         }
 
-    async def async_reload(self, instance_id: str) -> bool:
+    async def async_reload(self, instance_id: str | None) -> bool:
         """
         Reload insights from Supabase.
 

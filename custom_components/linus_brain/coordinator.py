@@ -21,6 +21,7 @@ from .utils.area_manager import AreaManager
 from .utils.condition_evaluator import ConditionEvaluator
 from .utils.entity_resolver import EntityResolver
 from .utils.feature_flag_manager import FeatureFlagManager
+from .utils.instance_store import InstanceStore
 from .utils.supabase_client import SupabaseClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -103,6 +104,10 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
         # Instance management for multi-instance support
         self.instance_id: str | None = None
         self.ha_installation_id: str | None = None
+
+        # Persisted identity (survives restarts, avoids a cloud round-trip)
+        self._instance_store = InstanceStore(hass)
+        self._identity_loaded: bool = False
 
         # Last triggered rules tracking (area_id -> rule_info)
         self.last_rules: dict[str, dict[str, Any]] = {}
@@ -374,10 +379,34 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
         # Get HA installation ID from core.uuid
         if not self.ha_installation_id:
             self.ha_installation_id = self.hass.data.get("core.uuid")
-            if not self.ha_installation_id:
-                raise Exception("Unable to get HA installation ID from core.uuid")
 
-        # If we already have an instance ID, return it
+        # Load the persisted identity before any cloud call: a known identity
+        # must never require the network to be recovered after a restart.
+        if not self._identity_loaded:
+            self._identity_loaded = True
+            stored = await self._instance_store.async_load()
+            stored_ha_id = stored.get("ha_installation_id")
+
+            if not self.ha_installation_id:
+                # core.uuid unavailable: fall back to the persisted fingerprint
+                # instead of raising, so setup can still complete.
+                self.ha_installation_id = stored_ha_id
+
+            # Only adopt the stored instance_id when it belongs to THIS
+            # installation: a backup restored elsewhere must not claim another
+            # home's cloud identity.
+            if (
+                self.instance_id is None
+                and stored.get("instance_id")
+                and self.ha_installation_id
+                and stored_ha_id == self.ha_installation_id
+            ):
+                self.instance_id = stored["instance_id"]
+                _LOGGER.info(f"Restored persisted instance: {self.instance_id}")
+
+        # If we already have an instance ID, return it. This comes before the
+        # installation-ID check on purpose: a known identity must never be
+        # invalidated by a missing core.uuid.
         if self.instance_id is not None:
             # Update last_seen timestamp
             try:
@@ -385,6 +414,10 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
             except Exception as err:
                 _LOGGER.warning(f"Failed to update instance last_seen: {err}")
             return self.instance_id
+
+        # No identity yet: a lookup or a creation needs the fingerprint.
+        if not self.ha_installation_id:
+            raise Exception("Unable to get HA installation ID from core.uuid")
 
         try:
             _LOGGER.info(
@@ -407,6 +440,9 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
                 _LOGGER.info(f"Found existing instance: {self.instance_id}")
 
                 if self.instance_id:
+                    await self._instance_store.async_save(
+                        self.instance_id, self.ha_installation_id
+                    )
                     await self.supabase_client.update_instance_last_seen(
                         self.instance_id
                     )
@@ -422,6 +458,11 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
                 if instance_data:
                     self.instance_id = instance_data["instance_id"]
                     _LOGGER.info(f"Created new instance: {self.instance_id}")
+
+                    if self.instance_id:
+                        await self._instance_store.async_save(
+                            self.instance_id, self.ha_installation_id
+                        )
                 else:
                     raise Exception("Failed to create new instance")
 
