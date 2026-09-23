@@ -26,9 +26,15 @@ from homeassistant.helpers import entity_registry as er
 if TYPE_CHECKING:
     from homeassistant.helpers.entity_registry import RegistryEntry
 
-from .const import CONF_SUPABASE_KEY, CONF_SUPABASE_URL, DOMAIN
+from .const import (
+    CONF_SUPABASE_KEY,
+    CONF_SUPABASE_URL,
+    DOMAIN,
+    RECOVERY_PROBE_INTERVAL,
+)
 from .coordinator import LinusBrainCoordinator
 from .services import async_setup_services, async_unload_services
+from .utils.cloud_recovery import CloudRecoveryManager
 from .utils.event_listener import EventListener
 from .utils.insights_manager import InsightsManager
 from .utils.light_learning import LightLearning
@@ -467,6 +473,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     light_learning = LightLearning(hass, coordinator)
 
+    # Cloud recovery manager: sole owner of the degraded -> nominal transition
+    cloud_recovery = CloudRecoveryManager(
+        hass, coordinator, insights_manager, light_learning
+    )
+    coordinator.cloud_recovery = cloud_recovery
+
     _LOGGER.info("🎧 Creating EventListener...")
     event_listener = EventListener(hass, coordinator, light_learning)
 
@@ -493,23 +505,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_refresh_remote_config(_now=None):
         """
-        Refresh remote configuration from cloud.
+        Probe cloud availability and restore nominal mode when it comes back.
 
-        NOTE: Activities (movement, inactive, occupied) are now LOCAL only.
-        This function is kept for future expansion (e.g., refreshing apps from cloud).
+        All the recovery logic lives in CloudRecoveryManager, which owns the
+        availability latch and runs the ordered recovery sequence exactly once
+        per unavailable -> available edge.
         """
-        try:
-            _LOGGER.debug("Remote config refresh triggered (activities are local only)")
+        await coordinator.cloud_recovery.async_probe()
 
-            # Future: Could refresh apps from Supabase here if needed
-            # For now, activities are local and don't need cloud refresh
-
-        except Exception as err:
-            _LOGGER.warning(f"Failed to refresh remote configuration: {err}")
-
-    # Refresh remote config every hour
+    # Probe cloud availability to detect the return to nominal mode
     remote_config_refresher = async_track_time_interval(
-        hass, async_refresh_remote_config, timedelta(hours=1)
+        hass, async_refresh_remote_config, timedelta(seconds=RECOVERY_PROBE_INTERVAL)
     )
     entry.async_on_unload(remote_config_refresher)
 
@@ -539,6 +545,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "area_manager": coordinator.area_manager,
         "activity_tracker": coordinator.activity_tracker,
         "insights_manager": insights_manager,
+        "cloud_recovery": cloud_recovery,
     }
 
     # Register services (only once, not per config entry)

@@ -49,6 +49,7 @@ Linus Brain agit comme un **pont IA** entre votre Home Assistant et un système 
 - **[Format des règles](docs/RULE_FORMAT.md)** - Guide complet sur les sélecteurs d'entités génériques
 - **[Configuration](docs/CONFIGURATION.md)** - Configuration avancée et personnalisation
 - **[Architecture](docs/ARCHITECTURE.md)** - Architecture détaillée du système
+- **[Mode dégradé](docs/DEGRADED_MODE.md)** - Ce qui continue de fonctionner sans cloud et reprise automatique du mode nominal
 
 ### Guides Techniques
 - **[Code source](custom_components/linus_brain/)** - Commenté et documenté pour faciliter la compréhension

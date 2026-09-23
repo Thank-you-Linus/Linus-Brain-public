@@ -129,6 +129,17 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 else:
                     _LOGGER.warning(f"Activities/apps sync failed for entry {entry_id}")
 
+                # Run the same recovery sequence as the automatic probe, so the
+                # service stays an equivalent manual trigger (identity, apps,
+                # insights, pending light actions)
+                cloud_recovery = getattr(coordinator, "cloud_recovery", None)
+                if cloud_recovery is not None:
+                    recovered = await cloud_recovery.async_run_recovery()
+                    if not recovered:
+                        _LOGGER.warning(
+                            f"Cloud recovery incomplete for entry {entry_id}"
+                        )
+
                 # Then refresh coordinator (updates sensors and sends area states)
                 await coordinator.async_refresh()
                 _LOGGER.info(f"Forced coordinator refresh for entry {entry_id}")

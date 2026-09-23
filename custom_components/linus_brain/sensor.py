@@ -695,35 +695,69 @@ class LinusBrainCloudHealthSensor(CoordinatorEntity, SensorEntity):
         self._update_from_coordinator()
         super()._handle_coordinator_update()
 
+    def _status_from_counters(self) -> str:
+        """
+        Derive the health status from the coordinator sync counters.
+
+        Legacy heuristic, used only when no CloudRecoveryManager is attached to
+        the coordinator (the manager owns the real availability state).
+        """
+        error_count = self.coordinator.error_count
+        sync_count = self.coordinator.sync_count
+
+        if sync_count == 0:
+            return "disconnected"
+        if error_count > 0:
+            error_rate = error_count / sync_count
+            if error_rate > 0.5:
+                return "error"
+            if error_rate > 0.1:
+                return "disconnected"
+        return "connected"
+
     def _update_from_coordinator(self) -> None:
-        """Update sensor attributes from coordinator health data."""
-        # Determine health status based on errors and sync success
+        """
+        Update sensor state and attributes.
+
+        Synchronous and I/O-free: the availability snapshot is pre-computed by
+        CloudRecoveryManager, never awaited here.
+        """
         error_count = self.coordinator.error_count
         sync_count = self.coordinator.sync_count
         last_sync = self.coordinator.last_sync_time
 
-        # Determine status
-        if sync_count == 0:
-            status = "disconnected"
-        elif error_count > 0 and sync_count > 0:
-            error_rate = error_count / sync_count
-            if error_rate > 0.5:
-                status = "error"
-            elif error_rate > 0.1:
+        cloud_recovery = getattr(self.coordinator, "cloud_recovery", None)
+        recovery_status: dict[str, Any] = {}
+        if cloud_recovery is not None:
+            recovery_status = cloud_recovery.get_status() or {}
+
+        pending_light_actions = recovery_status.get("pending_light_actions")
+
+        if recovery_status:
+            # The manager owns availability: derive the state from it.
+            if not recovery_status.get("is_available", True):
                 status = "disconnected"
+            elif recovery_status.get("last_failed_step") or bool(pending_light_actions):
+                status = "error"
             else:
                 status = "connected"
+            is_degraded = bool(recovery_status.get("is_degraded", False))
+            last_successful_sync = (
+                recovery_status.get("last_recovery_success") or last_sync
+            )
         else:
-            status = "connected"
+            status = self._status_from_counters()
+            is_degraded = status != "connected"
+            last_successful_sync = last_sync
 
         self._attr_native_value = status
 
-        # Change icon based on status
+        # Change icon based on the final computed status
         if status == "connected":
             self._attr_icon = "mdi:cloud-check"
         elif status == "disconnected":
             self._attr_icon = "mdi:cloud-off-outline"
-        else:
+        elif status == "error":
             self._attr_icon = "mdi:cloud-alert"
 
         # Get apps and activities loaded
@@ -732,13 +766,17 @@ class LinusBrainCloudHealthSensor(CoordinatorEntity, SensorEntity):
 
         self._attr_extra_state_attributes = {
             "status": status,
-            "last_successful_sync": last_sync,
+            "last_successful_sync": last_successful_sync,
             "total_syncs": sync_count,
             "total_errors": error_count,
             "instance_id": self.coordinator.instance_id,
             "apps_loaded": apps_loaded,
             "activities_loaded": activities_loaded,
             "supabase_url": self.coordinator.supabase_url,
+            "is_degraded": is_degraded,
+            "pending_light_actions": pending_light_actions,
+            "insights_from_cache": recovery_status.get("insights_from_cache"),
+            "insights_stale": recovery_status.get("insights_stale"),
         }
 
 

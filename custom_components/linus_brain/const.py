@@ -30,6 +30,9 @@ DEFAULT_DARK_THRESHOLD_SUN_ELEVATION = (
 )
 DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL = 30  # Default interval (seconds) between environmental state checks (lux, temperature, etc.)
 
+# Cloud recovery (degraded mode -> nominal mode)
+RECOVERY_PROBE_INTERVAL = 60  # Interval (seconds) between cloud availability probes used to detect the return to nominal mode
+
 # Default activity types for dynamic activity detection system
 DEFAULT_ACTIVITY_TYPES = {
     "empty": {

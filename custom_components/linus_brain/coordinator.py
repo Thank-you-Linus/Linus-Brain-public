@@ -120,6 +120,7 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
 
         # Rule engine reference (set by __init__.py after initialization)
         self.rule_engine: Any | None = None
+        self.cloud_recovery: Any | None = None
 
     async def _async_update_data(self) -> dict[str, Any]:
         """
