@@ -6,15 +6,36 @@ Tests the HTTP return contract:
 - Every read returns [] or {} when the cloud answers 200 with zero row
 - Every write returns False when Supabase is unavailable
 - All HTTP traffic goes through the three _http_* helpers
+
+And the availability contract:
+- A network failure (timeout, ClientError) never propagates
+- is_available() follows the last exchange
+- The circuit breaker stops the I/O once the backend is down
+- An unreachable backend logs no ERROR record
 """
 
+import logging
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import aiohttp
 import pytest
+from freezegun import freeze_time
 
 from ..utils import supabase_client as supabase_client_module
-from ..utils.supabase_client import SupabaseClient
+from ..utils.supabase_client import (
+    CIRCUIT_COOLDOWN_SECONDS,
+    FAILURE_THRESHOLD,
+    SupabaseClient,
+)
+
+LOGGER_UNDER_TEST = "custom_components.linus_brain"
+
+# The two ways an unreachable backend shows up inside the helpers. A timeout
+# is the dominant one: it is the builtin TimeoutError and never passes through
+# aiohttp.ClientError.
+NETWORK_FAILURES = [TimeoutError, aiohttp.ClientError]
 
 
 class _FakeResponse:
@@ -42,6 +63,14 @@ class _FakeResponse:
         return False
 
 
+class _UndecodableResponse(_FakeResponse):
+    """Response that answers 200 but whose body is not valid JSON."""
+
+    async def json(self):
+        """Fail like aiohttp does on an unparsable body."""
+        raise ValueError("unparsable body")
+
+
 def _make_client(gets=None, posts=None, patches=None) -> SupabaseClient:
     """
     Build a SupabaseClient whose aiohttp session is fully mocked.
@@ -65,6 +94,19 @@ def _make_client(gets=None, posts=None, patches=None) -> SupabaseClient:
     session.patch = MagicMock(side_effect=list(patches or []))
     client.session = session
     return client
+
+
+def _break_network(client: SupabaseClient, failure: type[Exception]) -> None:
+    """
+    Make every HTTP verb of a client raise the given network failure.
+
+    Args:
+        client: Client built by _make_client()
+        failure: Exception class raised at call time, inside the helper's try
+    """
+    client.session.get = MagicMock(side_effect=failure())
+    client.session.post = MagicMock(side_effect=failure())
+    client.session.patch = MagicMock(side_effect=failure())
 
 
 # Every read method, with the arguments it needs
@@ -290,3 +332,247 @@ class TestTestConnection:
         client = _make_client(gets=[_FakeResponse(503, text="down")])
 
         assert await client.test_connection() is False
+
+
+class TestNetworkFailureIsNotAnException:
+    """Test that an unreachable backend never propagates out of the client."""
+
+    @pytest.mark.parametrize("failure", NETWORK_FAILURES)
+    @pytest.mark.parametrize("method_name,args", READ_METHODS)
+    async def test_read_returns_none_on_network_failure(
+        self, method_name, args, failure
+    ):
+        """Test that every read returns None instead of raising."""
+        client = _make_client()
+        _break_network(client, failure)
+
+        assert await getattr(client, method_name)(*args) is None
+
+    @pytest.mark.parametrize("failure", NETWORK_FAILURES)
+    async def test_send_light_action_returns_false_on_network_failure(self, failure):
+        """Test that send_light_action returns False instead of raising."""
+        client = _make_client()
+        _break_network(client, failure)
+
+        assert await client.send_light_action({"entity_id": "light.salon"}) is False
+
+    @pytest.mark.parametrize("failure", NETWORK_FAILURES)
+    async def test_update_instance_last_seen_returns_false_on_network_failure(
+        self, failure
+    ):
+        """Test that update_instance_last_seen returns False instead of raising."""
+        client = _make_client()
+        _break_network(client, failure)
+
+        assert await client.update_instance_last_seen("inst-123") is False
+
+    @pytest.mark.parametrize("failure", NETWORK_FAILURES)
+    async def test_push_rules_returns_false_on_network_failure(self, failure):
+        """Test that push_rules_for_instance returns False instead of raising."""
+        client = _make_client()
+        _break_network(client, failure)
+
+        rules = [
+            {
+                "area_id": "salon",
+                "area_name": "Salon",
+                "activity_rules": {"movement": {"conditions": [], "actions": []}},
+            }
+        ]
+
+        assert await client.push_rules_for_instance("inst-123", rules) is False
+
+    @pytest.mark.parametrize("failure", NETWORK_FAILURES)
+    async def test_create_new_instance_returns_none_on_network_failure(self, failure):
+        """Test that create_new_instance returns None instead of raising."""
+        client = _make_client()
+        _break_network(client, failure)
+
+        assert await client.create_new_instance("ha-uuid") is None
+
+    @pytest.mark.parametrize("failure", NETWORK_FAILURES)
+    async def test_test_connection_returns_false_on_network_failure(self, failure):
+        """Test that the config flow check returns False instead of raising."""
+        client = _make_client()
+        _break_network(client, failure)
+
+        assert await client.test_connection() is False
+
+
+class TestAvailabilityState:
+    """Test is_available(), the single owner of 'the backend is down'."""
+
+    async def test_a_fresh_client_is_available(self):
+        """Test that a client starts optimistic."""
+        assert _make_client().is_available() is True
+
+    async def test_failure_then_success_flips_availability_back(self):
+        """Test the full cycle on a single client: down, then up again."""
+        client = _make_client()
+        client.session.get = MagicMock(side_effect=TimeoutError())
+
+        assert await client.fetch_rules() is None
+        assert client.is_available() is False
+
+        client.session.get = MagicMock(side_effect=[_FakeResponse(200, payload=[])])
+
+        assert await client.fetch_rules() == []
+        assert client.is_available() is True
+
+    async def test_server_error_marks_the_backend_unavailable(self):
+        """Test that a 5xx counts as an unavailability."""
+        client = _make_client(gets=[_FakeResponse(503, text="down")])
+
+        assert await client.fetch_rules() is None
+        assert client.is_available() is False
+
+    async def test_client_error_status_keeps_the_backend_available(self):
+        """Test that a 4xx means the backend answered, so it is reachable."""
+        client = _make_client(gets=[_FakeResponse(400, text="bad request")])
+
+        assert await client.fetch_rules() is None
+        assert client.is_available() is True
+
+    async def test_undecodable_body_does_not_open_the_circuit(self):
+        """Test that a client-side bug is not an unavailability."""
+        client = _make_client(gets=[_UndecodableResponse(200)])
+
+        assert await client.fetch_rules() is None
+        assert client.is_available() is True
+        assert client._consecutive_failures == 0
+
+
+class TestCircuitBreaker:
+    """Test that a down backend stops costing one timeout per call."""
+
+    async def test_open_circuit_returns_unavailability_without_any_io(self):
+        """Test that the circuit opens after N failures, then closes again."""
+        start = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+        with freeze_time(start) as frozen_time:
+            client = _make_client()
+            _break_network(client, TimeoutError)
+
+            for _ in range(FAILURE_THRESHOLD):
+                assert await client.fetch_rules() is None
+
+            calls_when_opened = client.session.get.call_count
+            assert calls_when_opened == FAILURE_THRESHOLD
+
+            # Circuit open: reads and writes answer from memory only
+            assert await client.fetch_rules() is None
+            assert await client.get_instance_by_ha_id("ha-uuid") is None
+            assert await client.send_light_action({"entity_id": "light.salon"}) is False
+            assert await client.update_instance_last_seen("inst-123") is False
+
+            assert client.session.get.call_count == calls_when_opened
+            client.session.post.assert_not_called()
+            client.session.patch.assert_not_called()
+
+            # The first call after the window IS the probe
+            frozen_time.tick(delta=timedelta(seconds=CIRCUIT_COOLDOWN_SECONDS + 1))
+            client.session.get = MagicMock(side_effect=[_FakeResponse(200, payload=[])])
+
+            assert await client.fetch_rules() == []
+            assert client.session.get.call_count == 1
+            assert client.is_available() is True
+
+    async def test_a_failing_probe_opens_a_new_window(self):
+        """Test that the circuit never stays open, and never closes on a failure."""
+        start = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+        with freeze_time(start) as frozen_time:
+            client = _make_client()
+            _break_network(client, TimeoutError)
+
+            for _ in range(FAILURE_THRESHOLD):
+                await client.fetch_rules()
+
+            frozen_time.tick(delta=timedelta(seconds=CIRCUIT_COOLDOWN_SECONDS + 1))
+
+            # The probe goes out and fails: a new window starts
+            assert await client.fetch_rules() is None
+            assert client.session.get.call_count == FAILURE_THRESHOLD + 1
+
+            assert await client.fetch_rules() is None
+            assert client.session.get.call_count == FAILURE_THRESHOLD + 1
+
+    async def test_test_connection_bypasses_the_open_circuit(self):
+        """Test that the config flow always reaches the network, and closes it."""
+        start = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+        with freeze_time(start):
+            client = _make_client()
+            _break_network(client, TimeoutError)
+
+            for _ in range(FAILURE_THRESHOLD):
+                await client.fetch_rules()
+
+            # 401 = the backend answered: the check succeeds and the state
+            # goes back to available even though the circuit was open.
+            client.session.get = MagicMock(side_effect=[_FakeResponse(401, text="")])
+
+            assert await client.test_connection() is True
+            assert client.session.get.call_count == 1
+            assert client.is_available() is True
+
+
+class TestPartialPushIsNotAnUnavailability:
+    """Test the only write whose False can mean something else than 'down'."""
+
+    async def test_partial_push_on_a_4xx_keeps_the_backend_available(self):
+        """Test that a rejected row fails the push without flagging an outage."""
+        client = _make_client(
+            posts=[_FakeResponse(201, payload={}), _FakeResponse(400, text="rejected")]
+        )
+
+        rules = [
+            {
+                "area_id": "salon",
+                "area_name": "Salon",
+                "activity_rules": {
+                    "movement": {"conditions": [], "actions": []},
+                    "empty": {"conditions": [], "actions": []},
+                },
+            }
+        ]
+
+        assert await client.push_rules_for_instance("inst-123", rules) is False
+        assert client.is_available() is True
+
+
+class TestNoErrorLogWhenTheBackendIsDown:
+    """Test that a full outage is reported as a warning, never as an error."""
+
+    async def test_outage_scenario_logs_no_error_record(self, caplog):
+        """Test timeout, ClientError and 503 across the three verbs."""
+        caplog.set_level(logging.WARNING, logger=LOGGER_UNDER_TEST)
+
+        client = _make_client()
+        _break_network(client, TimeoutError)
+        await client.fetch_rules()
+        await client.send_light_action({"entity_id": "light.salon"})
+        await client.update_instance_last_seen("inst-123")
+
+        client = _make_client()
+        _break_network(client, aiohttp.ClientError)
+        await client.fetch_rules()
+        await client.send_light_action({"entity_id": "light.salon"})
+        await client.update_instance_last_seen("inst-123")
+
+        client = _make_client(
+            gets=[_FakeResponse(503, text="down")],
+            posts=[_FakeResponse(503, text="down")],
+            patches=[_FakeResponse(503, text="down")],
+        )
+        await client.fetch_rules()
+        await client.send_light_action({"entity_id": "light.salon"})
+        await client.update_instance_last_seen("inst-123")
+
+        errors = [
+            record
+            for record in caplog.records
+            if record.levelname == "ERROR" and record.name.startswith(LOGGER_UNDER_TEST)
+        ]
+
+        assert errors == []

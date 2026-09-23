@@ -19,20 +19,51 @@ Callers rely on this distinction to decide whether to drop or keep their
 local cache: an empty answer is authoritative, an unavailable backend is
 not. A caller must therefore test `is None` BEFORE testing falsiness,
 since {} and [] are falsy too.
+
+Availability contract (this client is the SOLE owner of "Supabase is down"):
+- No public method ever raises on a network failure. The three _http_*
+  helpers convert every unreachable backend into the sentinel status
+  STATUS_UNAVAILABLE (0), which is neither a 2xx nor one of the statuses
+  test_connection accepts, so every caller falls through to its own
+  "unavailable" branch: None for a read, False for a write.
+- is_available() reports the last known state. It flips to False on any
+  unavailability and back to True as soon as one exchange succeeds.
+- Circuit breaker: after FAILURE_THRESHOLD consecutive failures the circuit
+  opens for CIRCUIT_COOLDOWN_SECONDS. While it is open, calls return the
+  sentinel immediately, with no I/O at all, which keeps a burst of events
+  from costing one 10 s timeout each. The window always expires, so the
+  circuit can never stay open forever: the first call after expiry is the
+  probe that closes it on success, or opens a new window on failure.
+- One client is built per config entry, so this state (and its circuit) is
+  per config entry, never shared between them.
 """
 
 import logging
+from datetime import datetime, timedelta
 from typing import Any
 
 import aiohttp
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
 RULES_TABLE = "area_automation_rules"
 INSTANCES_TABLE = "ha_instances"
 LIGHT_ACTIONS_TABLE = "light_actions"
+
+# Status returned by the HTTP helpers when the backend could not be reached.
+# Never a 2xx, and never one of the (200, 401, 404) statuses test_connection
+# treats as a success, so every caller's status check falls through to its
+# "Supabase unavailable" branch.
+STATUS_UNAVAILABLE = 0
+
+# Circuit breaker tuning. Three consecutive failures cost at most ~30 s of
+# timeouts before the circuit opens; a 60 s window absorbs a burst of entity
+# events while still re-detecting a returning backend in under a minute.
+FAILURE_THRESHOLD = 3
+CIRCUIT_COOLDOWN_SECONDS = 60
 
 
 class SupabaseClient:
@@ -76,6 +107,74 @@ class SupabaseClient:
             "Prefer": "return=minimal",
         }
 
+        # Availability state: owned exclusively by this client, mutated only
+        # by _note_success() / _note_failure(), themselves called only from
+        # the three HTTP helpers.
+        self._available = True
+        self._consecutive_failures = 0
+        self._circuit_open_until: datetime | None = None
+
+    # ========================================================================
+    # Availability state and circuit breaker
+    # ========================================================================
+
+    def is_available(self) -> bool:
+        """
+        Tell whether the backend is currently considered reachable.
+
+        Synchronous on purpose: this is a memory read with no I/O, and making
+        it async would lie about its cost to every caller.
+
+        Returns:
+            True while the last exchange reached Supabase, False since the
+            last unavailability and until one call succeeds again
+        """
+        return self._available
+
+    def _note_success(self) -> None:
+        """Record a reached backend: close the circuit and clear the count."""
+        self._available = True
+        self._consecutive_failures = 0
+        self._circuit_open_until = None
+
+    def _note_failure(self) -> None:
+        """Record an unavailability, opening the circuit past the threshold."""
+        self._available = False
+        self._consecutive_failures += 1
+
+        if self._consecutive_failures >= FAILURE_THRESHOLD:
+            self._circuit_open_until = dt_util.utcnow() + timedelta(
+                seconds=CIRCUIT_COOLDOWN_SECONDS
+            )
+
+    def _note_http_status(self, status: int) -> None:
+        """
+        Record a non-2xx answer.
+
+        A 5xx is an unavailability; a 4xx means the backend answered, so
+        availability is restored even though the caller gets nothing usable.
+
+        Args:
+            status: HTTP status returned by the backend
+        """
+        if status >= 500:
+            self._note_failure()
+        else:
+            self._note_success()
+
+    def _circuit_is_open(self) -> bool:
+        """
+        Tell whether calls must be short-circuited right now.
+
+        Returns:
+            True while the cooldown window is still running. The window
+            always expires, so the call right after it is the probe.
+        """
+        return (
+            self._circuit_open_until is not None
+            and dt_util.utcnow() < self._circuit_open_until
+        )
+
     # ========================================================================
     # HTTP Helper Methods (reduce duplication)
     # ========================================================================
@@ -87,28 +186,37 @@ class SupabaseClient:
         timeout: int = 10,
         operation: str = "request",
         log_errors: bool = True,
+        bypass_circuit: bool = False,
     ) -> tuple[int, Any]:
         """
-        Execute HTTP GET request with standard error handling.
+        Execute HTTP GET request, converting unavailability into a status.
 
         Args:
             url: Full URL to request
             params: Query parameters
             timeout: Request timeout in seconds
             operation: Description of operation for logging
-            log_errors: Log non-200 responses as errors. Set to False when a
-                non-200 status is a nominal outcome for the caller
+            log_errors: Log non-200 responses. Set to False when a non-200
+                status is a nominal outcome for the caller
                 (e.g. test_connection treats 401/404 as success).
+            bypass_circuit: Issue the request even while the circuit is open.
+                Reserved for explicit user actions (config flow), which must
+                always be allowed to reach the network.
 
         Returns:
             Tuple of (status_code, response_data)
             - response_data is parsed JSON on success
-            - response_data is error text on failure
-
-        Raises:
-            aiohttp.ClientError: On HTTP errors
-            Exception: On unexpected errors
+            - response_data is error text on a non-2xx answer
+            - status_code is STATUS_UNAVAILABLE when the backend could not be
+              reached or the circuit is open; never raises
         """
+        if not bypass_circuit and self._circuit_is_open():
+            _LOGGER.warning(
+                f"Skipping {operation}: Supabase circuit open until "
+                f"{self._circuit_open_until}"
+            )
+            return (STATUS_UNAVAILABLE, "circuit open")
+
         try:
             async with self.session.get(
                 url,
@@ -118,20 +226,29 @@ class SupabaseClient:
             ) as response:
                 status = response.status
                 if status == 200:
+                    self._note_success()
                     data = await response.json()
                     return (status, data)
                 else:
                     text = await response.text()
                     if log_errors:
-                        _LOGGER.error(f"Failed {operation} (status {status}): {text}")
+                        _LOGGER.warning(f"Failed {operation} (status {status}): {text}")
+                    self._note_http_status(status)
                     return (status, text)
 
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"HTTP error during {operation}: {err}")
-            raise
+        except (TimeoutError, aiohttp.ClientError, OSError) as err:
+            # asyncio.TimeoutError IS the builtin TimeoutError since 3.11 and
+            # never goes through aiohttp.ClientError, while a timeout is the
+            # dominant failure mode of an unreachable backend.
+            _LOGGER.warning(f"Supabase unreachable during {operation}: {err}")
+            self._note_failure()
+            return (STATUS_UNAVAILABLE, str(err))
         except Exception as err:
+            # Client-side bug (undecodable body, bad payload): not an
+            # unavailability, so it must not open the circuit nor flip
+            # is_available() - the backend did answer.
             _LOGGER.error(f"Unexpected error during {operation}: {err}")
-            raise
+            return (STATUS_UNAVAILABLE, str(err))
 
     async def _http_post(
         self,
@@ -142,7 +259,7 @@ class SupabaseClient:
         operation: str = "request",
     ) -> tuple[int, Any]:
         """
-        Execute HTTP POST request with standard error handling.
+        Execute HTTP POST request, converting unavailability into a status.
 
         Args:
             url: Full URL to request
@@ -152,12 +269,17 @@ class SupabaseClient:
             operation: Description of operation for logging
 
         Returns:
-            Tuple of (status_code, response_data)
-
-        Raises:
-            aiohttp.ClientError: On HTTP errors
-            Exception: On unexpected errors
+            Tuple of (status_code, response_data), status_code being
+            STATUS_UNAVAILABLE when the backend could not be reached or the
+            circuit is open; never raises
         """
+        if self._circuit_is_open():
+            _LOGGER.warning(
+                f"Skipping {operation}: Supabase circuit open until "
+                f"{self._circuit_open_until}"
+            )
+            return (STATUS_UNAVAILABLE, "circuit open")
+
         try:
             async with self.session.post(
                 url,
@@ -168,6 +290,7 @@ class SupabaseClient:
             ) as response:
                 status = response.status
                 if status in (200, 201, 204):
+                    self._note_success()
                     # For 204 No Content, return empty dict
                     if status == 204:
                         return (status, {})
@@ -175,15 +298,23 @@ class SupabaseClient:
                     return (status, data)
                 else:
                     text = await response.text()
-                    _LOGGER.error(f"Failed {operation} (status {status}): {text}")
+                    _LOGGER.warning(f"Failed {operation} (status {status}): {text}")
+                    self._note_http_status(status)
                     return (status, text)
 
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"HTTP error during {operation}: {err}")
-            raise
+        except (TimeoutError, aiohttp.ClientError, OSError) as err:
+            # asyncio.TimeoutError IS the builtin TimeoutError since 3.11 and
+            # never goes through aiohttp.ClientError, while a timeout is the
+            # dominant failure mode of an unreachable backend.
+            _LOGGER.warning(f"Supabase unreachable during {operation}: {err}")
+            self._note_failure()
+            return (STATUS_UNAVAILABLE, str(err))
         except Exception as err:
+            # Client-side bug (undecodable body, bad payload): not an
+            # unavailability, so it must not open the circuit nor flip
+            # is_available() - the backend did answer.
             _LOGGER.error(f"Unexpected error during {operation}: {err}")
-            raise
+            return (STATUS_UNAVAILABLE, str(err))
 
     async def _http_patch(
         self,
@@ -194,7 +325,7 @@ class SupabaseClient:
         operation: str = "request",
     ) -> tuple[int, Any]:
         """
-        Execute HTTP PATCH request with standard error handling.
+        Execute HTTP PATCH request, converting unavailability into a status.
 
         Args:
             url: Full URL to request
@@ -204,12 +335,17 @@ class SupabaseClient:
             operation: Description of operation for logging
 
         Returns:
-            Tuple of (status_code, response_data)
-
-        Raises:
-            aiohttp.ClientError: On HTTP errors
-            Exception: On unexpected errors
+            Tuple of (status_code, response_data), status_code being
+            STATUS_UNAVAILABLE when the backend could not be reached or the
+            circuit is open; never raises
         """
+        if self._circuit_is_open():
+            _LOGGER.warning(
+                f"Skipping {operation}: Supabase circuit open until "
+                f"{self._circuit_open_until}"
+            )
+            return (STATUS_UNAVAILABLE, "circuit open")
+
         try:
             async with self.session.patch(
                 url,
@@ -220,21 +356,30 @@ class SupabaseClient:
             ) as response:
                 status = response.status
                 if status in (200, 204):
+                    self._note_success()
                     if status == 204:
                         return (status, {})
                     data = await response.json()
                     return (status, data)
                 else:
                     text = await response.text()
-                    _LOGGER.error(f"Failed {operation} (status {status}): {text}")
+                    _LOGGER.warning(f"Failed {operation} (status {status}): {text}")
+                    self._note_http_status(status)
                     return (status, text)
 
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"HTTP error during {operation}: {err}")
-            raise
+        except (TimeoutError, aiohttp.ClientError, OSError) as err:
+            # asyncio.TimeoutError IS the builtin TimeoutError since 3.11 and
+            # never goes through aiohttp.ClientError, while a timeout is the
+            # dominant failure mode of an unreachable backend.
+            _LOGGER.warning(f"Supabase unreachable during {operation}: {err}")
+            self._note_failure()
+            return (STATUS_UNAVAILABLE, str(err))
         except Exception as err:
+            # Client-side bug (undecodable body, bad payload): not an
+            # unavailability, so it must not open the circuit nor flip
+            # is_available() - the backend did answer.
             _LOGGER.error(f"Unexpected error during {operation}: {err}")
-            raise
+            return (STATUS_UNAVAILABLE, str(err))
 
     # ========================================================================
     # Public API Methods
@@ -258,9 +403,6 @@ class SupabaseClient:
         Returns:
             List of rule dictionaries ([] if the cloud has no rule),
             or None if Supabase is unavailable
-
-        Raises:
-            Exception: If HTTP request fails
         """
         url = f"{self.rest_url}/{RULES_TABLE}"
 
@@ -291,25 +433,24 @@ class SupabaseClient:
         """
         url = f"{self.rest_url}/"
 
-        try:
-            # 401/404 are nominal outcomes here, so the helper must not log them
-            status, _ = await self._http_get(
-                url,
-                timeout=5,
-                operation="test connection",
-                log_errors=False,
-            )
+        # 401/404 are nominal outcomes here, so the helper must not log them.
+        # This is an explicit user action from the config flow: it must always
+        # try the network, hence bypass_circuit, while still updating the
+        # availability state like any other exchange.
+        status, _ = await self._http_get(
+            url,
+            timeout=5,
+            operation="test connection",
+            log_errors=False,
+            bypass_circuit=True,
+        )
 
-            # Any response (even 404) means we can connect and authenticate
-            if status in (200, 401, 404):
-                _LOGGER.info("Supabase connection test successful")
-                return True
-            else:
-                _LOGGER.error(f"Supabase connection test failed: {status}")
-                return False
-
-        except Exception as err:
-            _LOGGER.error(f"Supabase connection test failed: {err}")
+        # Any response (even 404) means we can connect and authenticate
+        if status in (200, 401, 404):
+            _LOGGER.info("Supabase connection test successful")
+            return True
+        else:
+            _LOGGER.warning(f"Supabase connection test failed: {status}")
             return False
 
     async def get_instance_by_ha_id(
@@ -326,9 +467,6 @@ class SupabaseClient:
         Returns:
             Instance data dictionary, {} if no instance exists for this
             installation, or None if Supabase is unavailable
-
-        Raises:
-            Exception: If HTTP request fails
         """
         url = f"{self.rest_url}/{INSTANCES_TABLE}"
 
@@ -371,9 +509,6 @@ class SupabaseClient:
         Returns:
             Created instance data, or None if creation failed or Supabase
             is unavailable
-
-        Raises:
-            Exception: If HTTP request fails
         """
         # Use RPC to call the get_or_create_instance function
         url = f"{self.rest_url}/rpc/get_or_create_instance"
@@ -406,9 +541,6 @@ class SupabaseClient:
 
         Returns:
             True if successful, False otherwise
-
-        Raises:
-            Exception: If HTTP request fails
         """
         url = f"{self.rest_url}/{INSTANCES_TABLE}"
 
@@ -462,9 +594,6 @@ class SupabaseClient:
 
         Returns:
             True if successful, False otherwise
-
-        Raises:
-            Exception: If HTTP request fails
         """
         url = f"{self.rest_url}/{LIGHT_ACTIONS_TABLE}"
 
@@ -583,9 +712,6 @@ class SupabaseClient:
             }
 
             {} if the instance has no rule, None if Supabase is unavailable.
-
-        Raises:
-            Exception: If HTTP request fails
         """
         url = f"{self.rest_url}/active_area_rules"
 
@@ -630,9 +756,6 @@ class SupabaseClient:
             True if every row was pushed (including the "nothing to push"
             case), False if at least one row failed: a partial push means
             Supabase is partially unavailable
-
-        Raises:
-            Exception: If HTTP request fails
         """
         if not rules:
             _LOGGER.debug("No rules to push")
@@ -674,7 +797,7 @@ class SupabaseClient:
             )
             return True
         else:
-            _LOGGER.error(
+            _LOGGER.warning(
                 f"Pushed only {success_count}/{total_count} rule versions to Supabase"
             )
             return False
@@ -695,9 +818,6 @@ class SupabaseClient:
         Returns:
             Rule dictionary, {} if the area has no rule, or None if
             Supabase is unavailable
-
-        Raises:
-            Exception: If HTTP request fails
         """
         url = f"{self.rest_url}/{RULES_TABLE}"
 
@@ -751,9 +871,6 @@ class SupabaseClient:
             }
 
             {} if the cloud has no activity, None if Supabase is unavailable.
-
-        Raises:
-            Exception: If HTTP request fails
         """
         url = f"{self.rest_url}/activity_types"
 
@@ -813,9 +930,6 @@ class SupabaseClient:
             Supabase is unavailable (including when only the actions
             sub-fetch fails: an app without its actions is worse than no
             app at all, it would silently disable the automation).
-
-        Raises:
-            Exception: If HTTP request fails
         """
         if version:
             app_url = f"{self.rest_url}/automation_apps"
@@ -928,9 +1042,6 @@ class SupabaseClient:
             }
 
             [] if the cloud has no insight, None if Supabase is unavailable.
-
-        Raises:
-            Exception: If HTTP request fails
         """
         url = f"{self.rest_url}/area_insights"
 
