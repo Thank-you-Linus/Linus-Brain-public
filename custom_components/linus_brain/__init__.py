@@ -453,6 +453,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Initialize insights manager and load insights from Supabase
     insights_manager = InsightsManager(coordinator.supabase_client)
+    await insights_manager.async_setup_store(hass)
     await insights_manager.async_load(instance_id)
     _LOGGER.info(f"Loaded {len(insights_manager._cache)} insights from Supabase")
 

@@ -2,18 +2,25 @@
 Insights Manager for Linus Brain
 
 This module manages AI-calculated insights that can be used by automations.
-Insights are cached in memory and synced from Supabase on demand.
+Insights are cached in memory, synced from Supabase on demand, and optionally
+persisted in .storage/linus_brain.insights so a Home Assistant restart while
+the cloud is unreachable still serves the last known insights.
 
-Key Features:
+Key responsibilities:
 - Generic design: Works with ANY insight type without code changes
 - Three-tier fallback: instance+area → global+area → global defaults
 - Confidence scoring: Tracks how reliable each insight is
 - Memory caching: Fast access without repeated API calls
+- Local persistence: Raw insight rows saved through Home Assistant's Store
+  after each successful cloud load, restored when the cloud is unavailable
+- Staleness signal: loaded_from_cache / is_stale() tell whether the served
+  insights come from disk rather than a fresh cloud load
 - Async operations: Non-blocking I/O for Supabase communication
 
 Usage Example:
-    insights_manager = InsightsManager(hass, supabase_client, instance_id)
-    await insights_manager.async_load()
+    insights_manager = InsightsManager(supabase_client)
+    await insights_manager.async_setup_store(hass)  # optional, enables persistence
+    await insights_manager.async_load(instance_id)
 
     # Get insight with automatic fallback
     threshold = insights_manager.get_insight(
@@ -23,13 +30,21 @@ Usage Example:
     )
 """
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Any
 
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from ..const import DOMAIN
+
 _LOGGER = logging.getLogger(__name__)
+
+STORAGE_VERSION = 1
+STORAGE_KEY = f"{DOMAIN}.insights"
 
 
 class InsightsManager:
@@ -69,7 +84,29 @@ class InsightsManager:
         # Track when insights were last loaded
         self._last_loaded: datetime | None = None
 
+        # Optional local persistence, attached by async_setup_store().
+        # Without a store the manager is memory-only (test/legacy mode).
+        self._store: Store | None = None
+        self._lock = asyncio.Lock()
+
+        # True when the served insights were restored from disk and have not
+        # been refreshed from the cloud since. Mirrored by is_stale().
+        self.loaded_from_cache: bool = False
+
         _LOGGER.info("InsightsManager initialized")
+
+    async def async_setup_store(self, hass: HomeAssistant) -> None:
+        """
+        Attach local persistence to this manager.
+
+        Requires a real HomeAssistant instance: a Store built on a mock would
+        silently persist nothing. Kept async so a future schema migration can
+        be awaited here without changing callers.
+
+        Args:
+            hass: Home Assistant instance
+        """
+        self._store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
 
     async def async_load(self, instance_id: str | None) -> bool:
         """
@@ -101,35 +138,20 @@ class InsightsManager:
 
             if insights is None:
                 _LOGGER.warning("Failed to fetch insights from Supabase")
+                await self._async_restore_from_cache()
                 return False
 
-            # Clear existing cache
-            self._cache.clear()
-
-            # Populate cache
-            for insight in insights:
-                instance_id = insight.get("instance_id")
-                area_id = insight.get("area_id")
-                insight_type = insight.get("insight_type")
-
-                if not insight_type:
-                    _LOGGER.warning(f"Skipping insight with missing type: {insight}")
-                    continue
-
-                # Create cache key
-                cache_key = (instance_id, area_id, insight_type)
-
-                # Store in cache
-                self._cache[cache_key] = {
-                    "id": insight.get("id"),
-                    "value": insight.get("value", {}),
-                    "confidence": insight.get("confidence", 0.0),
-                    "metadata": insight.get("metadata", {}),
-                    "source": self._determine_source(instance_id, area_id),
-                    "updated_at": insight.get("updated_at"),
-                }
+            # Build the replacement aside and swap it in: a failure while
+            # populating must never leave the live cache half-built
+            new_cache: dict[tuple[str | None, str | None, str], dict[str, Any]] = {}
+            self._populate_cache(insights, new_cache)
+            self._cache = new_cache
 
             self._last_loaded = dt_util.utcnow()
+            self.loaded_from_cache = False
+
+            if self._store is not None:
+                await self._async_persist(insights)
 
             _LOGGER.info(
                 f"Loaded {len(self._cache)} insights from Supabase "
@@ -139,7 +161,128 @@ class InsightsManager:
 
         except Exception as err:
             _LOGGER.exception(f"Error loading insights: {err}")
+            await self._async_restore_from_cache()
             return False
+
+    def _populate_cache(
+        self,
+        insights: list[dict[str, Any]],
+        target: dict[tuple[str | None, str | None, str], dict[str, Any]] | None = None,
+    ) -> None:
+        """
+        Populate a cache from raw Supabase insight rows.
+
+        Shared by the cloud load path and the disk restore path so both
+        produce the same cache from the same payload.
+
+        Args:
+            insights: Raw insight rows as returned by fetch_area_insights
+            target: Cache dict to fill (defaults to the live memory cache)
+        """
+        if target is None:
+            target = self._cache
+        for insight in insights:
+            row_instance_id = insight.get("instance_id")
+            area_id = insight.get("area_id")
+            insight_type = insight.get("insight_type")
+
+            if not insight_type:
+                _LOGGER.warning(f"Skipping insight with missing type: {insight}")
+                continue
+
+            # Create cache key
+            cache_key = (row_instance_id, area_id, insight_type)
+
+            # Store in cache
+            target[cache_key] = {
+                "id": insight.get("id"),
+                "value": insight.get("value", {}),
+                "confidence": insight.get("confidence", 0.0),
+                "metadata": insight.get("metadata", {}),
+                "source": self._determine_source(row_instance_id, area_id),
+                "updated_at": insight.get("updated_at"),
+            }
+
+    async def _async_persist(self, insights: list[dict[str, Any]]) -> None:
+        """
+        Persist raw insight rows to local storage.
+
+        An empty list is a successful cloud answer and is persisted as such,
+        so the disk is always at least as fresh as the memory cache.
+
+        Args:
+            insights: Raw insight rows as returned by fetch_area_insights
+        """
+        if self._store is None:
+            return
+
+        async with self._lock:
+            try:
+                await self._store.async_save(
+                    {
+                        "version": STORAGE_VERSION,
+                        "insights": insights,
+                        "saved_at": dt_util.utcnow().isoformat(),
+                    }
+                )
+                _LOGGER.debug(f"Persisted {len(insights)} insights to local storage")
+            except Exception as err:
+                _LOGGER.error(f"Failed to persist insights to local storage: {err}")
+
+    async def _async_restore_from_cache(self) -> bool:
+        """
+        Restore the memory cache from local storage.
+
+        Only an empty memory cache is restored: insights already in memory are
+        at least as fresh as the disk copy and are never overwritten. The cache
+        is only replaced once a valid payload is in hand, so a missing,
+        corrupted or unreadable store leaves it untouched.
+
+        Returns:
+            True if insights were restored from disk, False otherwise
+        """
+        if self._store is None:
+            return False
+
+        async with self._lock:
+            try:
+                data = await self._store.async_load()
+            except Exception as err:
+                _LOGGER.error(f"Failed to read insights from local storage: {err}")
+                return False
+
+        if not isinstance(data, dict):
+            _LOGGER.info("No persisted insights found in local storage")
+            return False
+
+        insights = data.get("insights")
+        if data.get("version") != STORAGE_VERSION or not isinstance(insights, list):
+            _LOGGER.error("Ignoring invalid persisted insights payload")
+            return False
+
+        # Memory wins over disk: the disk copy is only a fallback for an empty
+        # cache. Checked after the awaits, so a concurrent load is seen.
+        if self._cache:
+            _LOGGER.info(
+                "Cloud unavailable, keeping in-memory insights over the local "
+                "storage copy"
+            )
+            return False
+
+        restored: dict[tuple[str | None, str | None, str], dict[str, Any]] = {}
+        self._populate_cache(insights, restored)
+        self._cache = restored
+        self.loaded_from_cache = True
+
+        saved_at = data.get("saved_at")
+        parsed = dt_util.parse_datetime(saved_at) if isinstance(saved_at, str) else None
+        self._last_loaded = parsed or dt_util.utcnow()
+
+        _LOGGER.warning(
+            f"Restored {len(self._cache)} insights from local storage "
+            f"(saved at {self._last_loaded.isoformat()}), cloud unavailable"
+        )
+        return True
 
     def _determine_source(self, instance_id: str | None, area_id: str | None) -> str:
         """
@@ -349,3 +492,17 @@ class InsightsManager:
             Datetime of last load, or None if never loaded
         """
         return self._last_loaded
+
+    def is_stale(self) -> bool:
+        """
+        Check whether the served insights come from local storage.
+
+        This is the stable public predicate consumed by cloud recovery;
+        the loaded_from_cache attribute carries the same value and must
+        never diverge from it.
+
+        Returns:
+            True if insights were restored from disk and not refreshed from
+            the cloud since, False otherwise
+        """
+        return self.loaded_from_cache
