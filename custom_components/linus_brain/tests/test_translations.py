@@ -20,7 +20,7 @@ from homeassistant.helpers import area_registry as ar
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from .. import button, sensor, switch
-from ..const import DOMAIN
+from ..const import CONTRACT_SITE, CONTRACT_URL_EN, CONTRACT_URL_FR, DOMAIN
 
 # Path to translation files
 TRANSLATIONS_DIR = Path(__file__).parent.parent / "translations"
@@ -519,3 +519,61 @@ class TestTranslationFilesStructure:
                         f"French word '{word}' found in entity ID pattern in {py_file.name}. "
                         f"Entity IDs and unique_ids must be in English!"
                     )
+
+
+class TestConsentTranslations:
+    """Test the trust contract consent translations of the config flow."""
+
+    CONSENT_PATHS = [
+        ("config", "step", "consent", "title"),
+        ("config", "step", "consent", "description"),
+        ("config", "step", "consent", "data", "accept_contract"),
+        ("config", "step", "consent", "data_description", "accept_contract"),
+        ("config", "error", "consent_required"),
+        ("config", "abort", "import_not_supported"),
+    ]
+
+    @staticmethod
+    def _lookup(translations: dict, path: tuple) -> Any:
+        """Return the value at a nested path, or None when missing."""
+        node: Any = translations
+        for key in path:
+            if not isinstance(node, dict) or key not in node:
+                return None
+            node = node[key]
+        return node
+
+    def test_consent_keys_exist_in_both_languages(
+        self, en_translations: dict, fr_translations: dict
+    ) -> None:
+        """Test that every consent key is present and non-empty in en and fr."""
+        for lang, translations in (("en", en_translations), ("fr", fr_translations)):
+            for path in self.CONSENT_PATHS:
+                value = self._lookup(translations, path)
+                assert (
+                    isinstance(value, str) and value.strip()
+                ), f"Missing or empty {'.'.join(path)} in {lang}.json"
+
+    def test_consent_description_links_its_own_page(
+        self, en_translations: dict, fr_translations: dict
+    ) -> None:
+        """Test that each description links its own page and states the version."""
+        path = ("config", "step", "consent", "description")
+        for translations, own, other in (
+            (en_translations, CONTRACT_URL_EN, CONTRACT_URL_FR),
+            (fr_translations, CONTRACT_URL_FR, CONTRACT_URL_EN),
+        ):
+            description = self._lookup(translations, path)
+            link = own.replace(CONTRACT_SITE, "{contract_site}")
+            assert f"[{link}]({link})" in description
+            assert other.replace(CONTRACT_SITE, "") not in description
+            assert "https://" not in description  # hassfest refuses URLs
+            assert "{contract_version}" in description
+
+    def test_consent_checkbox_label_states_version(
+        self, en_translations: dict, fr_translations: dict
+    ) -> None:
+        """Test that the checkbox label carries the contract version."""
+        path = ("config", "step", "consent", "data", "accept_contract")
+        for translations in (en_translations, fr_translations):
+            assert "{contract_version}" in self._lookup(translations, path)

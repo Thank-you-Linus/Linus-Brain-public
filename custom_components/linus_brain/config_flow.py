@@ -16,8 +16,12 @@ from homeassistant.const import CONF_API_KEY, CONF_URL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_CONTRACT_ACCEPTED,
+    CONF_CONTRACT_ACCEPTED_AT,
+    CONF_CONTRACT_VERSION,
     CONF_DARK_LUX_THRESHOLD,
     CONF_ENVIRONMENTAL_CHECK_INTERVAL,
     CONF_INACTIVE_TIMEOUT,
@@ -27,6 +31,8 @@ from .const import (
     CONF_SUPABASE_KEY,
     CONF_SUPABASE_URL,
     CONF_USE_SUN_ELEVATION,
+    CONTRACT_SITE,
+    CONTRACT_VERSION,
     DEFAULT_DARK_THRESHOLD_LUX,
     DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL,
     DOMAIN,
@@ -126,6 +132,36 @@ async def validate_supabase_connection(
         raise
 
 
+def _build_options(user_input: dict[str, Any]) -> dict[str, Any]:
+    """
+    Build the config entry options from the user step input.
+
+    Args:
+        user_input: Data submitted in the user step
+
+    Returns:
+        Options dictionary, with defaults for the settings left empty
+    """
+    return {
+        CONF_USE_SUN_ELEVATION: user_input.get(CONF_USE_SUN_ELEVATION, True),
+        CONF_DARK_LUX_THRESHOLD: user_input.get(
+            CONF_DARK_LUX_THRESHOLD, DEFAULT_DARK_THRESHOLD_LUX
+        ),
+        CONF_PRESENCE_DETECTION_CONFIG: user_input.get(
+            CONF_PRESENCE_DETECTION_CONFIG,
+            list(PRESENCE_DETECTION_OPTIONS.keys()),  # All enabled by default
+        ),
+        CONF_INACTIVE_TIMEOUT: user_input.get(CONF_INACTIVE_TIMEOUT, 60),
+        CONF_OCCUPIED_THRESHOLD: user_input.get(CONF_OCCUPIED_THRESHOLD, 300),
+        CONF_OCCUPIED_INACTIVE_TIMEOUT: user_input.get(
+            CONF_OCCUPIED_INACTIVE_TIMEOUT, 300
+        ),
+        CONF_ENVIRONMENTAL_CHECK_INTERVAL: user_input.get(
+            CONF_ENVIRONMENTAL_CHECK_INTERVAL, DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL
+        ),
+    }
+
+
 class LinusBrainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """
     Handle a config flow for Linus Brain.
@@ -134,6 +170,10 @@ class LinusBrainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """
 
     VERSION = 1
+
+    def __init__(self) -> None:
+        """Initialize the flow with no user step input yet."""
+        self._user_input: dict[str, Any] = {}
 
     @staticmethod
     def async_get_options_flow(
@@ -164,50 +204,18 @@ class LinusBrainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 # Validate the connection
                 await validate_supabase_connection(self.hass, url, api_key)
-
-                # Create a unique ID for this config entry
-                await self.async_set_unique_id(f"{DOMAIN}_{url}")
-                self._abort_if_unique_id_configured()
-
-                # Store configuration and create entry
-                return self.async_create_entry(
-                    title="Linus Brain",
-                    data={
-                        CONF_SUPABASE_URL: url,
-                        CONF_SUPABASE_KEY: api_key,
-                    },
-                    options={
-                        CONF_USE_SUN_ELEVATION: user_input.get(
-                            CONF_USE_SUN_ELEVATION, True
-                        ),
-                        CONF_DARK_LUX_THRESHOLD: user_input.get(
-                            CONF_DARK_LUX_THRESHOLD, DEFAULT_DARK_THRESHOLD_LUX
-                        ),
-                        CONF_PRESENCE_DETECTION_CONFIG: user_input.get(
-                            CONF_PRESENCE_DETECTION_CONFIG,
-                            list(
-                                PRESENCE_DETECTION_OPTIONS.keys()
-                            ),  # All enabled by default
-                        ),
-                        CONF_INACTIVE_TIMEOUT: user_input.get(
-                            CONF_INACTIVE_TIMEOUT, 60
-                        ),
-                        CONF_OCCUPIED_THRESHOLD: user_input.get(
-                            CONF_OCCUPIED_THRESHOLD, 300
-                        ),
-                        CONF_OCCUPIED_INACTIVE_TIMEOUT: user_input.get(
-                            CONF_OCCUPIED_INACTIVE_TIMEOUT, 300
-                        ),
-                        CONF_ENVIRONMENTAL_CHECK_INTERVAL: user_input.get(
-                            CONF_ENVIRONMENTAL_CHECK_INTERVAL,
-                            DEFAULT_ENVIRONMENTAL_CHECK_INTERVAL,
-                        ),
-                    },
-                )
-
             except Exception as err:
                 _LOGGER.error(f"Configuration validation failed: {err}")
                 errors["base"] = "cannot_connect"
+            else:
+                # Create a unique ID for this config entry. Kept outside the
+                # try block: AbortFlow must not be swallowed as cannot_connect.
+                await self.async_set_unique_id(f"{DOMAIN}_{url}")
+                self._abort_if_unique_id_configured()
+
+                # No entry is created before the explicit consent
+                self._user_input = user_input
+                return await self.async_step_consent()
 
         # Show the configuration form
         return self.async_show_form(
@@ -223,19 +231,64 @@ class LinusBrainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
+    async def async_step_consent(self, user_input: dict[str, Any] | None = None) -> Any:
+        """
+        Ask for the explicit acceptance of the versioned trust contract.
+
+        The config entry is only created once the box is ticked, and stores the
+        accepted version and the acceptance date in its data.
+
+        Args:
+            user_input: Dictionary containing the consent box, None on first display
+
+        Returns:
+            FlowResult showing the form again, or creating the entry
+        """
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            if user_input.get("accept_contract"):
+                return self.async_create_entry(
+                    title="Linus Brain",
+                    data={
+                        CONF_SUPABASE_URL: self._user_input[CONF_URL],
+                        CONF_SUPABASE_KEY: self._user_input[CONF_API_KEY],
+                        CONF_CONTRACT_ACCEPTED: True,
+                        CONF_CONTRACT_VERSION: CONTRACT_VERSION,
+                        CONF_CONTRACT_ACCEPTED_AT: dt_util.utcnow().isoformat(),
+                    },
+                    options=_build_options(self._user_input),
+                )
+            errors["base"] = "consent_required"
+
+        return self.async_show_form(
+            step_id="consent",
+            data_schema=vol.Schema(
+                {vol.Required("accept_contract", default=False): bool}
+            ),
+            errors=errors,
+            # Each translation adds its own page path to the site (see
+            # CONTRACT_URL_FR/EN), so the link follows the user's language.
+            description_placeholders={
+                "contract_site": CONTRACT_SITE,
+                "contract_version": CONTRACT_VERSION,
+            },
+        )
+
     async def async_step_import(self, import_config: dict[str, Any]) -> Any:
         """
-        Handle import from configuration.yaml (legacy support).
+        Refuse import from configuration.yaml.
 
-        This allows users who have YAML configuration to migrate to UI config.
+        An installation cannot be created without the explicit consent of the
+        user, which YAML cannot give.
 
         Args:
             import_config: Configuration from YAML
 
         Returns:
-            FlowResult for import
+            FlowResult aborting the import
         """
-        return await self.async_step_user(import_config)
+        return self.async_abort(reason="import_not_supported")
 
 
 class LinusBrainOptionsFlow(config_entries.OptionsFlow):

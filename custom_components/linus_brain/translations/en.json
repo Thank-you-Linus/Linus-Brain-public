@@ -20,15 +20,27 @@
           "inactive_timeout": "Time in seconds before an area transitions from movement to inactive (1-3600s, default: 60)",
           "occupied_threshold": "Time in seconds before an area transitions from movement to occupied (1-7200s, default: 300)"
         }
+      },
+      "consent": {
+        "title": "Trust contract",
+        "description": "Before installing Linus Brain, please read the Trust contract: [{contract_site}/en/linus-brain-trust-contract/]({contract_site}/en/linus-brain-trust-contract/) (Version {contract_version}).\n\nIn summary, Linus Brain sends the following data to the Linus cloud:\n- an installation identifier derived from your Home Assistant `core.uuid`, and the cloud instance associated with it;\n- your manual actions on lights (entity_id, area name, states before and after, brightness, color);\n- the environmental context (ambient illuminance, sun elevation, time, day);\n- the presence and activity of each area;\n- activity times (last activity of the instance).\n\nThe contract and its deletion procedure only cover the Linus cloud, not a Supabase URL you entered yourself.",
+        "data": {
+          "accept_contract": "I have read and accept the Trust contract (Version {contract_version})"
+        },
+        "data_description": {
+          "accept_contract": "Required to install Linus Brain. Tick the box to continue."
+        }
       }
     },
     "error": {
       "cannot_connect": "Failed to connect to Supabase. Please check your URL and API key.",
       "invalid_auth": "Invalid authentication credentials.",
-      "unknown": "An unexpected error occurred."
+      "unknown": "An unexpected error occurred.",
+      "consent_required": "Tick the box to continue"
     },
     "abort": {
-      "already_configured": "Linus Brain is already configured for this Supabase instance."
+      "already_configured": "Linus Brain is already configured for this Supabase instance.",
+      "import_not_supported": "Import from configuration.yaml is not supported. Add Linus Brain from the Home Assistant interface."
     }
   },
   "options": {

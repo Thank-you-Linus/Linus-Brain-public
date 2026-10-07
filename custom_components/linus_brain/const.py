@@ -18,6 +18,24 @@ CONF_OCCUPIED_INACTIVE_TIMEOUT = "occupied_inactive_timeout"
 CONF_ENVIRONMENTAL_CHECK_INTERVAL = "environmental_check_interval"
 CONF_PRESENCE_DETECTION_CONFIG = "presence_detection_config"
 
+# Trust contract consent (stored in config entry data, never in options)
+CONF_CONTRACT_ACCEPTED = "contract_accepted"
+CONF_CONTRACT_VERSION = "contract_version"
+CONF_CONTRACT_ACCEPTED_AT = "contract_accepted_at"
+CONTRACT_VERSION = "1"
+# One page per language, linked by the translation of the user's language:
+# fr.json links the French page, en.json the English one, and Home Assistant
+# falls back to English for any language without its own translation, so every
+# non-French user gets the English page. The site is passed as a placeholder
+# and each translation adds its page path, because:
+# - the flow cannot know the user's language, only the frontend does;
+# - Home Assistant drops a translation whose placeholders differ from English;
+# - hassfest refuses a URL written in translations/en.json.
+# Tests check that each rendered link is CONTRACT_URL_FR / CONTRACT_URL_EN.
+CONTRACT_SITE = "https://thankyou-linus.com"
+CONTRACT_URL_FR = f"{CONTRACT_SITE}/contrat-de-confiance-linus-brain/"
+CONTRACT_URL_EN = f"{CONTRACT_SITE}/en/linus-brain-trust-contract/"
+
 # Activity types
 ACTIVITY_EMPTY = "empty"
 

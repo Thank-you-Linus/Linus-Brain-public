@@ -20,15 +20,27 @@
           "inactive_timeout": "Durée en secondes avant qu'une zone passe de mouvement à inactif (1-3600s, défaut: 60)",
           "occupied_threshold": "Durée en secondes avant qu'une zone passe de mouvement à occupé (1-7200s, défaut: 300)"
         }
+      },
+      "consent": {
+        "title": "Contrat de confiance",
+        "description": "Avant d'installer Linus Brain, lisez le Contrat de confiance : [{contract_site}/contrat-de-confiance-linus-brain/]({contract_site}/contrat-de-confiance-linus-brain/) (Version {contract_version}).\n\nEn résumé, Linus Brain envoie les données suivantes au cloud Linus :\n- un identifiant d'installation dérivé du `core.uuid` de votre Home Assistant, et l'instance cloud qui lui est associée ;\n- vos actions manuelles sur les lumières (entity_id, nom de la pièce, états avant et après, luminosité, couleur) ;\n- le contexte environnemental (luminosité ambiante, élévation solaire, heure, jour) ;\n- la présence et l'activité de chaque pièce ;\n- les heures d'activité (dernière activité de l'instance).\n\nLe contrat et sa procédure de suppression ne couvrent que le cloud Linus, pas une URL Supabase que vous avez saisie vous-même.",
+        "data": {
+          "accept_contract": "J'ai lu et j'accepte le Contrat de confiance (Version {contract_version})"
+        },
+        "data_description": {
+          "accept_contract": "Obligatoire pour installer Linus Brain. Cochez la case pour continuer."
+        }
       }
     },
     "error": {
       "cannot_connect": "Échec de la connexion à Supabase. Veuillez vérifier votre URL et votre clé API.",
       "invalid_auth": "Identifiants d'authentification invalides.",
-      "unknown": "Une erreur inattendue s'est produite."
+      "unknown": "Une erreur inattendue s'est produite.",
+      "consent_required": "Cochez la case pour continuer"
     },
     "abort": {
-      "already_configured": "Linus Brain est déjà configuré pour cette instance Supabase."
+      "already_configured": "Linus Brain est déjà configuré pour cette instance Supabase.",
+      "import_not_supported": "L'import depuis configuration.yaml n'est pas pris en charge. Ajoutez Linus Brain depuis l'interface de Home Assistant."
     }
   },
   "options": {
