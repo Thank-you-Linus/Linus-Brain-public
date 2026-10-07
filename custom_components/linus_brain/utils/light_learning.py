@@ -44,6 +44,26 @@ class LightLearning:
         self.hass = hass
         self.coordinator = coordinator
 
+    def get_pending_count(self) -> int:
+        """
+        Return the number of buffered light actions awaiting replay.
+
+        Synchronous and side-effect free.
+        """
+        return int(self.coordinator.light_action_buffer.get_pending_count())
+
+    async def async_replay_pending_actions(self) -> bool:
+        """
+        Replay buffered light actions through the cloud client.
+
+        Returns:
+            True only if no action remains pending after the replay
+        """
+        await self.coordinator.light_action_buffer.async_replay_pending(
+            self.coordinator.supabase_client.send_light_action
+        )
+        return self.get_pending_count() == 0
+
     def _is_manual_action(self, context: Context) -> bool:
         """
         Determine if a light action was triggered manually by a user.
@@ -236,8 +256,18 @@ class LightLearning:
                 "context_id": context.id,
             }
 
-            # Send to Supabase
-            await self.coordinator.supabase_client.send_light_action(payload)
+            # Send to Supabase; buffer locally when not acknowledged
+            acked = False
+            try:
+                acked = await self.coordinator.supabase_client.send_light_action(
+                    payload
+                )
+            except Exception as err:
+                _LOGGER.warning(
+                    f"Light action send failed for {entity_id}, buffering: {err}"
+                )
+            if not acked:
+                await self.coordinator.light_action_buffer.async_enqueue(payload)
 
             _LOGGER.info(
                 f"Captured light action: {entity_id} ({action_type}) "

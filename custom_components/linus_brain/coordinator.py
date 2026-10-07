@@ -22,6 +22,7 @@ from .utils.condition_evaluator import ConditionEvaluator
 from .utils.entity_resolver import EntityResolver
 from .utils.feature_flag_manager import FeatureFlagManager
 from .utils.instance_store import InstanceStore
+from .utils.light_action_buffer import LightActionBuffer
 from .utils.supabase_client import SupabaseClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -108,6 +109,9 @@ class LinusBrainCoordinator(DataUpdateCoordinator):
         # Persisted identity (survives restarts, avoids a cloud round-trip)
         self._instance_store = InstanceStore(hass)
         self._identity_loaded: bool = False
+
+        # Learned light actions awaiting delivery to the cloud (survives restarts)
+        self.light_action_buffer = LightActionBuffer(hass)
 
         # Last triggered rules tracking (area_id -> rule_info)
         self.last_rules: dict[str, dict[str, Any]] = {}

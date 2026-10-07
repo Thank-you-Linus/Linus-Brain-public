@@ -250,6 +250,10 @@ MONITORED_DOMAINS = {
     ],  # Environmental sensors for insights
 }
 
+# Light action buffer (learned actions not yet acknowledged by the cloud)
+LIGHT_ACTION_BUFFER_MAX_ENTRIES = 100  # FIFO bound: oldest entries evicted first
+LIGHT_ACTION_BUFFER_MAX_ATTEMPTS = 5  # Failed replays before an entry is discarded
+
 # Presence detection domains for activity tracking
 # Only includes domains/device_classes used for presence/movement detection
 PRESENCE_DETECTION_DOMAINS = {

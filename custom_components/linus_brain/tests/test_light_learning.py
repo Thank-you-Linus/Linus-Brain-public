@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from zoneinfo import ZoneInfo
 
+import aiohttp
 import pytest
 from homeassistant.core import Context, HomeAssistant, State
 
@@ -380,3 +381,93 @@ class TestCaptureLightAction:
 
         assert call_args["hour"] == 0
         assert call_args["day_of_week"] == 4
+
+
+class TestCaptureBuffering:
+    """Tests for buffering of unacknowledged light actions (TK-55)."""
+
+    @pytest.fixture
+    def buffered_coordinator(self, mock_coordinator):
+        """Coordinator exposing a mocked light action buffer."""
+        mock_coordinator.light_action_buffer = MagicMock()
+        mock_coordinator.light_action_buffer.async_enqueue = AsyncMock()
+        area = Mock()
+        area.name = "kitchen"
+        mock_coordinator.area_manager.get_entity_area.return_value = "kitchen"
+        mock_coordinator.area_manager._area_registry.async_get_area.return_value = area
+        mock_coordinator.area_manager.get_area_presence_binary.return_value = True
+        mock_coordinator.area_manager.get_area_illuminance.return_value = 150.0
+        mock_coordinator.area_manager.get_sun_elevation.return_value = None
+        return mock_coordinator
+
+    async def _capture(self, light_learning):
+        await light_learning.capture_light_action(
+            "light.kitchen",
+            State("light.kitchen", "on", {"brightness": 255}),
+            State("light.kitchen", "off", {}),
+            Context(user_id="test-user-123"),
+        )
+
+    async def test_acknowledged_action_is_not_buffered(
+        self, light_learning, buffered_coordinator
+    ):
+        """An acknowledged send leaves the buffer untouched."""
+        await self._capture(light_learning)
+
+        buffered_coordinator.light_action_buffer.async_enqueue.assert_not_called()
+
+    async def test_refused_send_is_buffered_once(
+        self, light_learning, buffered_coordinator
+    ):
+        """send_light_action -> False buffers exactly one payload."""
+        buffered_coordinator.supabase_client.send_light_action.return_value = False
+
+        await self._capture(light_learning)
+
+        buffer = buffered_coordinator.light_action_buffer
+        buffer.async_enqueue.assert_awaited_once()
+        payload = buffer.async_enqueue.call_args[0][0]
+        assert payload["entity_id"] == "light.kitchen"
+
+    async def test_raising_send_is_buffered_and_does_not_propagate(
+        self, light_learning, buffered_coordinator
+    ):
+        """send_light_action raising buffers exactly one payload, no exception."""
+        buffered_coordinator.supabase_client.send_light_action.side_effect = (
+            aiohttp.ClientError()
+        )
+
+        await self._capture(light_learning)
+
+        buffered_coordinator.light_action_buffer.async_enqueue.assert_awaited_once()
+
+    async def test_get_pending_count_delegates_synchronously(
+        self, light_learning, buffered_coordinator
+    ):
+        """LightLearning.get_pending_count() reads the buffer without awaiting."""
+        buffered_coordinator.light_action_buffer.get_pending_count.return_value = 4
+
+        assert light_learning.get_pending_count() == 4
+
+    async def test_replay_returns_true_when_queue_empty_after_replay(
+        self, light_learning, buffered_coordinator
+    ):
+        """The replay wrapper reports True once nothing remains pending."""
+        buffer = buffered_coordinator.light_action_buffer
+        buffer.async_replay_pending = AsyncMock(return_value=2)
+        buffer.get_pending_count.return_value = 0
+
+        assert await light_learning.async_replay_pending_actions() is True
+        buffer.async_replay_pending.assert_awaited_once_with(
+            buffered_coordinator.supabase_client.send_light_action
+        )
+
+    async def test_replay_returns_false_when_entries_remain(
+        self, light_learning, buffered_coordinator
+    ):
+        """The replay wrapper reports False while entries remain pending."""
+        buffer = buffered_coordinator.light_action_buffer
+        buffer.async_replay_pending = AsyncMock(return_value=0)
+        buffer.get_pending_count.return_value = 1
+
+        assert await light_learning.async_replay_pending_actions() is False

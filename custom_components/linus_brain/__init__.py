@@ -472,6 +472,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ),
     )
 
+    await coordinator.light_action_buffer.async_load()
     light_learning = LightLearning(hass, coordinator)
 
     # Cloud recovery manager: sole owner of the degraded -> nominal transition
