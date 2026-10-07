@@ -170,6 +170,10 @@ class SupabaseClient:
             True while the cooldown window is still running. The window
             always expires, so the call right after it is the probe.
         """
+        # Strict `<` on purpose: a call landing exactly at the deadline is
+        # already outside the window. With a 60 s probe timer and a 60 s
+        # cooldown, a circuit opened by a failing probe therefore lets the
+        # very next tick through.
         return (
             self._circuit_open_until is not None
             and dt_util.utcnow() < self._circuit_open_until
@@ -452,6 +456,34 @@ class SupabaseClient:
         else:
             _LOGGER.warning(f"Supabase connection test failed: {status}")
             return False
+
+    async def async_ping(self) -> bool:
+        """
+        Probe the backend with one light GET and report its availability.
+
+        Used by the cloud recovery timer so that a quiet house, which produces
+        no other traffic, still detects the loss and the return of the cloud.
+        Read-only on the circuit: it never opens, closes or bypasses it beyond
+        what a regular call does, and sends nothing while the circuit is open.
+
+        Returns:
+            True if the last exchange reached Supabase, False otherwise
+            (including when the circuit is open and no request was sent)
+        """
+        if self._circuit_is_open():
+            _LOGGER.debug(
+                f"Cloud probe skipped: circuit open until {self._circuit_open_until}"
+            )
+            return False
+
+        await self._http_get(
+            f"{self.rest_url}/{INSTANCES_TABLE}",
+            params={"select": "instance_id", "limit": "1"},
+            timeout=5,
+            operation="cloud probe",
+            log_errors=False,
+        )
+        return self._available
 
     async def get_instance_by_ha_id(
         self, ha_installation_id: str

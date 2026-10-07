@@ -576,3 +576,106 @@ class TestNoErrorLogWhenTheBackendIsDown:
         ]
 
         assert errors == []
+
+
+class TestAsyncPing:
+    """Test the light active probe used by the cloud recovery timer."""
+
+    async def test_ping_sends_one_light_get_and_reports_available(self):
+        """Test exactly one GET on ha_instances, limit=1, circuit not bypassed."""
+        client = _make_client(gets=[_FakeResponse(200, payload=[])])
+
+        assert await client.async_ping() is True
+
+        assert client.session.get.call_count == 1
+        args, kwargs = client.session.get.call_args
+        assert args[0] == "https://demo.supabase.co/rest/v1/ha_instances"
+        assert kwargs["params"] == {"select": "instance_id", "limit": "1"}
+        assert kwargs["timeout"].total == 5
+        client.session.post.assert_not_called()
+        client.session.patch.assert_not_called()
+
+    async def test_ping_never_bypasses_the_circuit(self):
+        """Test that the probe goes through _http_get without bypass_circuit."""
+        client = _make_client(gets=[_FakeResponse(200, payload=[])])
+
+        with patch.object(client, "_http_get", wraps=client._http_get) as http_get:
+            await client.async_ping()
+
+        assert http_get.call_count == 1
+        assert http_get.call_args.kwargs.get("bypass_circuit", False) is False
+
+    @pytest.mark.parametrize("failure", NETWORK_FAILURES)
+    async def test_ping_reports_unavailable_on_network_failure(self, failure):
+        """Test that a timeout or network error makes the probe False."""
+        client = _make_client()
+        _break_network(client, failure)
+
+        assert await client.async_ping() is False
+        assert client.is_available() is False
+
+    async def test_ping_reports_unavailable_on_503(self):
+        """Test that a 5xx makes the probe False."""
+        client = _make_client(gets=[_FakeResponse(503, text="down")])
+
+        assert await client.async_ping() is False
+        assert client.is_available() is False
+
+    async def test_ping_treats_a_4xx_as_reachable(self):
+        """Test that a 4xx answer means the backend is there."""
+        client = _make_client(gets=[_FakeResponse(401, text="denied")])
+
+        assert await client.async_ping() is True
+        assert client.is_available() is True
+
+    async def test_ping_sends_nothing_while_the_circuit_is_open(self, caplog):
+        """Test that an open circuit means no I/O and no WARNING from the probe."""
+        start = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+        with freeze_time(start):
+            client = _make_client()
+            _break_network(client, TimeoutError)
+            for _ in range(FAILURE_THRESHOLD):
+                await client.fetch_rules()
+            calls_when_opened = client.session.get.call_count
+
+            caplog.clear()
+            caplog.set_level(logging.DEBUG, logger=LOGGER_UNDER_TEST)
+
+            assert await client.async_ping() is False
+
+            assert client.session.get.call_count == calls_when_opened
+            assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+    async def test_ping_resumes_once_the_window_has_expired(self):
+        """Test that the first ping after the window is the real probe."""
+        start = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+        with freeze_time(start) as frozen_time:
+            client = _make_client()
+            _break_network(client, TimeoutError)
+            for _ in range(FAILURE_THRESHOLD):
+                await client.fetch_rules()
+
+            # `_circuit_is_open` compares with a strict `<`: at exactly the
+            # cooldown the window is already closed, so a 60 s timer lets the
+            # tick right after the opening through.
+            frozen_time.tick(delta=timedelta(seconds=CIRCUIT_COOLDOWN_SECONDS))
+            client.session.get = MagicMock(side_effect=[_FakeResponse(200, payload=[])])
+
+            assert await client.async_ping() is True
+            assert client.session.get.call_count == 1
+            assert client.is_available() is True
+
+    @pytest.mark.parametrize("failure", NETWORK_FAILURES)
+    async def test_ping_logs_no_error_record(self, failure, caplog):
+        """Test that neither a network failure nor a 503 logs at ERROR."""
+        caplog.set_level(logging.DEBUG, logger=LOGGER_UNDER_TEST)
+
+        client = _make_client(gets=[_FakeResponse(503, text="down")])
+        await client.async_ping()
+        client = _make_client()
+        _break_network(client, failure)
+        await client.async_ping()
+
+        assert [r for r in caplog.records if r.levelname == "ERROR"] == []

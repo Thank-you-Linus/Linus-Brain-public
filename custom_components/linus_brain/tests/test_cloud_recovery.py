@@ -7,22 +7,35 @@ mode through `sensor.linus_brain_cloud_health`.
 """
 
 import asyncio
-from unittest.mock import MagicMock
+import logging
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock, patch
 
 import pytest
+from homeassistant.helpers.event import async_track_time_interval
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from ..const import RECOVERY_PROBE_INTERVAL
 from ..sensor import LinusBrainCloudHealthSensor
+from ..utils import supabase_client as supabase_client_module
 from ..utils.cloud_recovery import CloudRecoveryManager
+from ..utils.supabase_client import (
+    CIRCUIT_COOLDOWN_SECONDS,
+    FAILURE_THRESHOLD,
+    SupabaseClient,
+)
 
 
 class FakeSupabaseClient:
-    """Supabase client double exposing ticket 02's `is_available()`."""
+    """Supabase client double exposing `is_available()` and `async_ping()`."""
 
     def __init__(self, available: bool = True) -> None:
         self.available = available
 
     def is_available(self) -> bool:
+        return self.available
+
+    async def async_ping(self) -> bool:
         return self.available
 
 
@@ -320,35 +333,37 @@ async def test_after_recovery_insights_are_fresh_and_buffer_is_empty():
     assert status["last_recovery_success"] is not None
 
 
-async def test_async_is_available_is_awaited():
-    """An async `is_available()` (ticket 02) is awaited, not truth-tested."""
+async def test_probe_awaits_async_ping():
+    """The probe awaits `async_ping()` on every tick, nominal or degraded."""
     manager, calls, parts = build_manager()
     coordinator = parts[0]
 
-    state = {"available": False}
+    state = {"available": False, "pings": 0}
 
-    async def is_available() -> bool:
+    async def async_ping() -> bool:
+        state["pings"] += 1
         return state["available"]
 
-    coordinator.supabase_client.is_available = is_available
+    coordinator.supabase_client.async_ping = async_ping
 
     await manager.async_probe()
     assert manager._was_available is False
 
     state["available"] = True
     await manager.async_probe()
+    await manager.async_probe()
 
+    assert state["pings"] == 3
     assert calls == ["identity", "apps", "insights", "replay"]
 
 
-# --- Transitional joints (tickets 02/03/04 not merged) ----------------------
+# --- Transitional joints (tickets 03/04 not merged) -------------------------
 
 
 async def test_neutral_joint_never_triggers_a_pass():
-    """Without ticket 02's symbol, availability is assumed and nothing runs."""
+    """Without ticket 03/04 symbols, provenance is unknown and nothing runs."""
     calls: list = []
     coordinator = FakeCoordinator(calls)
-    coordinator.supabase_client = MagicMock(spec=[])
     insights = MagicMock(spec=[])
     light_learning = MagicMock(spec=[])
     manager = CloudRecoveryManager(MagicMock(), coordinator, insights, light_learning)
@@ -380,26 +395,6 @@ async def test_missing_replay_method_is_a_skipped_step():
     assert manager._was_available is True
 
 
-async def test_non_callable_availability_attribute_is_read_not_called():
-    """Ticket 02 may expose availability as a property: read it, never call it."""
-    calls: list = []
-    coordinator = FakeCoordinator(calls)
-    insights = FakeInsightsManager(calls)
-    light_learning = MagicMock(spec=[])
-    manager = CloudRecoveryManager(MagicMock(), coordinator, insights, light_learning)
-
-    # A plain bool attribute must not raise "'bool' object is not callable".
-    coordinator.supabase_client.is_available = False
-    await manager.async_probe()
-    assert manager._was_available is False
-    assert calls == []
-
-    coordinator.supabase_client.is_available = True
-    await manager.async_probe()
-
-    assert calls == ["identity", "apps", "insights"]
-
-
 async def test_raising_probe_never_escapes_the_timer_callback():
     """A probe that raises is treated as unavailable, never propagated."""
     calls: list = []
@@ -408,10 +403,10 @@ async def test_raising_probe_never_escapes_the_timer_callback():
     light_learning = MagicMock(spec=[])
     manager = CloudRecoveryManager(MagicMock(), coordinator, insights, light_learning)
 
-    def boom() -> bool:
+    async def boom() -> bool:
         raise RuntimeError("probe exploded")
 
-    coordinator.supabase_client.is_available = boom
+    coordinator.supabase_client.async_ping = boom
 
     await manager.async_probe()
 
@@ -601,3 +596,232 @@ def test_sensor_state_stays_in_declared_options(sensor_entry):
             build_sensor_coordinator(status), sensor_entry
         )
         assert sensor._attr_native_value in sensor._attr_options
+
+
+# --- Real Supabase client: the probe drives real I/O ------------------------
+
+RECOVERY_LOGGER = "custom_components.linus_brain.utils.cloud_recovery"
+T0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+class _Response:
+    """Minimal aiohttp response double usable as an async context manager."""
+
+    def __init__(self, status: int, payload=None, text: str = "") -> None:
+        self.status = status
+        self._payload = payload
+        self._text = text
+
+    async def json(self):
+        return self._payload
+
+    async def text(self):
+        return self._text
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class JournalSession:
+    """
+    Fake aiohttp session logging every call (verb, path, mode).
+
+    `mode` is one of "ok", "timeout", "http_503". When `advance` is set, the
+    clock moves forward by that many seconds before the call answers or raises,
+    like a real request that takes time.
+    """
+
+    def __init__(self, freezer) -> None:
+        self._freezer = freezer
+        self.mode = "ok"
+        self.advance = 0.0
+        self.journal: list[tuple[str, str, str]] = []
+
+    def get(self, url, params=None, headers=None, timeout=None):
+        path = "/" + url.split("//", 1)[1].split("/", 1)[1]
+        self.journal.append(("GET", path, self.mode))
+        if self.advance:
+            self._freezer.tick(timedelta(seconds=self.advance))
+        if self.mode == "timeout":
+            raise TimeoutError()
+        if self.mode == "http_503":
+            return _Response(503, text="unavailable")
+        return _Response(200, payload=[])
+
+
+class TestRealClientProbe:
+    """The probe runs a real SupabaseClient against a journaling fake session."""
+
+    @pytest.fixture
+    def env(self, hass, freezer):
+        """Wire a real client, a real manager and the real probe timer."""
+        freezer.move_to(T0)
+        session = JournalSession(freezer)
+        with patch.object(
+            supabase_client_module,
+            "async_get_clientsession",
+            return_value=session,
+        ):
+            client = SupabaseClient(MagicMock(), "https://demo.supabase.co", "key")
+
+        calls: list = []
+        coordinator = FakeCoordinator(calls)
+        coordinator.supabase_client = client
+        insights = FakeInsightsManager(calls)
+        light_learning = FakeLightLearning(calls)
+        manager = CloudRecoveryManager(
+            MagicMock(), coordinator, insights, light_learning
+        )
+        coordinator.cloud_recovery = manager
+
+        unsub = async_track_time_interval(
+            hass, manager.async_probe, timedelta(seconds=RECOVERY_PROBE_INTERVAL)
+        )
+
+        async def tick(count: int) -> None:
+            """Fire the probe timer at its next `count` nominal instants."""
+            for _ in range(count):
+                tick.index += 1
+                freezer.move_to(
+                    T0 + timedelta(seconds=tick.index * RECOVERY_PROBE_INTERVAL)
+                )
+                async_fire_time_changed(hass)
+                await hass.async_block_till_done()
+
+        tick.index = 0
+
+        yield {
+            "session": session,
+            "client": client,
+            "manager": manager,
+            "coordinator": coordinator,
+            "calls": calls,
+            "tick": tick,
+            "freezer": freezer,
+        }
+        unsub()
+
+    async def test_nominal_tick_is_one_call_and_no_recovery_pass(self, env):
+        """(a) One light GET per tick in nominal mode, never a recovery pass."""
+        await env["tick"](1)
+
+        assert env["session"].journal == [("GET", "/rest/v1/ha_instances", "ok")]
+        assert env["calls"] == []
+        assert env["manager"].get_status()["is_available"] is True
+
+    @pytest.mark.parametrize("mode", ["timeout", "http_503"])
+    async def test_unreachable_cloud_is_detected_and_opens_the_circuit(self, env, mode):
+        """(b) Without any other traffic, 3 failing ticks open the circuit."""
+        env["session"].mode = mode
+
+        await env["tick"](FAILURE_THRESHOLD)
+
+        assert len(env["session"].journal) == FAILURE_THRESHOLD
+        assert env["client"].is_available() is False
+        assert env["client"]._circuit_is_open() is True
+        status = env["manager"].get_status()
+        assert status["is_available"] is False
+        assert status["is_degraded"] is True
+
+    async def test_tick_inside_the_circuit_window_sends_nothing(self, env):
+        """(c) Circuit opened off-tick at tick + 30 s: the next tick is skipped."""
+        client, session, freezer = env["client"], env["session"], env["freezer"]
+        await env["tick"](1)
+        assert len(session.journal) == 1
+
+        # 3 failures caused by other traffic, 30 s after the tick: the circuit
+        # stays open until tick + 90 s, so tick + 60 s falls inside the window.
+        session.mode = "timeout"
+        freezer.move_to(T0 + timedelta(seconds=RECOVERY_PROBE_INTERVAL + 30))
+        for _ in range(FAILURE_THRESHOLD):
+            assert await client.fetch_rules() is None
+        entries = len(session.journal)
+        assert client._circuit_is_open() is True
+
+        await env["tick"](1)
+
+        assert len(session.journal) == entries
+        assert env["manager"].get_status()["is_available"] is False
+
+        # The following tick is past the window: the probe goes out again.
+        await env["tick"](1)
+        assert len(session.journal) == entries + 1
+
+    async def test_probe_duration_skips_one_tick_then_resumes(self, env):
+        """(d) A probe taking 1 s pushes the window past the next tick once."""
+        session = env["session"]
+        session.mode = "timeout"
+        session.advance = 1
+
+        await env["tick"](FAILURE_THRESHOLD)
+        assert len(session.journal) == FAILURE_THRESHOLD
+        assert env["client"]._circuit_is_open() is True
+
+        # The circuit opened 1 s after the 3rd tick and lasts one cooldown: the
+        # 4th tick (exactly one interval after the 3rd) is still inside it.
+        assert CIRCUIT_COOLDOWN_SECONDS == RECOVERY_PROBE_INTERVAL
+        await env["tick"](1)
+        assert len(session.journal) == FAILURE_THRESHOLD
+
+        # The 5th tick is past the window: the probe goes out (and fails again).
+        await env["tick"](1)
+        assert len(session.journal) == FAILURE_THRESHOLD + 1
+
+    @pytest.mark.parametrize("mode", ["timeout", "http_503"])
+    async def test_recovery_within_two_ticks_after_the_cloud_returns(
+        self, env, caplog, mode
+    ):
+        """(e) + (f) Nominal mode is restored in <= 2 ticks, one pass, no ERROR."""
+        caplog.set_level(logging.DEBUG, logger=RECOVERY_LOGGER)
+        session, manager = env["session"], env["manager"]
+        session.mode = mode
+        await env["tick"](FAILURE_THRESHOLD)
+        assert manager.get_status()["is_available"] is False
+        assert env["calls"] == []
+        journal_when_back = len(session.journal)
+
+        session.mode = "ok"
+        await env["tick"](2)
+
+        first_success = session.journal[journal_when_back]
+        assert first_success == ("GET", "/rest/v1/ha_instances", "ok")
+        assert manager.get_status()["is_available"] is True
+        assert env["calls"] == ["identity", "apps", "insights", "replay"]
+        assert env["coordinator"].app_storage.sync_calls == 1
+
+        sensor = LinusBrainCloudHealthSensor(
+            build_sensor_coordinator_for(manager), _entry()
+        )
+        assert sensor._attr_native_value == "connected"
+
+        errors = [r for r in caplog.records if r.levelname == "ERROR"]
+        assert errors == []
+
+    async def test_sensor_is_disconnected_while_the_cloud_is_down(self, env):
+        """The health sensor follows the real manager into degraded mode."""
+        env["session"].mode = "http_503"
+        await env["tick"](1)
+
+        sensor = LinusBrainCloudHealthSensor(
+            build_sensor_coordinator_for(env["manager"]), _entry()
+        )
+
+        assert sensor._attr_native_value == "disconnected"
+        assert sensor._attr_extra_state_attributes["is_degraded"] is True
+
+
+def _entry():
+    """Config entry double for the sensor."""
+    entry = MagicMock()
+    entry.entry_id = "test_entry"
+    return entry
+
+
+def build_sensor_coordinator_for(manager):
+    """Sensor coordinator double carrying the real manager."""
+    coordinator = build_sensor_coordinator(None)
+    coordinator.cloud_recovery = manager
+    return coordinator

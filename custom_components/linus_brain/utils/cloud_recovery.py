@@ -25,18 +25,18 @@ from typing import Any
 _LOGGER = logging.getLogger(__name__)
 
 # --- Transitional joints (tickets 02 / 03 / 04) ------------------------------
-# This ticket CONSUMES three symbols owned by upstream tickets. Until those are
+# This ticket CONSUMES symbols owned by upstream tickets. Until those are
 # merged the adapters below take a neutral path so this module imports and runs
 # unchanged. They are joints, NOT fallback implementations: never write a second
 # replay queue, a second availability state or a second insights cache here.
 #
-# - ticket 02: SupabaseClient.is_available() -- sole owner of availability state
+# - ticket 02: SupabaseClient -- sole owner of availability state (now called
+#   directly through async_ping(), no adapter left)
 # - ticket 03: InsightsManager.is_stale() / .loaded_from_cache -- provenance
 # - ticket 04: the light-action buffer's single replay method plus a public,
 #   synchronous, read-only pending counter, both on the LightLearning object
 #
 # When a ticket lands, delete its adapter body and call the symbol directly.
-_IS_AVAILABLE_ATTR = "is_available"
 _INSIGHTS_STALE_ATTR = "is_stale"
 _INSIGHTS_FROM_CACHE_ATTR = "loaded_from_cache"
 _REPLAY_METHOD_ATTR = "async_replay_pending_actions"
@@ -86,23 +86,12 @@ class CloudRecoveryManager:
 
     async def _is_available(self) -> bool:
         """
-        Return the cloud availability reported by the Supabase client.
+        Probe the cloud through the Supabase client and return its availability.
 
-        Neutral path (ticket 02 not merged): availability is assumed True, so no
-        recovery pass is ever triggered.
+        `async_ping()` issues one light GET (none while the circuit is open), so
+        the probe detects a loss or a return even without any other traffic.
         """
-        client = getattr(self.coordinator, "supabase_client", None)
-        probe = getattr(client, _IS_AVAILABLE_ATTR, None)
-        if probe is None:
-            return True
-        if not callable(probe):
-            # Ticket 02 may expose availability as a property or a plain
-            # attribute rather than a method: read it instead of calling it.
-            return bool(probe)
-        result = probe()
-        if asyncio.iscoroutine(result):
-            result = await result
-        return bool(result)
+        return await self.coordinator.supabase_client.async_ping()
 
     def _insights_provenance(self) -> dict[str, bool | None]:
         """
