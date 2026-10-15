@@ -330,37 +330,28 @@ CREATE TABLE automation_rules (
 3. Search for **"Linus Brain"**
 4. Enter your Supabase credentials:
    - **Supabase URL**: Your project URL (e.g., `https://abcdefgh.supabase.co`)
-   - **Supabase API Key**: Your `anon` or `service_role` key (see below)
+   - **Supabase API Key**: Your project's public `anon` key (see below)
 5. Click **Submit**
 
 The integration will validate the connection and create diagnostic sensors.
 
-#### 🔑 API Key Selection
+#### 🔑 API Key
 
-You can use either Supabase API key type:
+A household is configured with **the public `anon` key only**:
+📍 Supabase Dashboard → Settings → API → "anon public".
 
-**`anon` key (Recommended for Development):**
-- ✅ Has built-in rate limits for safety
-- ✅ Safer if accidentally exposed
-- ✅ Sufficient permissions for this integration
-- 📍 Found in: Supabase Dashboard → Settings → API → "anon public"
-
-**`service_role` key (Recommended for Production):**
-- ✅ Full database access
-- ✅ No rate limits, better performance
-- ⚠️ **Critical:** Must be kept secret (never expose client-side)
-- ⚠️ Bypass all RLS policies - secure your network
-- 📍 Found in: Supabase Dashboard → Settings → API → "service_role"
-
-💡 **Quick Start:** Use the `anon` key to get started, switch to `service_role` later if needed.
+The `service_role` key bypasses every protection: it stays with the database maintainer and is
+never entered in Home Assistant.
 
 #### 🔒 Row-Level Security (RLS)
 
-If you encounter "new row violates row-level security policy" errors:
+Every table has Row-Level Security. The `anon` key can only do what the integration needs:
+register the instance and update its `last_seen`, insert light actions, read activities, apps,
+app actions and global insights. Everything else is refused.
 
-1. The integration includes RLS policies that work with both `anon` and `service_role` keys
-2. If you set up your database before this version, run the `fix_rls_policies.sql` migration script
-3. The script is located in the repository root and contains instructions
+The database is central and run by its maintainer: a household never runs SQL. If the
+integration logs permission errors (`401`, `403`, `42501`) after an update, report them to the
+maintainer of your Linus Brain database.
 
 ---
 

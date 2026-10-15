@@ -14,6 +14,7 @@ And the availability contract:
 - An unreachable backend logs no ERROR record
 """
 
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -39,20 +40,38 @@ NETWORK_FAILURES = [TimeoutError, aiohttp.ClientError]
 
 
 class _FakeResponse:
-    """Minimal aiohttp response double usable as an async context manager."""
+    """
+    Minimal aiohttp response double usable as an async context manager.
 
-    def __init__(self, status: int, payload=None, text: str = "") -> None:
+    read() serves ``body`` when given (b"" = a 2xx without any body, as
+    PostgREST answers under Prefer: return=minimal), else ``payload`` encoded
+    as JSON.
+    """
+
+    def __init__(
+        self, status: int, payload=None, text: str = "", body: bytes | None = None
+    ) -> None:
         self.status = status
         self._payload = payload
         self._text = text
+        self._body = body
 
     async def json(self):
-        """Return the decoded JSON payload."""
+        """Return the decoded JSON payload, failing like aiohttp on no body."""
+        if self._body == b"":
+            # A body-less 201 carries no Content-Type: aiohttp refuses it.
+            raise aiohttp.ContentTypeError(MagicMock(), ())
         return self._payload
 
     async def text(self):
         """Return the raw body."""
         return self._text
+
+    async def read(self):
+        """Return the raw body bytes."""
+        if self._body is not None:
+            return self._body
+        return json.dumps(self._payload).encode()
 
     async def __aenter__(self):
         """Enter the async context."""
@@ -69,6 +88,10 @@ class _UndecodableResponse(_FakeResponse):
     async def json(self):
         """Fail like aiohttp does on an unparsable body."""
         raise ValueError("unparsable body")
+
+    async def read(self):
+        """Return a body that is not valid JSON."""
+        return b"<html>not json</html>"
 
 
 def _make_client(gets=None, posts=None, patches=None) -> SupabaseClient:
@@ -576,6 +599,54 @@ class TestNoErrorLogWhenTheBackendIsDown:
         ]
 
         assert errors == []
+
+
+class TestPostWithoutBody:
+    """
+    Test that a 2xx POST without any body is a success (TK-173).
+
+    Prefer: return=minimal lets PostgREST answer 201 with an empty body. The
+    row is in the database: decoding nothing must neither fail the write nor
+    count as an unavailability for the circuit breaker.
+    """
+
+    async def test_send_light_action_201_without_body_is_a_success(self):
+        """Test that an empty 201 makes send_light_action return True."""
+        client = _make_client(posts=[_FakeResponse(201, body=b"")])
+
+        assert await client.send_light_action({"entity_id": "light.salon"}) is True
+        assert client.is_available() is True
+        assert client._consecutive_failures == 0
+
+    async def test_empty_200_and_201_return_an_empty_dict(self):
+        """Test that _http_post returns (status, {}) on an empty 200/201."""
+        client = _make_client(
+            posts=[_FakeResponse(200, body=b""), _FakeResponse(201, body=b"")]
+        )
+
+        assert await client._http_post("https://x/rest/v1/t", {}) == (200, {})
+        assert await client._http_post("https://x/rest/v1/t", {}) == (201, {})
+
+    async def test_201_with_json_returns_the_data(self):
+        """Test that a 201 carrying JSON still returns the decoded data."""
+        client = _make_client(
+            posts=[_FakeResponse(201, payload=[{"instance_id": "inst-123"}])]
+        )
+
+        assert await client._http_post("https://x/rest/v1/t", {}) == (
+            201,
+            [{"instance_id": "inst-123"}],
+        )
+
+    async def test_undecodable_body_is_not_an_unavailability(self):
+        """Test that an unparsable 201 body neither raises nor opens the circuit."""
+        client = _make_client(posts=[_UndecodableResponse(201)])
+
+        status, _ = await client._http_post("https://x/rest/v1/t", {})
+
+        assert status == supabase_client_module.STATUS_UNAVAILABLE
+        assert client.is_available() is True
+        assert client._consecutive_failures == 0
 
 
 class TestAsyncPing:

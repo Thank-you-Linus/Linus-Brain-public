@@ -14,7 +14,7 @@
         },
         "data_description": {
           "url": "Your Supabase project URL",
-          "api_key": "Your Supabase anon or service role API key",
+          "api_key": "Your Supabase project's public anon key",
           "use_sun_elevation": "Use sun elevation in addition to illuminance for darkness detection (recommended)",
           "dark_lux_threshold": "Lux threshold below which an area is considered dark (0-1000 lux, default: 20)",
           "inactive_timeout": "Time in seconds before an area transitions from movement to inactive (1-3600s, default: 60)",

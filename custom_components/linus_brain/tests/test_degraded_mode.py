@@ -24,6 +24,7 @@ Key responsibilities:
 """
 
 import importlib
+import json
 import logging
 import re
 import sys
@@ -137,6 +138,10 @@ class _FakeResponse:
     async def text(self) -> str:
         """Return the raw body."""
         return self._text
+
+    async def read(self) -> bytes:
+        """Return the payload encoded as JSON, like the cloud would send it."""
+        return json.dumps(self._payload).encode()
 
     async def __aenter__(self) -> "_FakeResponse":
         """Enter the async context."""

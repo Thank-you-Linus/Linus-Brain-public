@@ -38,6 +38,7 @@ Availability contract (this client is the SOLE owner of "Supabase is down"):
   per config entry, never shared between them.
 """
 
+import json
 import logging
 from datetime import datetime, timedelta
 from typing import Any
@@ -89,7 +90,8 @@ class SupabaseClient:
         Args:
             hass: Home Assistant instance
             supabase_url: Supabase project URL (e.g., https://xxx.supabase.co)
-            supabase_key: Supabase API key (anon or service key)
+            supabase_key: Supabase public anon key (service_role stays with the
+                database maintainer)
         """
         self.hass = hass
         self.supabase_url = supabase_url.rstrip("/")
@@ -298,8 +300,13 @@ class SupabaseClient:
                     # For 204 No Content, return empty dict
                     if status == 204:
                         return (status, {})
-                    data = await response.json()
-                    return (status, data)
+                    # Prefer: return=minimal lets PostgREST answer a 200/201
+                    # without any body: that is a success, not something to
+                    # decode (response.json() would raise on it).
+                    body = await response.read()
+                    if not body:
+                        return (status, {})
+                    return (status, json.loads(body))
                 else:
                     text = await response.text()
                     _LOGGER.warning(f"Failed {operation} (status {status}): {text}")

@@ -86,19 +86,14 @@ Cela garantit :
 
 ### ⚙️ Configuration de la clé API Supabase
 
-L'intégration fonctionne avec les deux types de clés Supabase :
+Un foyer se configure avec **la clé publique `anon`**, et seulement elle : Supabase Dashboard →
+Settings → API → "anon public".
 
-- **Clé `anon` (recommandée pour développement)** 
-  - ✅ Rate limits intégrés pour la protection
-  - ✅ Plus sûre en cas de fuite accidentelle
-  - ⚠️ Moins de permissions (suffisant pour cette intégration)
-
-- **Clé `service_role` (recommandée pour production)**
-  - ✅ Accès complet à la base de données
-  - ✅ Performances optimales
-  - ⚠️ **À sécuriser absolument** (ne jamais exposer côté client)
-
-💡 **Pour démarrer :** Utilisez la clé `anon` trouvée dans : Supabase Dashboard → Settings → API → "anon public"
+- La base est centrale : la sécurité par ligne (RLS) ne laisse à la clé `anon` que ce dont
+  l'intégration a besoin (enregistrer l'instance, envoyer les actions de lumière, lire la
+  configuration et les insights globaux).
+- La clé `service_role` contourne toute protection : elle reste chez le mainteneur de
+  la base et ne se saisit jamais dans Home Assistant.
 
 Consultez le [guide complet d'installation](custom_components/linus_brain/QUICKSTART.md) pour les détails.
 

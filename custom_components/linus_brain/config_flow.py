@@ -92,7 +92,7 @@ async def validate_supabase_connection(
     Args:
         hass: Home Assistant instance
         url: Supabase project URL
-        api_key: Supabase API key (anon or service key)
+        api_key: Supabase public anon key
 
     Returns:
         Dictionary with validation result
